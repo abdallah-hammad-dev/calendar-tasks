@@ -1,0 +1,51 @@
+# Publishes a GitHub release when a version tag is pushed (`npm version …` + `git push --follow-tags`).
+# The release carries main.js, manifest.json and styles.css: what Obsidian, BRAT and manual installs download.
+name: Release
+
+on:
+  push:
+    tags:
+      - "*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Obsidian and BRAT need tag = release name = manifest version (no "v" prefix).
+      - name: Check versions match the tag
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          manifest=$(node -p "require('./manifest.json').version")
+          pkg=$(node -p "require('./package.json').version")
+          echo "tag=$tag manifest=$manifest package=$pkg"
+          if [ "$tag" != "$manifest" ] || [ "$tag" != "$pkg" ]; then
+            echo "::error::Tag $tag must equal manifest.json ($manifest) and package.json ($pkg). Use npm version."
+            exit 1
+          fi
+
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - run: npm run check:mobile
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          flags=""
+          case "$tag" in *-*) flags="--prerelease" ;; esac
+          gh release create "$tag" main.js manifest.json styles.css \
+            --title "$tag" --generate-notes $flags

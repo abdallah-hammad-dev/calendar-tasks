@@ -1,0 +1,177 @@
+import { beforeEach, describe, expect, it } from "vitest";
+import { chipModel, dueLabel } from "../src/editor/chips";
+import { cutSpans, hasTaskMarker, linkLineEdit, parseTaskLine, planTask, plannedFrontmatter } from "../src/editor/convert";
+import { TaskIndex } from "../src/tasks/task-index";
+import { FakeVault } from "./support/fake-vault";
+
+const TODAY = { year: 2026, month: 10, day: 15 };
+let vault: FakeVault;
+const plan = (text: string, sourcePath = "Daily/2026-10-15.md") => planTask(text, { sourcePath, vault, today: TODAY });
+
+beforeEach(() => {
+  vault = new FakeVault();
+  vault.add("Projets/Olera.md", {}, { tags: ["project"] });
+  vault.add("Projets/Cours réseau.md", {}, { tags: ["project"] });
+  vault.add("Docs/Rapport.md", {});
+  vault.add("Daily/2026-10-15.md", {});
+  vault.add("Réunions/Point 14-10.md", { project: "[[Olera]]" });
+  vault.add("Tâches/Préparer slides.md", { type: "task", done: false, project: "[[Cours réseau]]" });
+});
+
+describe("hasTaskMarker", () => {
+  it("wants an @ (a deadline, a time block, a repetition, or alone); other checklist lines stay steps", () => {
+    expect(hasTaskMarker("Appeler Paul @demain", TODAY)).toBe(true);
+    expect(hasTaskMarker("Appeler Paul @créneau lun 14h", TODAY)).toBe(true);
+    expect(hasTaskMarker("Appeler Paul @chaque lundi", TODAY)).toBe(true);
+    expect(hasTaskMarker("Appeler Paul @", TODAY)).toBe(true);
+    expect(hasTaskMarker("Acheter du lait", TODAY)).toBe(false);
+    expect(hasTaskMarker("Écrire à paul@uni.edu", TODAY)).toBe(false);
+    expect(hasTaskMarker("Vérifier que a > b", TODAY)).toBe(false);
+    expect(hasTaskMarker("Voir @quelquechose", TODAY)).toBe(false);
+  });
+});
+
+describe("parseTaskLine", () => {
+  it("takes unticked checklist lines only", () => {
+    expect(parseTaskLine("  - [ ] Appeler Paul @demain")).toEqual({ indent: "  ", bullet: "-", text: "Appeler Paul @demain" });
+    expect(parseTaskLine("* [ ] x")).toMatchObject({ bullet: "*" });
+    expect(parseTaskLine("- [x] done")).toBeNull();
+    expect(parseTaskLine("- [ ] ")).toBeNull();
+    expect(parseTaskLine("- [[Task]]")).toBeNull();
+  });
+});
+
+describe("linkLineEdit", () => {
+  const today = { year: 2026, month: 10, day: 15 };
+
+  it("reads @ tokens after the link of a converted line, and the line without them", () => {
+    const res = linkLineEdit("- [[Rapport]] @ven", today)!;
+    expect(res).toMatchObject({ linkpath: "Rapport", rest: "- [[Rapport]]" });
+    expect(res.found.when.due).toBe("2026-10-16");
+    expect(linkLineEdit("  * [[Projets/Rapport|R]] @créneau mar 14h-16h voir Paul", today)).toMatchObject({
+      linkpath: "Projets/Rapport",
+      rest: "  * [[Projets/Rapport|R]] voir Paul",
+    });
+  });
+
+  it("ignores lines that don't start with a link, and text with no @ token", () => {
+    expect(linkLineEdit("Voir [[Rapport]] @ven", today)).toBeNull();
+    expect(linkLineEdit("- [[Rapport]] écrire à paul@exemple.fr", today)).toBeNull();
+    expect(linkLineEdit("- [[Rapport]]", today)).toBeNull();
+  });
+
+  it("cuts spans with the space before them", () => {
+    expect(cutSpans("a @x b @y", [{ start: 2, end: 4 }, { start: 7, end: 9 }])).toBe("a b");
+  });
+});
+
+describe("planTask", () => {
+  it("takes the date and a project link off the title", () => {
+    expect(plan("Préparer démo @lun 14h [[Olera]]")).toEqual({
+      title: "Préparer démo",
+      due: "2026-10-19T14:00",
+      repeat: null,
+      blocks: [],
+      project: "Projets/Olera.md",
+      parent: null,
+      body: "",
+    });
+  });
+
+  it("keeps time blocks apart: they become events, not note fields", () => {
+    const p = plan("Rapport @ven 18h @créneau mar 14h-16h")!;
+    expect(p).toMatchObject({ title: "Rapport", due: "2026-10-16T18:00", blocks: [{ start: "2026-10-20T14:00", end: "2026-10-20T16:00" }] });
+    expect(plannedFrontmatter(p, (x) => x)).toEqual({ type: "task", done: false, due: "2026-10-16T18:00" });
+  });
+
+  it("writes the repetition as a phrase in the note", () => {
+    const p = plan("Sport @chaque lundi et jeudi 7h")!;
+    expect(p).toMatchObject({ title: "Sport", due: "2026-10-15T07:00", repeat: "FREQ=WEEKLY;BYDAY=MO,TH" }); // a Thursday
+    expect(plannedFrontmatter(p, (x) => x)).toMatchObject({ repeat: "every monday and thursday" });
+  });
+
+  it("takes a lone @ as a task without a date", () => {
+    expect(plan("Acheter du lait @")).toMatchObject({ title: "Acheter du lait", due: null, blocks: [] });
+    expect(plan("Acheter @ du lait")).toMatchObject({ title: "Acheter du lait" });
+  });
+
+  it("keeps other links as text and copies the line into the note", () => {
+    expect(plan("Relire [[Rapport]] avec [[Olera|l'équipe]] @demain")).toMatchObject({
+      title: "Relire Rapport avec",
+      project: "Projets/Olera.md",
+      body: "Relire [[Rapport]] avec [[Olera|l'équipe]] @demain",
+    });
+    expect(plan("Lire [[Docs/Rapport|le rapport]]")).toMatchObject({ title: "Lire le rapport", project: null });
+  });
+
+  it("inherits the project from where it is written", () => {
+    expect(plan("Envoyer le CR", "Projets/Olera.md")!.project).toBe("Projets/Olera.md"); // a project note
+    expect(plan("Envoyer le CR", "Réunions/Point 14-10.md")!.project).toBe("Projets/Olera.md"); // its project:
+    expect(plan("Envoyer le CR")!.project).toBeNull(); // the daily note: general
+    expect(plan("Envoyer le CR [[Cours réseau]]", "Projets/Olera.md")!.project).toBe("Projets/Cours réseau.md"); // the line wins
+  });
+
+  it("makes a sub-task when written in a task note, with the parent's project", () => {
+    expect(plan("Faire le plan @demain", "Tâches/Préparer slides.md")).toMatchObject({
+      parent: "Tâches/Préparer slides.md",
+      project: "Projets/Cours réseau.md",
+    });
+  });
+
+  it("gives up when nothing is left for a title", () => {
+    expect(plan("@demain [[Olera]]")).toBeNull();
+  });
+
+  it("writes the frontmatter of the new note", () => {
+    const p = plan("Faire le plan @demain", "Tâches/Préparer slides.md")!;
+    expect(plannedFrontmatter(p, (path) => path.split("/").pop()!.replace(".md", ""))).toEqual({
+      type: "task",
+      done: false,
+      due: "2026-10-16",
+      project: "[[Cours réseau]]",
+      parent: "[[Préparer slides]]",
+    });
+  });
+});
+
+describe("chips", () => {
+  const ctx = {
+    now: new Date("2026-10-15T10:00:00Z"),
+    tz: "Europe/Paris",
+    lang: "fr",
+    words: { today: "Aujourd'hui", tomorrow: "Demain" },
+  };
+
+  it("labels due dates, and flags overdue ones", () => {
+    expect(dueLabel("2026-10-15", false, ctx)).toEqual({ text: "Aujourd'hui", overdue: false });
+    expect(dueLabel("2026-10-16T09:00", false, ctx)).toEqual({ text: "Demain 09:00", overdue: false });
+    expect(dueLabel("2026-10-14", false, ctx)).toEqual({ text: "14 oct.", overdue: true });
+    expect(dueLabel("2026-10-14", true, ctx).overdue).toBe(false);
+    expect(dueLabel("2026-10-15T11:00", false, ctx).overdue).toBe(true); // 11:00 Paris = 09:00 UTC, past
+    expect(dueLabel("2027-01-05", false, ctx).text).toBe("5 janv. 2027");
+  });
+
+  it("shows the deadline and the repetition", () => {
+    const index = new TaskIndex(vault);
+    vault.add("Tâches/Sport.md", { type: "task", done: false, due: "2026-10-14", repeat: "every monday" });
+    index.rebuild();
+    const m = chipModel(index.get("Tâches/Sport.md")!, { ...ctx, contextProject: null, children: [], sync: "synced" });
+    expect(m.due).toEqual({ text: "14 oct.", overdue: true });
+    expect(m.repeat).toBe("chaque lundi");
+  });
+
+  it("shows the project only when it differs from the note's, plus progress and sync", () => {
+    const index = new TaskIndex(vault);
+    vault.add("Tâches/Faire le plan.md", { type: "task", done: true, parent: "[[Préparer slides]]" });
+    vault.add("Tâches/Réserver salle.md", { type: "task", done: false, parent: "[[Préparer slides]]" });
+    index.rebuild();
+    const task = index.get("Tâches/Préparer slides.md")!;
+    const base = { ...ctx, children: index.childrenOf(task.path), sync: "pending" as const };
+    expect(chipModel(task, { ...base, contextProject: index.projectOf("Daily/2026-10-15.md") })).toMatchObject({
+      project: "Cours réseau",
+      progress: "1/2",
+      sync: "pending",
+    });
+    expect(chipModel(task, { ...base, contextProject: index.projectOf("Projets/Cours réseau.md") }).project).toBeNull();
+  });
+});

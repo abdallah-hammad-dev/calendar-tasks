@@ -1,0 +1,49 @@
+<?xml version="1.0"?>
+<d:multistatus xmlns:d="DAV:" xmlns:s="http://sabredav.org/ns" xmlns:cal="urn:ietf:params:xml:ns:caldav" xmlns:cs="http://calendarserver.org/ns/">
+ <d:response>
+  <d:href>/dav/calendars/abd/tests/test-rappel.ics</d:href>
+  <d:propstat>
+   <d:prop>
+    <d:getetag>&quot;abf9fabe2eae3b2baa2f16b55c540732&quot;</d:getetag>
+   </d:prop>
+   <d:status>HTTP/1.1 200 OK</d:status>
+  </d:propstat>
+ </d:response>
+ <d:response>
+  <d:href>/dav/calendars/abd/tests/test-evenement.ics</d:href>
+  <d:propstat>
+   <d:prop>
+    <d:getetag>&quot;71662559c914ac3c0939b507d2ffe494&quot;</d:getetag>
+   </d:prop>
+   <d:status>HTTP/1.1 200 OK</d:status>
+  </d:propstat>
+ </d:response>
+ <d:response>
+  <d:href>/dav/calendars/abd/tests/test-parent.ics</d:href>
+  <d:propstat>
+   <d:prop>
+    <d:getetag>&quot;02af7bc90343d361751077da8f485e42&quot;</d:getetag>
+   </d:prop>
+   <d:status>HTTP/1.1 200 OK</d:status>
+  </d:propstat>
+ </d:response>
+ <d:response>
+  <d:href>/dav/calendars/abd/tests/test-enfant.ics</d:href>
+  <d:propstat>
+   <d:prop>
+    <d:getetag>&quot;8bb04c4fb0132471fad2dadac908c946&quot;</d:getetag>
+   </d:prop>
+   <d:status>HTTP/1.1 200 OK</d:status>
+  </d:propstat>
+ </d:response>
+ <d:response>
+  <d:href>/dav/calendars/abd/tests/test-invitation.ics</d:href>
+  <d:propstat>
+   <d:prop>
+    <d:getetag>&quot;fb11088b272b2259c854b563490f2bf7&quot;</d:getetag>
+   </d:prop>
+   <d:status>HTTP/1.1 200 OK</d:status>
+  </d:propstat>
+ </d:response>
+ <d:sync-token>http://sabre.io/ns/sync/12</d:sync-token>
+</d:multistatus>

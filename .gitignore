@@ -1,0 +1,12 @@
+node_modules/
+/main.js
+*.js.map
+*:Zone.Identifier
+.env
+# test vault: Obsidian state and the deployed build
+test-vault/.obsidian/*
+!test-vault/.obsidian/community-plugins.json
+!test-vault/.obsidian/app.json
+!test-vault/.calendar-tasks-test-vault
+tools/preview/.cache/
+tools/preview/out/

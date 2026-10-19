@@ -1,0 +1,2013 @@
+/* Calendar & Tasks */
+
+/* Checkbox drawn before a link to a task note (Live Preview and Reading view). */
+.ct-task-check.task-list-item-checkbox {
+  margin-inline-end: 0.35em;
+  vertical-align: middle;
+  cursor: pointer;
+}
+
+.ct-task-done,
+.cm-line .ct-task-done .cm-underline,
+a.internal-link.ct-task-done {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.ct-task-chips {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  margin-inline-start: 0.4em;
+  vertical-align: middle;
+}
+
+.ct-chip {
+  font-size: var(--font-ui-smaller);
+  line-height: 1.4;
+  padding: 0 0.45em;
+  border-radius: var(--radius-s);
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.ct-chip-due,
+.ct-chip-repeat {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+}
+
+.ct-chip-icon {
+  display: inline-flex;
+}
+
+.ct-chip-icon svg {
+  width: 0.9em;
+  height: 0.9em;
+}
+
+/* The deadline stands out. */
+.ct-chip-due {
+  color: var(--text-normal);
+}
+
+.ct-chip-due.is-overdue {
+  color: var(--text-error);
+  background: rgba(var(--color-red-rgb), 0.12);
+}
+
+.ct-chip-project {
+  color: var(--text-accent);
+}
+
+/* Priority: !!! / !! / ! as on the iPhone, in the colour of its level (the pill stays grey, unlike an overdue
+   deadline). */
+.ct-chip-priority,
+.ct-priority-mark {
+  font-weight: var(--font-bold);
+  letter-spacing: -0.05em;
+}
+
+.ct-chip-priority.is-high,
+.ct-priority.is-high .ct-priority-mark {
+  color: var(--color-red);
+}
+
+.ct-chip-priority.is-medium,
+.ct-priority.is-medium .ct-priority-mark {
+  color: var(--color-orange);
+}
+
+.ct-chip-priority.is-low,
+.ct-priority.is-low .ct-priority-mark {
+  color: var(--color-blue);
+}
+
+/* Chips open the task's form; so does the pencil shown when the line is hovered. */
+.ct-chip.is-clickable {
+  cursor: pointer;
+}
+
+.ct-chip.is-clickable:hover {
+  background: var(--background-modifier-active-hover);
+  color: var(--text-normal);
+}
+
+.ct-chip-edit {
+  display: inline-flex;
+  color: var(--text-faint);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s ease-in-out;
+}
+
+.ct-chip-edit svg {
+  width: var(--icon-xs);
+  height: var(--icon-xs);
+}
+
+.cm-line:hover .ct-chip-edit,
+.markdown-rendered li:hover .ct-chip-edit {
+  opacity: 1;
+}
+
+.ct-chip-edit:hover {
+  color: var(--text-normal);
+}
+
+/* No hover on touch screens: tap a chip, or type @ after the link. */
+.is-mobile .ct-chip-edit {
+  display: none;
+}
+
+.ct-sync {
+  display: inline-flex;
+  color: var(--text-faint);
+}
+
+.ct-sync svg {
+  width: var(--icon-xs);
+  height: var(--icon-xs);
+}
+
+/* —— Task note header (spec §5.4) ——
+   Above the page, outside its scroller, so it stays while scrolling. The note's properties are hidden through
+   Obsidian's own variables, unless shown from the header. */
+.view-content.ct-task-view {
+  display: flex;
+  flex-direction: column;
+}
+
+.view-content.ct-task-view > .markdown-source-view,
+.view-content.ct-task-view > .markdown-reading-view {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.view-content.ct-task-view:not(.ct-show-props) {
+  --metadata-display-editing: none;
+  --metadata-display-reading: none;
+}
+
+.ct-task-header {
+  flex: none;
+  padding: var(--size-4-2) var(--size-4-4);
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+}
+
+.ct-task-header-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--size-4-2);
+  max-width: var(--file-line-width);
+  margin: 0 auto;
+  font-size: var(--font-ui-small);
+}
+
+.ct-task-header-state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  margin-inline-end: var(--size-4-2);
+  font-weight: var(--font-semibold);
+  cursor: pointer;
+}
+
+.ct-task-header-state .task-list-item-checkbox {
+  margin: 0;
+  width: 1.15em;
+  height: 1.15em;
+}
+
+.ct-task-header.is-done .ct-task-header-state {
+  color: var(--text-success);
+}
+
+.ct-task-header .ct-task-header-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  height: auto;
+  padding: 2px var(--size-4-2);
+  border-radius: var(--radius-s);
+  background: var(--background-modifier-hover);
+  box-shadow: none;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  font-weight: normal;
+}
+
+.ct-task-header .ct-task-header-item:hover {
+  background: var(--background-modifier-active-hover);
+  color: var(--text-normal);
+}
+
+.ct-task-header .ct-task-header-item.is-due {
+  color: var(--text-normal);
+}
+
+.ct-task-header .ct-task-header-item.is-overdue {
+  color: var(--text-error);
+  background: rgba(var(--color-red-rgb), 0.12);
+}
+
+.ct-task-header .ct-task-header-item.is-link {
+  color: var(--text-accent);
+}
+
+.ct-task-header .ct-task-header-item.is-static {
+  cursor: default;
+}
+
+.ct-task-header-add {
+  padding: 2px;
+}
+
+/* An event note's header: when (a click shows it in the calendar), the collection's colour, the answer. */
+.ct-event-header .ct-event-when {
+  font-weight: var(--font-medium);
+}
+
+.ct-event-dot {
+  width: 0.6em;
+  height: 0.6em;
+  border-radius: 50%;
+  background: var(--ct-ev-color, var(--interactive-accent));
+}
+
+.ct-task-header .ct-task-header-item.is-gone {
+  background: transparent;
+  font-style: italic;
+}
+
+.ct-event-header .ct-event-rsvp > button {
+  padding: 1px var(--size-4-2);
+}
+
+.ct-task-header-tools {
+  display: inline-flex;
+  gap: var(--size-4-1);
+  margin-inline-start: auto;
+}
+
+.ct-task-header-tools .clickable-icon.is-active {
+  color: var(--text-accent);
+}
+
+/* On a phone the view header floats over the page: the task header sits below it, and the page needs no gap. */
+.is-phone .ct-task-header {
+  padding-top: calc(var(--view-top-spacing-markdown, 0px) + var(--size-4-2));
+}
+
+.is-phone .ct-task-view .markdown-source-view > .cm-editor > .cm-scroller,
+.is-phone .ct-task-view .markdown-reading-view > .markdown-preview-view {
+  padding-top: var(--size-4-2);
+}
+
+/* The date picker: a month view in Obsidian's colors. */
+.modal.ct-date-picker {
+  width: 340px;
+  max-width: calc(100vw - 32px);
+}
+
+.ct-dp-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--size-4-2);
+}
+
+.ct-dp-title {
+  font-weight: var(--font-semibold);
+  text-transform: capitalize;
+}
+
+.ct-dp-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.ct-dp-weekday {
+  text-align: center;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  padding-bottom: var(--size-4-1);
+  text-transform: capitalize;
+}
+
+.ct-dp-grid .ct-dp-day {
+  height: 36px;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-s);
+  font-size: var(--font-ui-small);
+  color: var(--text-normal);
+  font-variant-numeric: tabular-nums;
+}
+
+.ct-dp-grid .ct-dp-day:hover {
+  background: var(--background-modifier-hover);
+}
+
+.ct-dp-grid .ct-dp-day.is-other-month {
+  color: var(--text-faint);
+}
+
+.ct-dp-grid .ct-dp-day.is-today {
+  color: var(--text-accent);
+  font-weight: var(--font-semibold);
+}
+
+.ct-dp-grid .ct-dp-day.is-selected {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.ct-dp-foot {
+  display: flex;
+  justify-content: space-between;
+  margin-top: var(--size-4-3);
+}
+
+.ct-dp-foot-end {
+  display: flex;
+  gap: var(--size-4-2);
+}
+
+/* The answer: the day, the time (or from / to), each in its field; quick times, and what it reads. */
+.ct-dp-when {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+  margin-top: var(--size-4-3);
+  padding-top: var(--size-4-3);
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.ct-dp-fields {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: var(--size-4-2) var(--size-4-3);
+}
+
+.ct-dp-fields input {
+  width: 100%;
+  min-width: 0;
+}
+
+.ct-dp-fields input.mod-warning {
+  border-color: var(--text-error);
+}
+
+.ct-dp-label {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.ct-dp-range {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+}
+
+.ct-dp-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-4-1);
+}
+
+.ct-dp-quick .ct-dp-quick-time {
+  flex: 1 0 auto;
+  padding-inline: var(--size-4-2);
+  font-size: var(--font-ui-small);
+}
+
+.ct-dp-quick .ct-dp-quick-time.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.ct-dp-summary {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.ct-dp-summary.mod-warning {
+  color: var(--text-error);
+}
+
+/* —— Forms (task, event) —— */
+.ct-task-title-input {
+  width: 100%;
+  height: auto;
+  padding: var(--size-4-2) var(--size-4-3);
+  margin-bottom: var(--size-4-2);
+  font-size: var(--font-ui-large);
+  font-weight: var(--font-medium);
+}
+
+.ct-task-modal .setting-item-name,
+.ct-popover .setting-item-name {
+  display: flex;
+  align-items: center;
+}
+
+.ct-setting-icon {
+  display: inline-flex;
+  margin-inline-end: var(--size-4-2);
+  color: var(--text-muted);
+}
+
+.ct-setting-icon svg {
+  width: var(--icon-s);
+  height: var(--icon-s);
+}
+
+.ct-task-modal .setting-item-description:empty {
+  display: none;
+}
+
+/*
+ * The task form's rows in step (2026-10-19, "un problème d'harmonie de spacing"): each name centred on its field
+ * (Obsidian puts names at the top of the row), the fields in the same columns from row to row (day, time or
+ * start, –, end, +, calendar), the menus from the time column to the end, as much space above the first row as
+ * between rows.
+ */
+.ct-task-fields > .ct-task-title-input {
+  margin-bottom: var(--size-4-4);
+}
+
+.ct-task-fields > .setting-item > .setting-item-info > .setting-item-name {
+  min-height: var(--input-height);
+}
+
+/* Fixed tracks, and the fields' block as wide in every row: the name and its line take what's left. */
+body:not(.is-phone) .ct-task-fields > .setting-item:not(.ct-modal-buttons) > .setting-item-info {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+body:not(.is-phone) .ct-task-fields > .setting-item:not(.ct-modal-buttons) > .setting-item-control {
+  display: grid;
+  flex: none;
+  grid-template-columns: 7.5em 4.5em 0.75em 4.5em 28px 28px;
+  align-items: center;
+  column-gap: var(--size-4-2);
+}
+
+body:not(.is-phone) .ct-task-fields .setting-item-control > input {
+  width: 100%;
+}
+
+body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-when-sep {
+  text-align: center;
+}
+
+/* The calendar button stays in the last column (a deadline has no end and no +). */
+body:not(.is-phone) .ct-task-fields .setting-item-control > .clickable-icon:last-child {
+  grid-column: -2;
+}
+
+body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-select {
+  grid-column: 2 / -1;
+  width: 100%;
+  max-width: none;
+}
+
+/* Beside the day: the buttons at the bottom, level with it. */
+.ct-task-form {
+  display: flex;
+  flex-direction: column;
+}
+
+.ct-task-form > .ct-modal-buttons {
+  margin-top: auto;
+}
+
+/* Deadline and time blocks: a field for the day, one for each time. */
+.ct-task-modal .setting-item-control input.ct-when-day {
+  width: 9em;
+}
+
+.ct-task-modal .setting-item-control input.ct-when-time {
+  width: 5em;
+}
+
+.ct-task-modal input.ct-when-day.mod-warning,
+.ct-task-modal input.ct-when-time.mod-warning {
+  border-color: var(--text-error);
+}
+
+.ct-when-sep {
+  color: var(--text-muted);
+}
+
+/* The task form with a day of the calendar beside it: where the deadline and the time blocks land. */
+.modal.ct-task-modal.has-preview {
+  width: min(960px, calc(100vw - 32px));
+}
+
+.ct-task-split {
+  display: flex;
+  align-items: stretch;
+  gap: var(--size-4-6);
+}
+
+.ct-task-form {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.ct-task-preview {
+  display: flex;
+  flex: 0 0 300px;
+  min-height: 440px;
+}
+
+.is-phone .ct-task-split {
+  flex-direction: column;
+}
+
+.is-phone .ct-task-preview {
+  flex-basis: auto;
+  min-height: 0;
+  height: 320px;
+}
+
+.ct-day-preview {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+}
+
+.ct-day-preview-head {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-1);
+  padding: var(--size-2-2) var(--size-4-1);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.ct-day-preview-day {
+  flex: 1;
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-medium);
+  text-align: center;
+}
+
+.ct-day-preview-day::first-letter {
+  text-transform: uppercase;
+}
+
+.ct-day-preview-grid {
+  flex: 1;
+  min-height: 0;
+}
+
+.ct-day-preview .fc .fc-scrollgrid {
+  border: none;
+}
+
+
+/*
+ * A compact form (the new event form, an event's times; src/ui/form-row.ts): icon, name, field on every line, in
+ * columns that line up (2026-10-19: two kinds of lines, the names off their fields).
+ */
+.ct-form-grid {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--size-4-2);
+  margin: var(--size-4-3) 0;
+  font-size: var(--font-ui-small);
+}
+
+.ct-form-icon {
+  display: inline-flex;
+  color: var(--text-muted);
+}
+
+.ct-form-icon svg {
+  width: var(--icon-s);
+  height: var(--icon-s);
+}
+
+.ct-form-name {
+  padding-inline-end: var(--size-4-2);
+  color: var(--text-muted);
+}
+
+.ct-form-field {
+  display: flex;
+  min-width: 0;
+}
+
+.ct-form-grid .ct-form-field .ct-select {
+  width: 100%;
+  max-width: none;
+}
+
+/* Start and end (src/calendar/when-fields.ts): a day and a time, the time hidden for "All day" (the day stays put). */
+.ct-when-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 5em;
+  gap: var(--size-4-2);
+}
+
+.ct-when-pair input {
+  width: 100%;
+  min-width: 0;
+}
+
+.ct-when-pair input.is-invalid {
+  border-color: var(--text-error);
+}
+
+.ct-when-allday {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.ct-when-allday input {
+  margin: 0;
+}
+
+/* A dropdown opening Obsidian's menu (src/ui/menu-select.ts). */
+.ct-select {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--size-4-2);
+  min-width: 10em;
+  max-width: 18em;
+  padding-inline: var(--size-4-3) var(--size-4-2);
+  font-weight: normal;
+}
+
+.ct-select-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ct-select-chevron {
+  display: inline-flex;
+  color: var(--text-muted);
+}
+
+.ct-select-chevron svg {
+  width: var(--icon-xs);
+  height: var(--icon-xs);
+}
+
+/* Time blocks in the task form: those the form adds (tinted, ✕ takes one off), then those planned. */
+.ct-slot-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-1);
+  margin: calc(-1 * var(--size-4-2)) 0 var(--size-4-3);
+}
+
+.ct-slot-list.is-empty {
+  display: none;
+}
+
+.ct-slot {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  padding: var(--size-4-1) var(--size-4-2);
+  border-radius: var(--radius-s);
+  font-size: var(--font-ui-small);
+}
+
+.ct-slot.is-new {
+  background: hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.1);
+  color: var(--text-normal);
+}
+
+.ct-slot.is-planned {
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+}
+
+.ct-slot-when {
+  flex: 1;
+}
+
+.ct-slot .clickable-icon {
+  padding: 2px;
+}
+
+/* With the day preview: a click shows the slot's day there; the one shown is outlined. */
+.ct-slot.is-showable {
+  cursor: pointer;
+}
+
+.ct-slot.is-showable:hover {
+  filter: brightness(0.97);
+}
+
+.ct-slot.is-shown {
+  box-shadow: inset 0 0 0 1px var(--interactive-accent);
+}
+
+.ct-wide-input {
+  width: 100%;
+}
+
+/* The @ assistant: what the text means, as icon + text parts. */
+.ct-when-part {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  margin-inline-start: 0.6em;
+}
+
+/* Day picker after @ in a task line */
+.ct-date-suggestion {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--size-4-4);
+}
+
+.ct-date-suggestion-label {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.4em;
+  white-space: nowrap;
+}
+
+.ct-date-suggestion-day {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  text-align: end;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+/* —— Calendar view (spec §7.1) ——
+   FullCalendar lays out the grid and handles dragging; the toolbar, events, day headers and popovers are ours. */
+.ct-calendar {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+  padding: var(--size-4-3) var(--size-4-4);
+  --fc-border-color: var(--background-modifier-border);
+  --fc-page-bg-color: var(--background-primary);
+  --fc-neutral-bg-color: var(--background-secondary);
+  --fc-today-bg-color: hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.05);
+  --fc-now-indicator-color: var(--color-red);
+  --fc-list-event-hover-bg-color: var(--background-modifier-hover);
+  --fc-highlight-color: hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.12);
+  --fc-event-bg-color: transparent;
+  --fc-event-border-color: transparent;
+  --fc-event-text-color: var(--text-normal);
+}
+
+/* Toolbar: ‹ › Today, the period, then the views and actions. */
+.ct-cal-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--size-4-2) var(--size-4-3);
+}
+
+.ct-cal-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-1);
+}
+
+.ct-cal-today,
+.ct-cal-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  height: auto;
+  padding: var(--size-4-1) var(--size-4-3);
+  font-size: var(--font-ui-small);
+}
+
+.ct-cal-title {
+  font-size: var(--font-ui-large);
+  font-weight: var(--font-semibold);
+}
+
+.ct-cal-title::first-letter {
+  text-transform: uppercase;
+}
+
+.ct-cal-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--size-4-2);
+  margin-inline-start: auto;
+}
+
+.ct-cal-action.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+/* A segmented control: a light track, the chosen option raised (views, invitation answers). */
+.ct-segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+}
+
+.ct-segmented > button {
+  height: auto;
+  padding: var(--size-4-1) var(--size-4-3);
+  border: none;
+  border-radius: var(--radius-s);
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-normal);
+}
+
+.ct-segmented > button:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.ct-segmented > button.is-active {
+  background: var(--interactive-normal);
+  box-shadow: var(--shadow-s);
+  color: var(--text-normal);
+  font-weight: var(--font-medium);
+}
+
+/* The calendars: a dot (events) or a list icon (a list of tasks); hidden ones faded, the dot empty. */
+.ct-calendar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--size-4-1);
+}
+
+.ct-calendar-legend .ct-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
+  height: auto;
+  padding: 2px var(--size-4-1) 2px var(--size-4-2);
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-normal);
+  font-size: var(--font-ui-smaller);
+}
+
+.ct-calendar-legend .ct-legend-item:hover {
+  background: var(--background-modifier-hover);
+}
+
+.ct-legend-mark {
+  flex: none;
+  width: 0.8em;
+  height: 0.8em;
+  border: 2px solid var(--ct-dot);
+  border-radius: 50%;
+  background: var(--ct-dot);
+}
+
+.ct-calendar-legend .ct-legend-item.is-hidden {
+  color: var(--text-faint);
+}
+
+.ct-legend-item.is-hidden .ct-legend-mark {
+  background: transparent;
+}
+
+/* "+": a new collection, after the others. */
+.ct-calendar-legend .ct-legend-add {
+  width: auto;
+  height: auto;
+  padding: 2px;
+  color: var(--text-faint);
+}
+
+.ct-calendar-legend .ct-legend-add svg {
+  width: var(--icon-xs);
+  height: var(--icon-xs);
+}
+
+/* Its pencil (name, color): on hover on a computer, always on a phone. */
+.ct-legend-edit {
+  display: inline-flex;
+  padding: 1px;
+  border-radius: var(--radius-s);
+  color: var(--text-faint);
+  opacity: 0;
+}
+
+.ct-legend-edit svg {
+  width: var(--icon-xs);
+  height: var(--icon-xs);
+}
+
+.ct-legend-item:hover .ct-legend-edit,
+.is-mobile .ct-legend-edit {
+  opacity: 1;
+}
+
+.ct-legend-edit:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+/* The key to the three shapes, at the end of the calendars' row. */
+.ct-key {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--size-4-1) var(--size-4-4);
+  margin-inline-start: auto;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.ct-key-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
+}
+
+.ct-key-swatch {
+  --ct-ev-color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.ct-key-swatch.is-event,
+.ct-key-swatch.is-block,
+.ct-key-swatch.is-deadline {
+  width: 16px;
+  height: 11px;
+  border-radius: 3px;
+}
+
+.ct-key-swatch.is-event {
+  border-inline-start: 3px solid var(--ct-ev-color);
+  background: color-mix(in srgb, var(--ct-ev-color) 30%, var(--background-primary));
+}
+
+.ct-key-swatch.is-block {
+  border: 1.5px dashed var(--ct-ev-color);
+}
+
+/* A deadline as drawn: outlined, its checkbox at the start. */
+.ct-key-swatch.is-deadline {
+  width: 20px;
+  padding-inline-start: 2px;
+  border: 1px solid var(--ct-ev-color);
+  background: var(--background-primary);
+}
+
+.ct-key-swatch .ct-key-check {
+  width: 6px;
+  height: 6px;
+  border: 1px solid var(--ct-ev-color);
+  border-radius: 1.5px;
+}
+
+.is-phone .ct-key {
+  display: none;
+}
+
+/* Grid and the "To plan" panel side by side. */
+.ct-calendar-body {
+  display: flex;
+  gap: var(--size-4-3);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.ct-calendar-grid {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.ct-plan {
+  display: none;
+  flex: 0 0 240px;
+  flex-direction: column;
+  gap: var(--size-4-2);
+  overflow-y: auto;
+  padding-inline-start: var(--size-4-3);
+  border-inline-start: 1px solid var(--background-modifier-border);
+}
+
+.ct-plan.is-open {
+  display: flex;
+}
+
+.ct-plan-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--size-4-2);
+}
+
+.ct-plan-title {
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-semibold);
+}
+
+/* "No time block": a toggle chip, accent when on. */
+.ct-calendar .ct-plan-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--size-2-2);
+  height: auto;
+  padding: 2px var(--size-4-2);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.ct-calendar .ct-plan-filter.is-active {
+  border-color: var(--interactive-accent);
+  background: hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.12);
+  color: var(--text-accent);
+}
+
+.ct-plan-text .ct-plan-blocks {
+  color: var(--text-muted);
+}
+
+.ct-plan-hint,
+.ct-plan-empty {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+}
+
+.ct-plan-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--size-4-1);
+  padding: var(--size-4-2);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+  font-size: var(--font-ui-small);
+  cursor: grab;
+}
+
+.ct-plan-item:hover {
+  border-color: var(--interactive-accent);
+}
+
+.ct-plan-grip {
+  display: inline-flex;
+  color: var(--text-faint);
+}
+
+.ct-plan-grip svg {
+  width: var(--icon-xs);
+  height: var(--icon-xs);
+}
+
+.ct-plan-text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--size-4-1);
+  min-width: 0;
+}
+
+.ct-plan-text .ct-plan-item-title {
+  flex-basis: 100%;
+}
+
+.ct-plan-item-title {
+  overflow-wrap: anywhere;
+}
+
+/* Phones: the open panel takes the place of the grid (tap a task to pick its day). */
+.is-mobile .ct-plan-open .ct-calendar-grid {
+  display: none;
+}
+
+.is-mobile .ct-plan {
+  flex: 1 1 auto;
+  border: none;
+  padding: 0;
+}
+
+/* The grid. */
+.ct-calendar .fc {
+  font-size: var(--font-ui-small);
+}
+
+/* FullCalendar renders days and events as links: keep them out of Obsidian's link styling. */
+.ct-calendar .fc a.fc-daygrid-day-number,
+.ct-calendar .fc a.fc-col-header-cell-cushion,
+.ct-calendar .fc a.fc-list-day-text,
+.ct-calendar .fc a.fc-list-day-side-text,
+.ct-calendar .fc a.fc-event,
+.ct-calendar .fc a.fc-event:hover {
+  color: var(--text-normal);
+  text-decoration: none;
+}
+
+.ct-calendar .fc .fc-col-header-cell-cushion {
+  font-weight: var(--font-medium);
+}
+
+.ct-calendar .fc .fc-timegrid-axis-cushion,
+.ct-calendar .fc .fc-timegrid-slot-label-cushion {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+/* Week and day views: the weekday small, the date large, today in an accent disc. */
+.ct-dh {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: var(--size-4-1) 0;
+}
+
+.ct-dh-weekday {
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-normal);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ct-dh-date {
+  min-width: 1.9em;
+  height: 1.9em;
+  line-height: 1.9em;
+  border-radius: 999px;
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-medium);
+  text-align: center;
+}
+
+/* A day's header opens that day: its date answers the pointer. */
+.ct-calendar .fc a.fc-col-header-cell-cushion:hover .ct-dh-date {
+  background: var(--background-modifier-hover);
+}
+
+.ct-dh.is-today .ct-dh-weekday {
+  color: var(--text-accent);
+}
+
+.ct-dh.is-today .ct-dh-date {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+/* Month view: small day numbers, today's in an accent disc. */
+.ct-calendar .fc .fc-daygrid-day-number {
+  margin: 2px;
+  padding: 2px 6px;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.ct-calendar .fc .fc-day-today a.fc-daygrid-day-number {
+  border-radius: 999px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-weight: var(--font-semibold);
+}
+
+.ct-calendar .fc a.fc-daygrid-day-number:hover {
+  border-radius: 999px;
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.ct-calendar .fc .fc-day-today a.fc-daygrid-day-number:hover {
+  background: var(--interactive-accent-hover);
+  color: var(--text-on-accent);
+}
+
+/*
+ * A week's number, a small tab at the start of each week (month) or in the corner (week, day): it opens that week
+ * (2026-10-19, asked: "une petite languette discrète pour la semaine").
+ */
+.ct-calendar .fc a.fc-daygrid-week-number,
+.ct-calendar .fc a.fc-timegrid-axis-cushion {
+  padding: 1px 6px;
+  border-radius: 0 0 var(--radius-s) 0;
+  background: var(--background-modifier-hover);
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  text-decoration: none;
+}
+
+.ct-calendar .fc a.fc-timegrid-axis-cushion {
+  border-radius: var(--radius-s);
+}
+
+.ct-calendar .fc a.fc-daygrid-week-number:hover,
+.ct-calendar .fc a.fc-timegrid-axis-cushion:hover {
+  background: var(--background-modifier-active-hover);
+  color: var(--text-accent);
+}
+
+/* Week and day: the slot height follows the zoom (CalendarView: --ct-slot-h, 26px per half hour by default). */
+.ct-calendar .fc .fc-timegrid-slot {
+  height: var(--ct-slot-h, 26px);
+}
+
+/* Zoomed in, the half and quarter hours are written too, fainter than the hours. */
+.ct-calendar .fc .ct-slot-minor .fc-timegrid-slot-label-cushion {
+  color: var(--text-faint);
+}
+
+.ct-cal-zoom {
+  display: flex;
+  align-items: center;
+}
+
+/*
+ * Events, drawn by us (CalendarView.eventContent); --ct-ev-color is the calendar's color. Three shapes, whatever
+ * the colors: an event is a filled block; a work session on a task, a dashed block with the task's checkbox; a
+ * task's deadline, a one-line marker with its checkbox and "⚑ 18:00".
+ */
+.ct-calendar .fc .fc-event.ct-ev {
+  --ct-ev-color: var(--interactive-accent);
+  cursor: pointer;
+}
+
+.ct-ev-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  height: 100%;
+  padding: 2px 5px;
+  overflow: hidden;
+}
+
+.ct-ev-title {
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+  min-width: 0;
+  color: var(--text-normal);
+  font-weight: var(--font-medium);
+  line-height: 1.25;
+}
+
+.ct-ev-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ct-ev-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--ct-ev-color);
+}
+
+.ct-ev-icon svg {
+  width: 0.95em;
+  height: 0.95em;
+}
+
+.ct-ev-repeat {
+  color: var(--text-faint);
+}
+
+.ct-ev-time {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 0.9em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* A task's checkbox (deadlines and work sessions), ticked in place. */
+.ct-ev-check {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--ct-ev-color);
+  border-radius: 3px;
+  background: var(--background-primary);
+  color: var(--text-on-accent);
+  cursor: pointer;
+}
+
+.ct-ev-check svg {
+  width: 10px;
+  height: 10px;
+  stroke-width: 3.5;
+  visibility: hidden;
+}
+
+.ct-ev-check:hover {
+  background: color-mix(in srgb, var(--ct-ev-color) 25%, var(--background-primary));
+}
+
+.ct-ev-check.is-checked {
+  background: var(--ct-ev-color);
+}
+
+.ct-ev-check.is-checked svg {
+  visibility: visible;
+}
+
+/* A deadline's time, after a flag (the same flag as the deadline chips in notes). */
+.ct-ev-due {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  margin-inline-start: auto;
+  padding-inline-start: 0.3em;
+  color: var(--text-muted);
+  font-size: 0.88em;
+  font-weight: var(--font-normal);
+  font-variant-numeric: tabular-nums;
+}
+
+.ct-ev-due-icon {
+  display: inline-flex;
+}
+
+.ct-ev-due-icon svg {
+  width: 0.9em;
+  height: 0.9em;
+}
+
+/* Events: tinted with the calendar's color, a solid bar on the left. */
+.ct-calendar .fc .fc-timegrid-event.ct-ev-event,
+.ct-calendar .fc .fc-daygrid-block-event.ct-ev-event {
+  border: none;
+  border-inline-start: 3px solid var(--ct-ev-color);
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--ct-ev-color) 22%, var(--background-primary));
+}
+
+.ct-calendar .fc .fc-timegrid-event.ct-ev-event:hover,
+.ct-calendar .fc .fc-daygrid-block-event.ct-ev-event:hover {
+  background: color-mix(in srgb, var(--ct-ev-color) 30%, var(--background-primary));
+}
+
+/* Work sessions on a task: hardly tinted, a dashed outline, no bar. */
+.ct-calendar .fc .fc-timegrid-event.ct-ev-timeblock,
+.ct-calendar .fc .fc-daygrid-block-event.ct-ev-timeblock {
+  border: 1.5px dashed color-mix(in srgb, var(--ct-ev-color) 80%, transparent);
+  border-radius: var(--radius-s);
+  background: color-mix(in srgb, var(--ct-ev-color) 5%, var(--background-primary));
+}
+
+.ct-calendar .fc .fc-timegrid-event.ct-ev-timeblock:hover,
+.ct-calendar .fc .fc-daygrid-block-event.ct-ev-timeblock:hover {
+  background: color-mix(in srgb, var(--ct-ev-color) 11%, var(--background-primary));
+}
+
+/* Deadlines: an outlined marker on the page's background, cornered like events (2026-10-19: a pill read badly). */
+.ct-calendar .fc .fc-timegrid-event.ct-ev-deadline,
+.ct-calendar .fc .fc-daygrid-block-event.ct-ev-deadline {
+  border: 1px solid color-mix(in srgb, var(--ct-ev-color) 50%, var(--background-modifier-border));
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+}
+
+.ct-calendar .fc .fc-timegrid-event.ct-ev-deadline:hover,
+.ct-calendar .fc .fc-daygrid-block-event.ct-ev-deadline:hover {
+  background: color-mix(in srgb, var(--ct-ev-color) 8%, var(--background-primary));
+}
+
+.ct-calendar .fc .ct-ev-deadline .ct-ev-content {
+  justify-content: center;
+  padding: 0 7px 0 4px;
+}
+
+/*
+ * The task form's day: what's being placed is filled with the accent, like a selection in the calendar, so it
+ * reads as "being set" beside what's already there, which fades a little.
+ */
+.ct-day-preview .fc .fc-event.ct-ev:not(.ct-ev-placed) {
+  opacity: 0.6;
+}
+
+.ct-day-preview .fc .fc-event.ct-ev.ct-ev-placed {
+  --ct-ev-color: var(--interactive-accent);
+  border: 1.5px solid var(--interactive-accent);
+  background: var(--interactive-accent);
+  box-shadow: 0 1px 6px hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.45);
+  cursor: grab;
+}
+
+.ct-day-preview .fc .fc-event.ct-ev.ct-ev-placed:hover {
+  background: var(--interactive-accent-hover);
+}
+
+.ct-day-preview .fc .ct-ev-placed .ct-ev-title,
+.ct-day-preview .fc .ct-ev-placed .ct-ev-time,
+.ct-day-preview .fc .ct-ev-placed .ct-ev-due {
+  color: var(--text-on-accent);
+}
+
+.ct-day-preview .fc .ct-ev-placed .ct-ev-check {
+  border-color: var(--text-on-accent);
+  background: transparent;
+}
+
+/* (Only there: month lines are as wide as their text, a size container would collapse them.) */
+.ct-calendar .fc .fc-timegrid-event.ct-ev-deadline .ct-ev-content {
+  container-type: inline-size;
+}
+
+/* A deadline is a moment: one line high at its time, however tall the hours are zoomed. */
+.ct-calendar .fc .fc-timegrid-event-harness > .fc-timegrid-event.ct-ev-deadline {
+  bottom: auto;
+  height: 20px;
+}
+
+/* A narrow marker (a small window, or beside another event) keeps the title rather than the time. */
+@container (max-width: 150px) {
+  .ct-calendar .fc .ct-ev-due,
+  .ct-calendar .fc .ct-ev-names {
+    display: none;
+  }
+}
+
+.ct-calendar .fc .ct-ev-deadline .ct-ev-title {
+  font-weight: var(--font-normal);
+}
+
+/* Missed: the checkbox, the flag and the time turn red (the title stays readable). */
+.ct-calendar .fc .ct-ev-overdue .ct-ev-check {
+  border-color: var(--color-red);
+}
+
+.ct-calendar .fc .ct-ev-overdue .ct-ev-due,
+.ct-calendar .fc .ct-ev-overdue .ct-ev-stack {
+  color: var(--text-error);
+}
+
+/* Done (a deadline, or a session of a task done): ticked, struck through, faded. */
+.ct-calendar .fc .ct-ev-done .ct-ev-name {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.ct-calendar .fc .fc-event.ct-ev-done {
+  opacity: 0.7;
+}
+
+/* Close deadlines as one marker: "3 tasks", their names faint. */
+.ct-ev-count {
+  flex: none;
+  font-weight: var(--font-semibold);
+}
+
+.ct-calendar .fc .ct-ev-names {
+  overflow: hidden;
+  color: var(--text-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ct-calendar .fc .fc-event.ct-ev.is-active {
+  outline: 2px solid var(--ct-ev-color);
+  outline-offset: 1px;
+}
+
+/* One line: month lines, and deadline markers. */
+.ct-calendar .fc .fc-daygrid-event .ct-ev-name,
+.ct-calendar .fc .fc-timegrid-event.ct-ev-deadline .ct-ev-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/*
+ * Week and day: what an event shows follows the real height of its box (zoom and font size included), not its
+ * length. FullCalendar's own "short" class kicks in under 30px, when title + time already need ~2.9 lines' worth
+ * (a 30-minute session zoomed in a little was cut). Deadlines keep their one-line marker.
+ */
+.ct-calendar .fc .fc-timegrid-event:not(.ct-ev-deadline) .fc-event-main {
+  container-type: size;
+}
+
+/*
+ * The title takes the lines left above the time line, and ends with "…" when it needs more (a narrow event
+ * beside another wraps a lot). A line is 1.25em; the time line, paddings and gap take ~1.62em.
+ */
+.ct-calendar .fc .fc-timegrid-event:not(.ct-ev-deadline) .ct-ev-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+@container (max-height: 9.15em) {
+  .ct-calendar .fc .fc-timegrid-event:not(.ct-ev-deadline) .ct-ev-name {
+    -webkit-line-clamp: 5;
+  }
+}
+
+@container (max-height: 7.9em) {
+  .ct-calendar .fc .fc-timegrid-event:not(.ct-ev-deadline) .ct-ev-name {
+    -webkit-line-clamp: 4;
+  }
+}
+
+@container (max-height: 6.65em) {
+  .ct-calendar .fc .fc-timegrid-event:not(.ct-ev-deadline) .ct-ev-name {
+    -webkit-line-clamp: 3;
+  }
+}
+
+@container (max-height: 5.4em) {
+  .ct-calendar .fc .fc-timegrid-event:not(.ct-ev-deadline) .ct-ev-name {
+    -webkit-line-clamp: 2;
+  }
+}
+
+/* One line: a plain ellipsis (a clamped box measures its width wrong beside the time, cutting a title early). */
+@container (max-height: 4.15em) {
+  .ct-calendar .fc .fc-timegrid-event:not(.ct-ev-deadline) .ct-ev-name {
+    display: block;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+}
+
+/* Under two: the start time on the title's line. */
+@container (max-height: 2.9em) {
+  .ct-calendar .fc .fc-timegrid-event:not(.ct-ev-deadline) .ct-ev-content {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.5em;
+    padding-block: 0;
+  }
+
+  .ct-calendar .fc .fc-timegrid-event:not(.ct-ev-deadline) .ct-ev-title {
+    flex: 0 1 auto;
+  }
+
+  .ct-calendar .fc .fc-timegrid-event:not(.ct-ev-deadline) .ct-ev-time {
+    flex: none;
+  }
+
+  .ct-calendar .fc .fc-timegrid-event:not(.ct-ev-deadline) .ct-ev-time > span:not(:first-child) {
+    display: none;
+  }
+}
+
+/* Invitations waiting for an answer: striped, like Apple Calendar (the envelope says it elsewhere); "maybe": faded. */
+.ct-calendar .fc .fc-timegrid-event.ct-ev-pending,
+.ct-calendar .fc .fc-daygrid-block-event.ct-ev-pending {
+  background: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, var(--ct-ev-color) 8%, var(--background-primary)) 0 6px,
+    color-mix(in srgb, var(--ct-ev-color) 20%, var(--background-primary)) 6px 12px
+  );
+}
+
+.ct-calendar .fc .fc-event.ct-ev-tentative {
+  opacity: 0.7;
+}
+
+/* The backend couldn't relay my answer. */
+.ct-calendar .fc .fc-event.ct-ev-rsvp-failed {
+  outline: 2px solid var(--text-error);
+  outline-offset: -2px;
+}
+
+/*
+ * Month view: one aligned line each, the same marks as the key: a dot (event), a dashed ring (work session), the
+ * checkbox (deadline), then the time, then the title. All-day events stay bars; all-day deadlines are lines too.
+ */
+.ct-ev-content.is-dot {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0 3px;
+}
+
+.ct-ev-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin: 0 2px;
+  border-radius: 50%;
+  background: var(--ct-ev-color);
+}
+
+.ct-ev-dot.is-ring {
+  border: 1.5px dashed var(--ct-ev-color);
+  background: transparent;
+}
+
+.ct-ev-content.is-dot .ct-ev-title {
+  flex: 1 1 auto;
+  gap: 0.4em;
+  font-weight: var(--font-normal);
+}
+
+.ct-ev-content.is-dot .ct-ev-time {
+  flex: none;
+  min-width: 2.8em;
+  overflow: visible;
+}
+
+.ct-calendar .fc .fc-daygrid-dot-event:hover,
+.ct-calendar .fc .fc-dayGridMonth-view .fc-daygrid-block-event.ct-ev-deadline:hover {
+  background: var(--background-modifier-hover);
+}
+
+.ct-calendar .fc .fc-dayGridMonth-view .fc-daygrid-block-event.ct-ev-deadline {
+  border: none;
+  border-radius: var(--radius-s);
+  background: transparent;
+}
+
+.ct-calendar .fc .fc-dayGridMonth-view .ct-ev-deadline .ct-ev-content {
+  padding: 0 3px;
+}
+
+/* Agenda: the calendar's color in the dot column; a dashed ring for sessions, nothing for deadlines (their checkbox). */
+.ct-calendar .fc .fc-list-event-dot {
+  border-color: var(--ct-ev-color);
+}
+
+.ct-calendar .fc .fc-list-event.ct-ev-timeblock .fc-list-event-dot {
+  width: 6px;
+  height: 6px;
+  border-width: 2px;
+  border-style: dashed;
+}
+
+.ct-calendar .fc .fc-list-event.ct-ev-deadline .fc-list-event-dot {
+  visibility: hidden;
+}
+
+.ct-calendar .fc .fc-list-event .ct-ev-content {
+  padding: 0;
+}
+
+/* The selected range: the accent color, and no dangling "–" after its time (it has no title yet). */
+.ct-calendar .fc .fc-event-mirror {
+  border: 1px solid var(--interactive-accent);
+  background: hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.2);
+  color: var(--text-normal);
+}
+
+.ct-calendar .fc .fc-event-mirror .fc-event-main {
+  color: var(--text-normal);
+}
+
+.ct-calendar .fc .fc-event-mirror .fc-event-time::after {
+  content: none;
+}
+
+/* Popovers: a new event beside the selection, an event's card beside the event. */
+.ct-popover {
+  position: absolute;
+  z-index: var(--layer-popover);
+  width: 340px;
+  max-width: calc(100% - 16px);
+  padding: var(--size-4-3) var(--size-4-4);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-l);
+  background: var(--background-primary);
+  box-shadow: var(--shadow-l);
+  visibility: hidden;
+}
+
+.ct-popover.is-placed {
+  visibility: visible;
+}
+
+.ct-popover-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--size-4-1);
+}
+
+.ct-popover-title {
+  font-weight: var(--font-semibold);
+}
+
+.ct-popover .setting-item {
+  padding: var(--size-4-2) 0;
+  background: transparent;
+  border-radius: 0;
+}
+
+.ct-popover .setting-item-description {
+  display: none;
+}
+
+.ct-popover .ct-select {
+  min-width: 8em;
+  max-width: 12em;
+}
+
+.ct-popover .ct-modal-buttons {
+  padding-bottom: 0;
+}
+
+/* An event's card. */
+.ct-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+}
+
+.ct-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--size-4-2);
+}
+
+.ct-card-swatch {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin-top: 0.4em;
+  border-radius: 4px;
+  background: var(--ct-ev-color, var(--interactive-accent));
+}
+
+.ct-card-title {
+  flex: 1;
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-semibold);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.ct-card-title.is-done {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.ct-card-tools {
+  display: flex;
+  gap: 2px;
+  margin-top: -2px;
+}
+
+.ct-card-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+  padding-inline-start: calc(12px + var(--size-4-2));
+}
+
+.ct-card-row {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.ct-card-text {
+  display: inline-block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ct-card-text::first-letter {
+  text-transform: uppercase;
+}
+
+.ct-card-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--text-faint);
+}
+
+.ct-card-icon svg {
+  width: var(--icon-s);
+  height: var(--icon-s);
+}
+
+/* The time line of an event that can move: a click turns it into start and end fields. */
+.ct-card-row.is-editable {
+  margin: calc(-1 * var(--size-2-2)) calc(-1 * var(--size-4-2));
+  padding: var(--size-2-2) var(--size-4-2);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+
+.ct-card-row.is-editable:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.ct-card-edit {
+  display: flex;
+  margin-inline-start: auto;
+  color: var(--text-faint);
+  opacity: 0;
+}
+
+.ct-card-edit svg {
+  width: var(--icon-xs);
+  height: var(--icon-xs);
+}
+
+.ct-card-row.is-editable:hover .ct-card-edit,
+.is-mobile .ct-card-edit {
+  opacity: 1;
+}
+
+.ct-card-when .ct-form-grid {
+  margin-top: 0;
+}
+
+.ct-card-when-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--size-4-2);
+  margin-top: var(--size-4-2);
+}
+
+.ct-card-row.is-link {
+  color: var(--text-accent);
+  cursor: pointer;
+}
+
+.ct-card-row.is-link:hover .ct-card-text {
+  text-decoration: underline;
+}
+
+.ct-card-check {
+  color: var(--text-normal);
+  cursor: pointer;
+}
+
+.ct-card-check .task-list-item-checkbox {
+  margin: 0;
+}
+
+/* A calendar's card: its name, what it holds, its color, shown or not. */
+.ct-popover.ct-cal-card {
+  width: 300px;
+}
+
+.ct-cal-card .ct-card-head {
+  align-items: center;
+}
+
+.ct-cal-card .ct-card-swatch {
+  margin-top: 0;
+}
+
+.ct-cal-card input.ct-cal-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-semibold);
+}
+
+.ct-cal-colors {
+  flex-wrap: wrap;
+}
+
+.ct-cal-card button.ct-cal-color {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--ct-swatch);
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.ct-cal-card button.ct-cal-color.is-active {
+  box-shadow: 0 0 0 2px var(--background-primary), 0 0 0 4px var(--ct-swatch);
+}
+
+.ct-cal-shown {
+  cursor: pointer;
+}
+
+.ct-cal-shown .ct-card-text {
+  flex: 1;
+}
+
+.ct-cal-note {
+  padding-inline-start: calc(12px + var(--size-4-2));
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+}
+
+/* Close deadlines: each with its checkbox, its title (opens the note) and its time. */
+.ct-card-tasks {
+  display: flex;
+  flex-direction: column;
+  padding-inline-start: calc(12px + var(--size-4-2));
+}
+
+.ct-card-task {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  padding: 3px 0;
+  font-size: var(--font-ui-small);
+}
+
+.ct-card-task .task-list-item-checkbox {
+  --checkbox-color: var(--ct-ev-color);
+  --checkbox-color-hover: var(--ct-ev-color);
+  flex: none;
+  margin: 0;
+}
+
+.ct-card-task-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.ct-card-task-name:hover {
+  color: var(--text-accent);
+  text-decoration: underline;
+}
+
+.ct-card-task-name.is-done {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.ct-card-task-time {
+  flex: none;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.ct-card-rsvp .ct-segmented > button {
+  padding: 2px var(--size-4-2);
+}
+
+.ct-card-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--size-4-2);
+  padding-top: var(--size-4-1);
+}
+
+/* An occurrence shown from its note: it blinks so it's found among the others. */
+@keyframes ct-reveal {
+  0%,
+  50%,
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+  25%,
+  75% {
+    box-shadow: 0 0 0 3px var(--interactive-accent);
+  }
+}
+
+.ct-calendar .fc .fc-event.ct-ev-reveal {
+  z-index: 5;
+  animation: ct-reveal 1.2s ease-in-out 2;
+}

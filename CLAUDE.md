@@ -1,0 +1,271 @@
+# calendar-tasks — notes for Claude
+
+Obsidian extension: CalDAV calendar and tasks, a note per event and per task, a calendar view, a Bases task list,
+and a module for claude-workspace. Founding spec: `docs/SPEC.md` (read it). Milestones: spec §10; stop and show the
+user at each one.
+
+## Commands
+- `npm test` (Vitest) · `npm run lint` · `npm run typecheck` · `npm run build` (tsc + esbuild → `main.js`)
+- `npm run check:mobile` — loads `main.js` the way Obsidian mobile does (no Node). Run after every build.
+- `npm run test:integration` — the engine against the real local servers (Davis, and Radicale if running);
+  creates and deletes a throwaway calendar. Run after touching `src/caldav/` or `src/sync/`. Not in CI.
+- `npm run ui:preview [scenario…]` — renders the calendar (week, month), task links and settings with Obsidian's
+  real app.css in headless Chromium → `tools/preview/out/*.png`, light + dark. **Look at them after any UI
+  change.** Scenarios in `tools/preview/harness.ts`; browser stand-in for `obsidian` in
+  `tools/preview/obsidian-browser.ts` (copied from claude-workspace, plus `getLanguage`, global `createEl`…).
+- `npm run deploy` — build + copy into `./test-vault`; `TEST_VAULT=/mnt/c/Users/abdal/Documents/ct-test-vault`
+  for a vault Windows Obsidian can open. Refuses non-empty folders without the `.calendar-tasks-test-vault` marker.
+- Release: `npm version patch|minor|major` then `git push --follow-tags` (`docs/releasing.md`). Never hand-edit the
+  manifest version or hand-create tags.
+
+## Test servers (`~/organisation/calendar/`, see `bench/TESTS.md`)
+- After a reboot: `~/organisation/calendar/start.sh` starts both servers.
+- **Davis** (the chosen server): `davis/run.sh` (rootless Podman), `http://127.0.0.1:9000/dav/`, users `abd` /
+  `orga`, password `x`; iPhone over Tailscale Serve on port 8443 (URL in `bench/TESTS.md`).
+- `bench/push-fixtures.sh` / `bench/check.sh` push and read test items over HTTP. Radicale (`radicale/`) is kept
+  only as a reference.
+
+## Hard rules
+- Never write to the user's real vault (`C:\Users\abdal\Documents\aaa`). Only `test-vault/` or a marked test vault.
+- **No Node APIs in `src/`**: the extension runs on Obsidian mobile. HTTP only through `requestUrl`. ESLint blocks
+  Node imports; `check:mobile` checks the bundle. (The Claude module, M7, is desktop-only but needs no Node either.)
+- **Pure CalDAV client: never call the Go backend.** Everything from the backend arrives as CalDAV data.
+- Secrets never in `data.json` (it syncs with the vault): the CalDAV password goes in `app.secretStorage`.
+- Never log passwords, note contents or calendar contents.
+- Edit CalDAV items in place, never regenerate them (keep `VALARM`, `X-APPLE-*`, unknown properties). Times are
+  written with `TZID` + `VTIMEZONE`, never UTC (spec §6.2).
+- Property names live in `src/constants.ts` and are not settings (spec §2.5).
+
+## Layout
+- `src/main.ts` — plugin entry: settings, the `SyncEngine` (rebuilt when connection settings change), commands
+  (Sync now, Rebuild cache), auto-sync (startup, interval, window focus with a 30 s gap).
+- `src/settings.ts` — persisted shape, defaults, `mergeSettings` (pure, tested), declarative settings tab (1.13+:
+  `getSettingDefinitions`, values go through `mergeSettings` in `setControlValue`).
+- `src/caldav/` — `transport.ts` (`requestUrl` wrapper, Basic auth), `xml.ts` (namespace-aware multistatus parsing
+  over any DOM), `client.ts` (`CalDavClient`: discovery, calendars, sync-collection, multiget, conditional
+  PUT/DELETE; `CalDavApi` is what the engine depends on), `ical.ts` (UID/kind via ical.js).
+- `src/sync/` — `store.ts` (cache snapshot + pending queue; `IdbStore` in IndexedDB, `MemoryStore` for tests),
+  `engine.ts` (`SyncEngine`: push queue with `If-Match`, then pull with sync tokens / ctag / etag listing).
+- `src/tasks/` — `vtodo.ts` (read/write the owned VTODO fields in place with ical.js, `taskLink`), `notes.ts`
+  (frontmatter ↔ state, titles), `TaskSync.ts` (notes ↔ VTODOs; depends on `VaultPort`, not on Obsidian),
+  `obsidian-vault.ts` (`VaultPort` on documented APIs: `processFrontMatter`, `fileManager.renameFile`…),
+  `base-file.ts` (the `Tasks.base` YAML).
+- `src/editor/` — `date-token.ts` (day words: `15/10`, `demain`, `lun`…), `when.ts` (the `@` grammar: one
+  keyword + value per `@`, deadline / time block / repeat; suggestions; RRULE helpers),
+  `convert.ts` (pure: task line → planned task, project resolution order), `converter.ts` (creates the task note,
+  returns `- [[Task]]`), `chips.ts`
+  (pure chip model: due label/overdue, project label, progress, sync state), `render.ts` (DOM), `live-preview.ts`
+  (CM6 ViewPlugin decorations + "cursor left a line" listener; `refreshTaskDecorations()`), `left-lines.ts` (pure:
+  which task lines an update left, pasted lines included), `date-suggest.ts` (the `@` assistant, an
+  `EditorSuggest` on `suggestAt`; also after the link of a converted line, to change that task),
+  `date-picker.ts` (month-view date picker modal, replaces the system one), `reading-view.ts` (post-processor).
+  `src/tasks/task-index.ts` — every task note's state, read by the decorations. `src/tasks/modals.ts` — the task
+  form (`TaskModal`: new, or `edit` from a chip click) and the day / slot pickers (`dayChoices` / `parseDate` in
+  `when.ts`).
+- `src/calendar/` — `expand.ts` (pure: items → occurrences in a range; recurrences, exceptions, deadlines,
+  time blocks, invitations; `findOccurrence` by RECURRENCE-ID; `pickOccurrence`), `event-notes.ts` (one note per
+  occurrence, follows moves/renames one way), `catalog.ts` (uid → item), `CalendarView.ts` (FullCalendar v6 for
+  layout and dragging; our toolbar, `eventContent`, `dayHeaderContent` and popovers; drag/resize/select/right-click
+  go to the host), `event-card.ts` (an event's card: popover or phone modal), `vevent.ts` (VEVENT edits in
+  place: new event, move / rename an occurrence as an exception, EXDATE, `setPartstat`, `isMirror`, `endSeries`),
+  `modals.ts` (new event form, rename), `calendars.ts` (the colors offered).
+- `src/ical/write.ts` (`setDateProp`, `ensureVTimezone`, `touch`) and `src/ical/zones.ts` (`registerZones`, `ridOf`),
+  shared by tasks and events.
+- `src/ical/time.ts` — zones through Intl (no tz database): wall clock ↔ instant, local value strings,
+  generated `VTIMEZONE` (nth/last-weekday rules).
+- `src/i18n.ts` — every UI string, English + French, `t(key)` follows Obsidian's language.
+- `src/constants.ts` — frontmatter property names, note types, protocol action.
+- `test/stubs/obsidian.ts` — runtime stub aliased as `obsidian` in Vitest (copied from claude-workspace).
+- `test/support/` — `FakeServer` (in-memory CalDAV with tokens/etags/preconditions), xmldom parser, fetch
+  transport. `test/fixtures/` — real Davis and Radicale responses.
+
+## Decisions
+- **Cache in IndexedDB, per device** (`calendar-tasks/<vault name>`), never in the vault: sync tokens describe one
+  client's state, so a synced cache file would mix devices. Holds calendars, items (raw iCalendar + etag) and the
+  queue of unpushed changes.
+- **Changes and refused pushes are reported once every calendar is read** (refused pushes first), not calendar by
+  calendar (2026-10-17): a reminder moved to another list (same UID, new URL — the phone does it, and so did the
+  migration to our own "Tâches" list) was told as "deleted" before its new place was read, so TaskSync marked the
+  note done and unlinked it, then made a duplicate. Now `TaskSync` looks the UID up in every list (`findItem`)
+  before calling anything deleted, both for a removal and for a push refused because the item left.
+- **Engine events are for server-side changes only.** `putItem`/`deleteItem` update the cache optimistically and
+  don't emit `onChange` (so note ↔ CalDAV updates can't loop). A refused push (412) emits `onConflict`, and the
+  cache keeps the server's version; merging is the caller's job (M2).
+- **Edit-during-push**: a newer queued op for the same URL gets the fresh etag as its base, so it doesn't conflict.
+- **sabre/dav (Davis) quirk**: an unknown sync token with sabre's own prefix gets "no changes" + the same token back
+  instead of a 403. The engine treats "token echoed while the server's current token differs" as invalid and does
+  a full resync (unit + integration tested).
+- Davis/sabre returns `ETag` on PUT when it stored what we sent; without one, the engine reads the item back.
+- **Task sync rules** (TaskSync): tasks already completed when first seen get no note; a VTODO deleted on the
+  server leaves its note `done: true` without `caldav_uid`; a whole calendar vanishing leaves notes alone; deleting
+  a task note deletes its VTODO; a refused push is merged field by field against `baseData` (server wins where
+  both sides changed a field, with a notice). Every write is equality-checked, so echoes are no-ops.
+- **Startup order**: load cache → push local note edits (made while closed) → sync → pull every VTODO into notes →
+  write `Tasks.base` once (`taskBaseCreated` flag, never recreated).
+- **Before every sync, note edits still in their 800 ms debounce are queued** (`flushNoteChanges`): the engine never
+  pulls over a queued change, and a refused push is merged. Without this, ticking a task right before a sync that
+  brings a phone edit of the same reminder lost the tick.
+- **Connection settings restart the engine 1.5 s after typing stops** (`scheduleRestart`), not on every keystroke
+  (a half-typed URL is another account: empty cache, lost pending ops).
+- **An empty full listing for a calendar we hold items for is believed only on the second sync in a row**
+  (`emptySeen`): otherwise one bad server answer marks every task note done and unlinked.
+- **Known limitation**: a brand-new task note reaching a second device through vault sync before its `caldav_uid` was
+  written can get a second VTODO there (documented in the README; not handled).
+- **One task date, the deadline** (bench test 6): `due` ↔ `DUE` (Reminders shows only `DUE`; a `DTSTART`-only
+  reminder shows no date). Work time is time blocks (events). A note-only "planned day" (`scheduled`) existed
+  2026-10-15→16 and was removed at the user's request: it doubled the time blocks.
+- **One trigger, `@`, one thing per `@`** (`src/editor/when.ts`). History: `>date`, then a free-form phrase
+  after a single `@` ("@ven prévu mar chaque semaine"); the user found both confusing (2026-10-16) and asked for
+  separate features. Now each `@` = keyword + value (`parseToken`): `@deadline`, `@créneau`, `@répéter`,
+  `@sans date`; shortcuts `@demain` (deadline) and `@chaque lundi` (repeat). `findWhen`
+  combines every `@` of the line. `suggestAt` drives the assistant: features first, then values it keeps only if
+  the parser accepts them.
+- **Changing a task already made** (asked 2026-10-17: "réediter en remettant arobase ou cliquant"): `@` after the
+  link of a `- [[Task]]` line (`parseLinkLine` / `linkLineEdit`) uses the same grammar; `taskEdit` turns it into
+  field changes (a repetition alone keeps the deadline, `startOn` moves it to the rule's day; `@sans date` /
+  `@répéter jamais` set `When.clear`). Applied on ✓ or when the line is left (`left-lines.ts` watches such lines).
+  Clicking a chip opens `TaskModal` in edit mode at that field.
+- **No system dropdowns in forms** (the user found the blue Windows list ugly, 2026-10-17): `src/ui/menu-select.ts`
+  opens Obsidian's `Menu` from a button; `named()` puts an icon before a setting's name. The settings tab keeps
+  Obsidian's standard dropdowns (that's what every settings page uses).
+- **Two kinds of redraw** (`main.scheduleRedraw(data)`): a note change redraws decorations, task headers and the
+  calendar's task lists only (`CalendarView.refreshTasks`); a change of calendar data (a sync that moved something,
+  every TaskSync write — it always calls `requestSync`) also re-reads the calendar's events. Re-reading events on a
+  note change showed the reminder's old state (a dragged deadline jumped back until its push). A 5-minute tick and
+  midnight keep "today" and missed deadlines true.
+- **Calendar skin is ours** (2026-10-17): `headerToolbar: false`, events drawn by `eventContent` with the calendar
+  color in `--ct-ev-color` (set in `eventDidMount`; a missed deadline keeps it, only its checkbox and time turn red);
+  FullCalendar's own colors are transparent. Buttons need a selector stronger than Obsidian's
+  `button:not(.clickable-icon)` (0,1,1) to lose its background and shadow.
+- **Event shapes say what they are** (2026-10-17, see spec §7.1): event = filled block, task things carry a
+  checkbox (`CalendarView.checkbox`, ticks the task in place), session = dashed block, deadline = outlined one-line
+  marker (radius as events) with "⚑ time" (a line across the day through it was tried 2026-10-19: the user found
+  it ugly). Close deadlines (< 20 min, same day) become one "N tâches" marker in week/day views only
+  (`closeDeadlines` in `expand.ts`; `grouped` + a refetch in `datesSet`, since agenda ↔ week keeps the same dates).
+  The checkbox stops `mousedown`/`touchstart`/`pointerdown` (no drag) and prevents mousedown's default: focusing
+  the event lays FullCalendar's `.fc-event:focus::before` overlay over it and the release opened the card.
+  Snap 5 min (`SNAP_MS`); a click selects one snap, so `select` turns it into an hour from the half hour.
+  Times to the minute: `when-fields.ts` (`datetime-local` / `date` inputs, which Obsidian styles; they follow the
+  OS language, so the preview launches Chromium in French). The new event form's `preview` moves the selection
+  with `calendar.select`, guarded by `reselecting` so `select` doesn't reopen the form. Zoom: `--ct-slot-h` on the
+  view + `slotOptions(zoom)`; FullCalendar measures its slats only when it renders and `updateSize()` doesn't
+  render, so `setZoom` sets a new `slotLabelClassNames` function to force one. Wheel steps are capped (±20 px of
+  `deltaY`): Chromium reports CSS pixels, so a notch is worth less on a dense screen, and a pinch sends small ones.
+  `eventContent` reads times from `arg.event` (not the occurrence) so a dragged mirror shows where it lands.
+  The deadline marker's time hides through a container query, scoped to `.fc-timegrid-event` (month lines are as
+  wide as their text: a size container collapsed them).
+  What an event shows follows its box's real height, not its length (2026-10-18: a 30-minute session zoomed in a
+  little had its time line cut; FullCalendar's `fc-timegrid-event-short` only starts under 30px, two lines need
+  ~2.9em): `.fc-event-main` is a size container; under 2.9em the start goes on the title's line, and the title is
+  clamped to the lines left (bands of 1.25em). `ui:preview` fails on any event whose box or line is cut
+  (`clipped`, each line too: a line with `overflow: hidden` shrinks instead of overflowing the box).
+- **Calendars row** (2026-10-18): every collection looks the same (dot, name, Show/Hide), in the server's order.
+  A list icon and per-kind tooltips for task lists were tried and removed: the user read them as hardcoded
+  special cases ("c des collections ? pk ils ont des logos différents ?"); what a collection holds, and the
+  "changed on the server" note, were dropped from its card too ("textes un peu bêtes"), as was the shape key's
+  tooltip. Create / delete (2026-10-18): `SyncEngine.createCalendar` / `deleteCalendar`, on the server first, after
+  any sync under way (`idle`). A delete reports its items removed *without* `calendarRemoved` (that flag means a
+  calendar vanished, maybe for a moment, and leaves notes alone): on purpose, so TaskSync treats each like a
+  deleted reminder. Names are shown as the server has them. A plugin-side "Rappels" for iOS's
+  `DEFAULT_TASK_CALENDAR_NAME` list was tried and removed: the user wants a plain CalDAV account that Apple reads,
+  nothing specific to one client (rename the collection on the server instead). Name and color edits go through `SyncEngine.updateCalendar` → `CalDavClient.updateCalendar`
+  (PROPPATCH, not queued: needs the network; one refused property = error). The calendar card is a third popover
+  kind, `"calendar"`, which `refresh()` doesn't close (each edit refreshes the view).
+- **FullCalendar mirror events** (the selection while clicking or dragging an empty slot, a task dragged from the
+  panel) go through `eventDidMount` without our `extendedProps.occ`: a throw there broke the whole view (it froze
+  with the mirror stuck, 2026-10-17). `npm run ui:preview -- calendar-interact` replays a drag and a click with a
+  real mouse and fails on any page error.
+- **Accent colors**: Obsidian has no `--color-accent-rgb`; use `hsla(var(--accent-h), var(--accent-s),
+  var(--accent-l), α)` (`--color-red-rgb` and friends do exist).
+- **Task note header** (`src/editor/task-header.ts`, `main.updateTaskHeaders`): prepended to the MarkdownView's
+  `contentEl` (above both the source and reading views, outside their scrollers, so it never scrolls and survives
+  mode switches and re-renders); `.ct-task-view` makes `.view-content` a flex column. Properties are hidden with
+  `--metadata-display-editing/reading: none` on that element (setting `showTaskProperties` turns it off).
+- **Two kinds of repetition**: a repeating task (`@répéter`, RRULE on the VTODO, the deadline comes back when
+  ticked) and a session that comes back (`@créneau chaque mardi 14h-16h`, RRULE on the VEVENT, `Block.repeat`).
+  A task done for good ends its recurring sessions (`endSeries`: UNTIL = now; deleted if not started), hooked on
+  the done transition in `metadataCache.on("changed")`.
+- **Collections are contexts, each holding events and tasks** (2026-10-18; the user never wanted a list for tasks
+  and a calendar for events): one setting, `defaultCalendar` (migrated from `taskCalendar` / `eventCalendar`),
+  and a `collection` property in task notes (by name). `TaskSync.calendarFor`: note's → parent's → project note's
+  `collection` → default → first by name. Moving = `putItem` in the new collection + `deleteItem` of the old
+  (two queued ops, in that order). `TaskSync.known` (uid → the collection the note was last in step with) tells a
+  user's change (note names another one: move) from a note that's behind (the phone moved it: the note follows);
+  without it, a tick queued while the phone moved the reminder sent it back. A rename anywhere →
+  `refreshSettingsIfCalendarsChanged` → `pullAll` renames it in the notes.
+- **Task panel, not "To plan"** (2026-10-18): every open task with its number of time blocks (`tasksToPlan`),
+  "No time block" filter (`planUnplannedOnly`). The `@` menu's lone "Sans date" reads "Transformer en tâche"
+  (what it does: the line becomes a task note); the `@sans date` keyword is unchanged.
+- **Day preview in the task form** (`src/calendar/day-preview.ts`, 2026-10-18): a second FullCalendar
+  (`timeGridDay`) wrapped in `.ct-calendar` so the calendar's event styles apply; `TaskModal` feeds it what's being
+  placed (`refreshPreview(focus)`: `due`, `block:<i>`, `typed`). A drag adds a row to the slot list
+  (`addBlock`); moves go back into the list or the fields (`setDue` / `setTyped`: day, time(s), then an `input`
+  event), so hints and validation stay the fields' own.
+  `ui:preview -- task-preview` drags a slot on it.
+- **Event notes** (2026-10-19): named with the day as set (`eventDateFormat`, default `DD-MM-YYYY`; `noteDate`,
+  `eventNoteNames` in event-notes.ts: the time is added when another event of that day has the same title);
+  `EventNotes.update` renames them when the setting changes (`main.namedWith`). Their header
+  (`editor/event-header.ts`) uses the task header's classes; `updateNoteHeaders` draws either; a click on the time
+  calls `CalendarView.reveal(occId, start)` (events carry `data-occ`; `ct-ev-reveal` blinks).
+- **Priority** (2026-10-19, the user: none or three levels, "haute moyenne basse"): `priority: high | medium |
+  low` in the note (`PRIORITIES`, `PRIORITY_MARK` in constants.ts; `priorityOf` also reads the French words) ↔
+  `PRIORITY` 1 / 5 / 9 (read 1–4 / 5 / 6–9), an owned field like `repeat` (an unknown value is left alone on the
+  server). Drawn !!! / !! / ! in red / orange / blue on links, the note header, the Tasks panel (same deadline: the
+  most urgent first); a row in the form; Claude's create / set-dates tools take it. Not on calendar deadlines yet.
+- **Compact forms** (2026-10-19): the new event form and an event's times are one `.ct-form-grid` (`formRow` in
+  `src/ui/form-row.ts`: icon, name, field); `renderWhenFields` writes day + time fields (`readFields`) into it, not
+  `datetime-local`. Inputs that show their name carry no `aria-label`: Obsidian shows it as a tooltip on hover.
+- **Calendar navigation** (2026-10-19): `navLinks` with `navLinkDayClick: "timeGridDay"` / `navLinkWeekClick:
+  "timeGridWeek"` (our toolbar isn't FullCalendar's, so its own "day" was `dayGridDay`, a list); `weekNumbers`
+  drawn as small tabs ("S43", `view.weekShort`). `reveal` switches to the occurrence's day view.
+- **Task form layout** (2026-10-19, "un problème d'harmonie de spacing"): Obsidian top-aligns setting rows, so
+  `.ct-task-fields` gives names `min-height: var(--input-height)`; on desktop each row's control is a fixed grid
+  (`7.5em 4.5em 0.75em 4.5em 28px 28px`, `flex: none`, the info takes the rest) so columns line up across rows;
+  the calendar button is always the last track, menus span `2 / -1`. Phones keep Obsidian's stacked rows.
+- **One field, one thing** (2026-10-19, the user: "évite d'avoir des champs multi usage"): in forms and the month
+  picker, a day field and time fields (deadline: Day + Time; time block: Day + Start – End), read by
+  `readFields` (when.ts; errors `day` / `time` / `end` / `noDay` / `noStart` / `endBefore`, said by
+  `fieldsProblem`, marked by `markFields`). No on/off switches, no placeholder standing for a state. Free text
+  ("ven 14h", "mar 14h-16h", "lun au mer") stays for `@` in notes only.
+- **Time blocks are events, never task fields** (RFC 5545 has no work-session field; agreed with the user): `@créneau`
+  becomes a VEVENT with `RELATED-TO` once TaskSync gives the note its UID (`TaskSync` `created` callback →
+  `main.createBlocks`; pending blocks are in memory, lost if Obsidian closes before the first sync).
+- **Repetition**: `repeat` in the note (English phrase, or raw RRULE) ↔ `RRULE`; `normalizeRule` gives one spelling
+  so iOS's `INTERVAL=1;WKST=MO` doesn't ping-pong. Ticking moves the task on (`TaskSync.moveOn`, `nextOccurrence`
+  via ical.js), pushing from the new state rather than re-reading the note (Obsidian parses frontmatter later).
+- **Pasted task lines convert at once** (`input.paste` / `input.drop` only, never undo or a file synced from
+  elsewhere): a line copied with its newline puts the cursor below it, so it was never "left".
+- **Auto-conversion is optimistic**: `TaskConverter.prepare` picks the path (reserving it against a second quick
+  conversion) and `prime`s the TaskIndex; the line becomes `- [[Task]]` on the next microtask, the note is written
+  after, and a failed write puts the line back. The user saw the old "write, then replace" as lag.
+- **Editor works without a server**: TaskIndex, decorations and conversion only touch notes; TaskSync gives the
+  new note its VTODO when a server is configured (a note without `caldav_uid` = "not on the server yet" icon).
+- **Decoration refresh** goes through a CM6 `StateEffect` dispatched to every live editor (tracked by the
+  ViewPlugin), not `workspace.updateOptions()` (reconfiguring with the same extension keeps old plugin instances).
+  Reading view: `previewMode.rerender(true)`.
+- `scripts/check-mobile-load.cjs` stubs `@codemirror/*` with a permissive proxy (module-scope
+  `StateEffect.define()`); Obsidian provides CodeMirror on every platform.
+- **FullCalendar v6** (MIT plugins only): v7 moved the vanilla build to the `fullcalendar` package with a new API;
+  v6 is the known, stable one. It injects its CSS itself; `styles.css` maps its variables to Obsidian's.
+- **What can be edited in the calendar**: events and work sessions in writable calendars, except invitations and
+  mirrored events (`X-SOURCE-ACCOUNT`), which only get Accept / Maybe / Decline (right-click). Deadlines move by
+  editing the task note's `due` (TaskSync pushes). Moving one occurrence of a series writes an exception
+  (RECURRENCE-ID in the series' DTSTART zone); the whole series is moved on the phone. Answers apply to the whole
+  invitation (series and exceptions).
+- **Recurrence ids** are RECURRENCE-ID instants in UTC (`20261019T080000Z`) or dates (`20261019`), never local
+  strings: they're stored in event notes and travel in `obsidian://…&rid=` links.
+- ical.js needs the zones: `registerZones` registers the item's VTIMEZONEs and generates one for IANA TZIDs
+  without a definition.
+- `project` syncs as a `CATEGORIES` value only when the linked note carries the project tag; other categories are
+  kept untouched. File names keep the server summary unless the user renames the note (`titleMatches`).
+
+## Gotchas (inherited from claude-workspace)
+- Never declare class fields that shadow Obsidian base-class members (`containerEl`, `contentEl`, `titleEl`,
+  `icon`, `scope`…); tsconfig has `useDefineForClassFields: false` too.
+- `Plugin.removeCommand(id)` takes the id without the plugin prefix.
+- Obsidian `onunload` is sync; async cleanup is fire-and-forget.
+- WSL is in NAT mode. Windows → WSL works through localhost forwarding, so Windows Obsidian reaches Davis at
+  `http://localhost:9000/dav/` (verified 2026-10-15; the reverse, WSL → Windows `127.0.0.1`, doesn't). The Tailscale URL only works from
+  tailnet devices, and the PC's Windows side isn't one (Tailscale runs inside WSL).
+- Obsidian's `normalizePath("")` returns `"/"` (the test stub does the same), so `normalizePath(x) || fallback`
+  never falls back. An emptied folder setting got saved as `/` that way (fixed 2026-10-15 in `mergeSettings`).

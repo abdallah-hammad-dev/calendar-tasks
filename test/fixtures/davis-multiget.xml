@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<d:multistatus xmlns:d="DAV:" xmlns:s="http://sabredav.org/ns" xmlns:cal="urn:ietf:params:xml:ns:caldav" xmlns:cs="http://calendarserver.org/ns/"><d:response><d:href>/dav/calendars/abd/tests/test-parent.ics</d:href><d:propstat><d:prop><d:getetag>&quot;02af7bc90343d361751077da8f485e42&quot;</d:getetag><cal:calendar-data>BEGIN:VCALENDAR
+CALSCALE:GREGORIAN
+PRODID:-//Apple Inc.//iOS 27.0.1//EN
+VERSION:2.0
+BEGIN:VTIMEZONE
+TZID:Europe/Paris
+BEGIN:DAYLIGHT
+DTSTART:19810329T020000
+RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU
+TZNAME:UTC+2
+TZOFFSETFROM:+0100
+TZOFFSETTO:+0200
+END:DAYLIGHT
+BEGIN:STANDARD
+DTSTART:19961027T030000
+RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU
+TZNAME:UTC+1
+TZOFFSETFROM:+0200
+TZOFFSETTO:+0100
+END:STANDARD
+END:VTIMEZONE
+BEGIN:VTODO
+CREATED:20261015T035753Z
+DTSTAMP:20261015T040528Z
+DTSTART;TZID=Europe/Paris:20261016T180000
+DUE;TZID=Europe/Paris:20261016T180000
+LAST-MODIFIED:20261015T040528Z
+STATUS:NEEDS-ACTION
+SUMMARY:Test 4 — sous-tache
+UID:test-parent
+X-APPLE-SORT-ORDER:813729473
+END:VTODO
+END:VCALENDAR
+</cal:calendar-data></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>
