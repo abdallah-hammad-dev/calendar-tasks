@@ -1458,11 +1458,13 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-select {
   cursor: pointer;
 }
 
+/* Shown by its opacity: `visibility: visible` showed the tick of a deadline hidden under "+2 more" (FullCalendar
+   hides those with `visibility`) over the line drawn there (2026-10-20). */
 .ct-ev-check svg {
   width: 10px;
   height: 10px;
   stroke-width: 3.5;
-  visibility: hidden;
+  opacity: 0;
 }
 
 .ct-ev-check:hover {
@@ -1474,7 +1476,7 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-select {
 }
 
 .ct-ev-check.is-checked svg {
-  visibility: visible;
+  opacity: 1;
 }
 
 /* A deadline's time, after a flag (the same flag as the deadline chips in notes). */
@@ -1811,6 +1813,58 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-select {
   flex: none;
   min-width: 2.8em;
   overflow: visible;
+}
+
+/*
+ * What lasts takes two lines: the start over the end, the bar along both, the title beside on up to two lines
+ * (2026-10-20, asked: always the start and the end). A deadline, a moment, keeps one line. The bar is an odd
+ * number of dots tall (seven), so it starts and ends on a whole one.
+ */
+.ct-ev-content.is-line.is-span {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  grid-template-rows: 1.25em 1.25em;
+  gap: 0 0.4em;
+  align-items: center;
+}
+
+.ct-ev-content.is-span .ct-ev-bar {
+  grid-area: 1 / 1 / 3;
+}
+
+.ct-ev-bar.is-tall {
+  height: auto;
+}
+
+.ct-ev-bar.is-tall::before {
+  height: calc(var(--ct-2px, 2px) * 13);
+}
+
+.ct-ev-content.is-span .ct-ev-start {
+  grid-area: 1 / 2;
+}
+
+.ct-ev-content.is-span .ct-ev-end {
+  grid-area: 2 / 2;
+  color: var(--text-faint);
+}
+
+.ct-ev-content.is-span .ct-ev-title {
+  grid-area: 1 / 3 / 3;
+  align-items: flex-start;
+  align-self: start;
+}
+
+.ct-ev-content.is-span .ct-ev-title .ct-ev-icon {
+  height: 1.25em;
+  align-items: center;
+}
+
+.ct-calendar .fc .fc-daygrid-event .ct-ev-content.is-span .ct-ev-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
 }
 
 .ct-calendar .fc .fc-daygrid-dot-event:hover,

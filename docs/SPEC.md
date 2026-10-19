@@ -434,6 +434,11 @@ popovers.
   marker, "3 tâches" + their names, whose card lists them with checkboxes (Google Calendar's "N tasks"; side by
   side they were unreadable slivers). Invitations: striped and an envelope while unanswered, faded for "maybe".
   Month lines are aligned: mark, time, title; all day, events stay bars, deadlines and work sessions are lines too.
+  What lasts within a day (an event, a work session) takes two lines: its start over its end (fainter), the bar
+  along both, the title beside on up to two lines; a deadline, a moment, keeps one (2026-10-20, asked: always the
+  start and the end; on one line, "08:30 – 10:30" left little room for the title in a narrow day). A day too full
+  shows its lines one under the other, then "+N more" right under them: nothing further down shows, and the line
+  above goes only if the link has no room.
   The dotted bar is whole 2px dots, the same in every line (fitted to the height, some looked thicker; 2026-10-20).
   Bars, dots and dashes are whole device pixels at any screen scaling: at 125 % (Windows) 2px is 2.5 pixels, and
   dots came out 2 or 3 pixels long, bars 3 or 4 wide, depending on where each fell (2026-10-20). So these sizes are
@@ -474,7 +479,8 @@ popovers.
   key under the toolbar gives way to the hint ("Drag to move, pull the bottom edge to change the length"; in the
   month "Drag onto another day"; "Esc to finish"). Escape or Done ends it; the agenda (nothing drags) ends it too. Off, a press on an event only
   opens its card. Dropping a task from the Tasks panel and changing times in a card work either way (both are on
-  purpose). The event follows the pointer from where it was grabbed, to the 5 minutes (2026-10-19: it jumped up
+  purpose); a task dropped turns Move mode on, so the session just placed can be stretched at once (2026-10-20,
+  asked: placing a task means giving it its length). The event follows the pointer from where it was grabbed, to the 5 minutes (2026-10-19: it jumped up
   to 15 minutes as it started to move). In the month, what's dragged stays under the pointer (it was far from
   it) and the day it lands on is outlined; it keeps its time. What's dropped stays where it lands: a deadline
   changes its reminder at once, then its note (2026-10-19: "ça revient puis ça se redéplace" when the calendar

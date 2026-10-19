@@ -250,8 +250,19 @@ user at each one.
   FullCalendar's columns and is drawn to the right edge behind them; the rest sits side by side (FullCalendar's
   default drew the later one over the earlier from its middle, covering its title). Only with `slotEventOverlap`
   (the task form's day preview turns it off: side by side always). The `calendar-week` preview checks a deadline
-  5 minutes into "Cours réseau" sits beside it, and "Séminaire" keeps its width with one at 12:00. Moving is behind `CalendarView.moving` (the toolbar's "Move", off at each open):
-  events get `editable` only then; the panel's drop and the card's time fields don't depend on it. The
+  5 minutes into "Cours réseau" sits beside it, and "Séminaire" keeps its width with one at 12:00. In the month
+  (2026-10-20), lines have two heights (`.is-span`: an event or session within a day, start over end, `ct-ev-bar
+  .is-tall` of seven dots; deadlines one line), and FullCalendar's "+N more" assumed one: it hid the line above
+  whatever didn't fit (room for the link) and kept its place empty, and a shorter line further down still fit
+  under the gap. In `@fullcalendar/daygrid/internal.js`, `DayGridSegHierarchy` now hides the line above only if
+  `moreLinkRoom` (the link's height at the row's font) doesn't fit, and `closeDays` / `hideInClosedDays` hide
+  everything after the first hidden line of a day (a multi-day event still shows on its other days). The
+  `calendar-month` / `calendar-month-narrow` previews check each day's lines follow one another, then the link
+  (`packedDays`). A ticked checkbox shows its tick by `opacity`: `visibility: visible` showed it through
+  FullCalendar's hidden lines. Moving is behind `CalendarView.moving` (the toolbar's "Move", off at each open,
+  confirmed 2026-10-20: it's the mode that changes the calendar, never remembered):
+  events get `editable` only then; the panel's drop and the card's time fields don't depend on it, and a drop from the panel turns it
+  on (2026-10-20: the session just placed is stretched next; `calendar-interact` drops one, then pulls its edge). The
   `calendar-drag` preview checks nothing moves while locked, then exact landings (event, work session, deadline).
   Move mode shows through `.ct-calendar.is-moving` (frame on `.ct-calendar-grid`, `.fc-event:not(.fc-event-draggable)`
   faded, `.fc-event-resizer-end` shown with a grip) and `renderLegend` (the hint replaces `.ct-key`); Escape ends it

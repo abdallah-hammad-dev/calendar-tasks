@@ -25,6 +25,8 @@ mkdirSync(out, { recursive: true });
 const SCENARIOS = [
   ["calendar-week", 1200, 820],
   ["calendar-month", 1600, 900],
+  // Narrow, busy days: each day's lines one under the other, then "+N more" right under them.
+  ["calendar-month-narrow", 1000, 800],
   // In a tab beside a sidebar, as in Obsidian: what's dragged in the month stays under the pointer, the day it
   // lands on is outlined, and it lands there.
   ["calendar-month-drag", 1600, 900],
@@ -251,10 +253,11 @@ async function drag(page, errors, theme) {
 /** Drags a work session to the next day in the month, inside a tab: the copy in hand stays under the pointer. */
 async function monthDrag(page, errors, theme) {
   await moveMode(page, errors);
-  const sel = ".fc-daygrid-event.ct-ev-timeblock:has-text('Préparer slides')";
-  const from = await page.locator(sel).first().boundingBox();
-  const to = await page.locator(".fc-daygrid-day[data-date='2026-10-16']").boundingBox();
-  if (!from || !to) return errors.push("missing the work session or Friday's cell");
+  // Friday's work session (one on a busy day is under "+N more") onto Wednesday the 21st.
+  const sel = ".fc-daygrid-event.ct-ev-timeblock:has-text('Rédiger le mémoire')";
+  const from = await page.locator(`.fc-daygrid-day[data-date='2026-10-16'] ${sel}`).first().boundingBox();
+  const to = await page.locator(".fc-daygrid-day[data-date='2026-10-21']").boundingBox();
+  if (!from || !to) return errors.push("missing the work session or Wednesday's cell");
   const start = { x: from.x + 30, y: from.y + from.height / 2 };
   const end = { x: to.x + to.width / 2, y: to.y + to.height / 2 };
   await page.mouse.move(start.x, start.y);
@@ -266,11 +269,27 @@ async function monthDrag(page, errors, theme) {
   else if (Math.abs(copy.x + 30 - end.x) > 3 || Math.abs(copy.y + copy.height / 2 - end.y) > 3) {
     errors.push(`the copy should stay where it was grabbed, under the pointer (${end.x}, ${end.y}); it's at (${copy.x}, ${copy.y})`);
   }
-  if (!(await page.locator(".fc-daygrid-day[data-date='2026-10-16'] .fc-highlight").count())) errors.push("the day it lands on should be outlined");
+  if (!(await page.locator(".fc-daygrid-day[data-date='2026-10-21'] .fc-highlight").count())) errors.push("the day it lands on should be outlined");
   await page.screenshot({ path: join(out, `calendar-month-drag-held-${theme}.png`) });
   await page.mouse.up();
   await page.waitForTimeout(700);
-  if (!(await page.locator(`.fc-daygrid-day[data-date='2026-10-16'] ${sel}`).count())) errors.push("the work session should land on Friday");
+  if (!(await page.locator(`.fc-daygrid-day[data-date='2026-10-21'] ${sel}`).count())) errors.push("the work session should land on Wednesday the 21st");
+}
+
+/**
+ * Each day of the month: its lines one under the other, then "+N more" right under them (2026-10-20: FullCalendar
+ * left a hidden line's room empty, a shorter one below it; see tools/fullcalendar-patch.mjs).
+ */
+async function packedDays(page, errors) {
+  const gaps = await page.evaluate(() =>
+    [...document.querySelectorAll(".fc-daygrid-day")].flatMap((day) => {
+      const shown = [...day.querySelectorAll(".fc-daygrid-event-harness")].filter((h) => getComputedStyle(h).visibility !== "hidden");
+      const link = day.querySelector(".fc-daygrid-more-link");
+      const rects = [...shown, ...(link ? [link] : [])].map((el) => el.getBoundingClientRect()).sort((a, b) => a.top - b.top);
+      return rects.slice(1).flatMap((r, i) => (r.top - rects[i].bottom > 4 ? [`${day.dataset.date} (${Math.round(r.top - rects[i].bottom)}px)`] : []));
+    }),
+  );
+  if (gaps.length) errors.push(`a day's lines should follow one another, then "+N more": gaps on ${gaps.join(", ")}`);
 }
 
 /**
@@ -326,7 +345,11 @@ async function evenMarks(page, errors, scale) {
         while (dots.length && !dots[0].ink) dots.shift();
         while (dots.length && !dots[dots.length - 1].ink) dots.pop();
         const name = el.closest(".fc-event")?.querySelector(".ct-ev-title")?.textContent ?? "the key";
-        return { name, dashed: el.matches(".is-dashed, .is-block"), width: columns.length, dots: dots.map((r) => `${r.ink ? "■" : "·"}${r.n}`).join(" ") };
+        // As many dots as the bar is tall: what must be alike is each dot and each gap.
+        const alike = (ink) => [...new Set(dots.filter((r) => r.ink === ink).map((r) => r.n))];
+        const [inks, gaps] = [alike(true), alike(false)];
+        const even = inks.length === 1 && gaps.length <= 1 ? `■${inks[0]} ·${gaps[0] ?? "-"}` : dots.map((r) => `${r.ink ? "■" : "·"}${r.n}`).join(" ");
+        return { name, dashed: el.matches(".is-dashed, .is-block"), width: columns.length, dots: even };
       });
       // A work session's side: its dashes away from the rounded corners, against its tint just inside.
       const sides = [...document.querySelectorAll(".fc-timegrid-event.ct-ev-timeblock")].map((el) => {
@@ -349,7 +372,7 @@ async function evenMarks(page, errors, scale) {
   }
   const dots = [...new Set(kinds(true).map((b) => b.dots))];
   const named = dots.map((d) => `${d} (${kinds(true).find((b) => b.dots === d).name})`);
-  if (dots.length > 1) errors.push(`dotted bars should all have the same dots: ${named.join(" | ")}`);
+  if (dots.length > 1 || dots.some((d) => !/^■\d+ ·\d+$/.test(d))) errors.push(`dotted bars should all have the same dots, whole and evenly apart: ${named.join(" | ")}`);
   for (const side of found.sides) {
     if (side.ink.length > 1 || side.gaps.length > 1) errors.push(`a work session's dashes should all be alike: dashes ${side.ink.join("/")}, gaps ${side.gaps.join("/")} device px`);
   }
@@ -386,11 +409,28 @@ async function interact(page, errors) {
   const at13 = await box(".fc-timegrid-slot-lane[data-time='13:00:00']");
   const item = await box(".ct-plan-item");
   if (!tue || !fri || !at15 || !at13 || !item) return;
-  await moveMode(page, errors);
+  // A task dropped from the panel turns Move on, so what's placed stretches at once (2026-10-20, asked).
+  const task = await page.locator(".ct-plan-item").first().getAttribute("data-title");
   await page.mouse.move(item.x + 20, item.y + 10);
   await page.mouse.down();
   await page.mouse.move(tue.x + tue.width / 2, at15.y + 5, { steps: 10 });
   await page.mouse.up();
+  await page.waitForTimeout(200);
+  if (!(await page.locator(".ct-calendar.is-moving").count())) errors.push("a task dropped from the panel should turn Move on");
+  const placed = await page.locator(`.fc-timegrid-col[data-date='2026-10-13'] .fc-timegrid-event.ct-ev-timeblock:has-text("${task}")`).boundingBox();
+  if (!placed) errors.push(`"${task}" dropped on Tuesday should be drawn there as a work session`);
+  else {
+    // Its bottom edge pulled an hour down.
+    const grip = { x: placed.x + placed.width / 2, y: placed.y + placed.height - 2 };
+    await page.mouse.move(grip.x, grip.y);
+    await page.mouse.down();
+    await page.mouse.move(grip.x, grip.y + at15.height * 2, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    const moved = (await page.evaluate(() => window.__moved)) ?? "";
+    const [from, to] = moved.split("-").map((hm) => Number(hm.slice(0, 2)) * 60 + Number(hm.slice(3, 5)));
+    if (!(to - from >= 100)) errors.push(`the session just placed should stretch to about two hours, got "${moved}"`);
+  }
   // Dragging an event lands on 5-minute steps, and its card shows where (25 px ≈ 30 min down, give or take a step).
   const olera = page.locator(".fc-timegrid-event:has-text('Point Olera')").first();
   const ob = await olera.boundingBox();
@@ -561,14 +601,29 @@ for (const [name, width, height, scale = 2] of run) {
     }
     if (name.startsWith("calendar-list")) await agenda(page, errors);
     if (name.startsWith("calendar-marks")) await evenMarks(page, errors, scale);
+    if (name === "calendar-month" || name === "calendar-month-narrow") await packedDays(page, errors);
     if (name === "calendar-month") {
       // Every line looks alike, whatever it is: a work session all day isn't a block (it was, under its line's mark),
       // and the dashes are whole pixels, the same in every bar (fitted to the height, some looked thicker).
       const allDay = page.locator(".fc-daygrid-block-event.ct-ev-timeblock:has-text('Relire le chapitre 2')");
       const look = await allDay.evaluate((el) => getComputedStyle(el).backgroundImage + getComputedStyle(el).backgroundColor).catch(() => "missing");
       if (look !== "nonergba(0, 0, 0, 0)") errors.push(`a work session all day should be a line in the month, not a block (${look})`);
-      const bars = await page.evaluate(() => [...document.querySelectorAll(".ct-ev-bar")].map((b) => b.getBoundingClientRect().height));
-      if (!bars.length || bars.some((h) => h !== 14)) errors.push(`the line bars should all be 14px tall: ${[...new Set(bars)].join(", ")}`);
+      // A line's bar is no taller than its text (14px); one along a start and its end, seven dots (26px).
+      const bars = await page.evaluate(() => [...document.querySelectorAll(".ct-ev-bar")].map((b) => [b.classList.contains("is-tall"), b.getBoundingClientRect().height]));
+      if (!bars.length || bars.some(([tall, h]) => h !== (tall ? 26 : 14))) errors.push(`the line bars should be 14px tall, 26px along two lines: ${[...new Set(bars.map(([, h]) => h))].join(", ")}`);
+      // What lasts shows its start over its end; a deadline, a moment, one time on one line.
+      const lines = await page.evaluate(() => {
+        const at = (text) => [...document.querySelectorAll(".fc-daygrid-event")].find((e) => e.textContent.includes(text));
+        const olera = at("Point Olera");
+        const [start, end] = [olera?.querySelector(".ct-ev-start"), olera?.querySelector(".ct-ev-end")];
+        const sheets = at("Imprimer les grilles");
+        return {
+          olera: start && end ? `${start.textContent}/${end.textContent}/${end.getBoundingClientRect().top > start.getBoundingClientRect().bottom - 2}` : "",
+          heights: [olera, sheets].map((e) => Math.round(e?.getBoundingClientRect().height ?? 0)),
+        };
+      });
+      if (lines.olera !== "10:00/11:00/true") errors.push(`an event should show its start over its end, shows ${lines.olera || "nothing"}`);
+      if (!(lines.heights[1] > 0 && lines.heights[0] > lines.heights[1] * 1.5)) errors.push(`an event should take two lines, a deadline one: ${lines.heights.join(" vs ")}px`);
     }
     if (name === "calendar-zoom") await zoom(page, errors, theme);
     if (name === "task-preview") {

@@ -214,7 +214,11 @@ export class CalendarView extends ItemView {
       droppable: true,
       drop: (info) => {
         const path = info.draggedEl.dataset.path;
-        if (path) this.host.plan(path, info.date, info.allDay);
+        if (!path) return;
+        this.host.plan(path, info.date, info.allDay);
+        // What's just placed gets its length next (2026-10-20, asked): Move mode, so it stretches at once, its hint
+        // saying how. Once FullCalendar is done with the drop.
+        if (!this.moving) window.setTimeout(() => this.setMoving(true), 0);
       },
       selectable: true,
       selectMirror: true,
@@ -615,11 +619,20 @@ export class CalendarView extends ItemView {
       }
     } else if (type === "dayGridMonth" && (!occ.allDay || task)) {
       // Month: one aligned line each, after a bar as in Apple Calendar (solid: event, dashed: work session) or the
-      // checkbox (deadline).
+      // checkbox (deadline). What lasts within a day takes two: its start over its end, the bar along both
+      // (2026-10-20, asked: always the start and the end; a deadline is a moment, it keeps one).
       el.addClass("is-line");
-      if (occ.kind !== "deadline") el.createSpan({ cls: `ct-ev-bar${occ.kind === "timeblock" ? " is-dashed" : ""}` });
-      const line = title(el, occ.kind === "deadline");
-      if (!occ.allDay) line.insertBefore(createSpan({ cls: "ct-ev-time", text: clock(start) }), line.querySelector(".ct-ev-name"));
+      const lasts = occ.kind !== "deadline" && !occ.allDay && end !== null && end > start && end.toDateString() === start.toDateString();
+      if (occ.kind !== "deadline") el.createSpan({ cls: `ct-ev-bar${occ.kind === "timeblock" ? " is-dashed" : ""}${lasts ? " is-tall" : ""}` });
+      if (lasts) {
+        el.addClass("is-span");
+        el.createSpan({ cls: "ct-ev-time ct-ev-start", text: clock(start) });
+        el.createSpan({ cls: "ct-ev-time ct-ev-end", text: clock(end) });
+        title(el, false);
+      } else {
+        const line = title(el, occ.kind === "deadline");
+        if (!occ.allDay) line.insertBefore(createSpan({ cls: "ct-ev-time", text: clock(start) }), line.querySelector(".ct-ev-name"));
+      }
     } else if (type.startsWith("list")) {
       // The agenda: the month's marks in a column of their own (a solid bar, a dashed one, the checkbox), so every
       // title starts at the same place, then where. Its time is FullCalendar's column.

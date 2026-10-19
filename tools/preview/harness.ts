@@ -149,7 +149,14 @@ function calendar(view: "timeGridWeek" | "dayGridMonth" | "listWeek", inTab = fa
     ],
     planUnplannedOnly: () => q.get("only") === "1",
     setPlanUnplannedOnly: () => undefined,
-    plan: () => undefined,
+    // As the plugin does (`main.plan`): an hour (or the day) from the drop, a session of that task, drawn at once.
+    plan: (path, start, allDay) => {
+      const title = host.planTasks().find((p) => p.path === path)?.title ?? path;
+      const end = new Date(start.getTime() + (allDay ? 86_400_000 : 3_600_000));
+      const blank = ev(`planned-${ITEMS.length}`, title, "20261001T000000", "20261001T010000", `RELATED-TO:${path}\r\n`);
+      ITEMS.push(["https://c/perso/", moveEvent(blank, null, localValue(start, allDay), localValue(end, allDay), TZ)]);
+      v.refresh();
+    },
     pickSlot: () => undefined,
     newTask: () => undefined,
     planPanelOpen: () => view === "timeGridWeek",
@@ -509,7 +516,7 @@ wholeDevicePixels(window);
 
 if (["calendar-week", "calendar-drag", "calendar-interact", "calendar-card", "calendar-group", "calendar-edit", "calendar-time", "calendar-zoom", "calendar-new"].includes(scenario)) calendar("timeGridWeek");
 else if (scenario === "calendar-list" || scenario === "calendar-list-narrow") calendar("listWeek");
-else if (scenario === "calendar-month" || scenario.startsWith("calendar-marks-month")) calendar("dayGridMonth");
+else if (scenario === "calendar-month" || scenario === "calendar-month-narrow" || scenario.startsWith("calendar-marks-month")) calendar("dayGridMonth");
 else if (scenario.startsWith("calendar-marks-week")) calendar("timeGridWeek");
 else if (scenario.startsWith("calendar-marks-list")) calendar("listWeek");
 else if (scenario === "calendar-month-drag") calendar("dayGridMonth", true);

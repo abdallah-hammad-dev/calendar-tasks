@@ -18,6 +18,48 @@ function markBehind(spans, headingPx) {
   return spans;
 }
 
+/**
+ * Month: once a day has hidden something behind its "+N more", nothing after it shows there. Runs in FullCalendar's
+ * module on a row's `DayGridSegHierarchy`. When `entry` reaches a closed day, its parts there are hidden and the
+ * rest placed as usual (an event over several days still shows where there's room); returns whether it did.
+ */
+function hideInClosedDays(hierarchy, entry, hidden) {
+  const closed = (day) => hierarchy.closedDays?.has(day) ?? false;
+  const { start, end } = entry.span;
+  if (!inClosedDays(hierarchy, entry)) return false;
+  for (let from = start; from < end; ) {
+    let to = from + 1;
+    while (to < end && closed(to) === closed(from)) to += 1;
+    const part = { ...entry, span: { start: from, end: to } };
+    if (closed(from)) hidden.push(part);
+    else hierarchy.insertEntry(part, hidden);
+    from = to;
+  }
+  return true;
+}
+
+/** Whether `entry` reaches a day closed by `closeDays`. */
+function inClosedDays(hierarchy, entry) {
+  for (let day = entry.span.start; day < entry.span.end; day += 1) if (hierarchy.closedDays?.has(day)) return true;
+  return false;
+}
+
+/**
+ * The room a day's "+N more" link takes (FullCalendar's CSS: .85em, line-height 1, 2px padding, 1px margin), at
+ * the font of a row's events. FullCalendar hid the line above whatever didn't fit to make room for the link, even
+ * a line on two (2026-10-20: a day showed one thing, then "+4 more"); now only when the link wouldn't fit.
+ */
+function moreLinkRoom(eventsEl) {
+  const style = (eventsEl.ownerDocument.defaultView ?? window).getComputedStyle(eventsEl);
+  return Math.ceil((parseFloat(style.fontSize) || 13) * 0.85 + 5);
+}
+
+/** Closes the days of what was just hidden (see `hideInClosedDays`). */
+function closeDays(hierarchy, hidden) {
+  hierarchy.closedDays ??= new Set();
+  for (const entry of hidden) for (let day = entry.span.start; day < entry.span.end; day += 1) hierarchy.closedDays.add(day);
+}
+
 /** What's changed in FullCalendar: each line must be there once, or the build fails, so an update can't drop a fix silently. */
 const PATCHES = [
   {
@@ -45,6 +87,26 @@ const PATCHES = [
       ["farCoord = Math.min(1, nearCoord + (farCoord - nearCoord) * 2);", "farCoord = 1;"],
     ],
   },
+  {
+    // Month, with lines of two heights (2026-10-20: events on two, deadlines on one). FullCalendar hid the line
+    // above whatever didn't fit, to make room for "+N more", even when there was room; and it kept that line's
+    // place and went on: a deadline further down still fit, under an empty gap. Now the line above goes only if
+    // the link doesn't fit (`moreLinkRoom`), and once a day shows "+N more", nothing after it shows there.
+    module: /@fullcalendar[\\/]daygrid[\\/]internal\.c?js$/,
+    prepend: ["const moreLink = { room: 20 };", moreLinkRoom, hideInClosedDays, inClosedDays, closeDays],
+    replace: [
+      ["        let fcContainerEl = this.fgElRefs.currentMap[firstKey];", "        let fcContainerEl = this.fgElRefs.currentMap[firstKey];\n        moreLink.room = moreLinkRoom(fcContainerEl);"],
+      ["        if (this.hiddenConsumes && touchingEntry) {", "        if (this.hiddenConsumes && touchingEntry && this.maxCoord - insertion.levelCoord < moreLink.room) {"],
+      [
+        "    handleInvalidInsertion(insertion, entry, hiddenEntries) {\n        const { entriesByLevel, forceHidden } = this;",
+        "    isInsertionValid(insertion, entry) {\n        return !inClosedDays(this, entry) && super.isInsertionValid(insertion, entry);\n    }\n    handleInvalidInsertion(insertion, entry, hiddenEntries) {\n        if (hideInClosedDays(this, entry, hiddenEntries)) return;\n        const hiddenBefore = hiddenEntries.length;\n        const { entriesByLevel, forceHidden } = this;",
+      ],
+      [
+        "        super.handleInvalidInsertion(insertion, entry, hiddenEntries);\n    }\n}",
+        "        super.handleInvalidInsertion(insertion, entry, hiddenEntries);\n        closeDays(this, hiddenEntries.slice(hiddenBefore));\n    }\n}",
+      ],
+    ],
+  },
 ];
 
 /** esbuild plugin applying PATCHES to FullCalendar as it's bundled. */
@@ -62,7 +124,8 @@ export function fullcalendarPatch() {
             source = source.replace(from, to);
           }
           applied.add(patch);
-          return { contents: `${patch.prepend ? `${patch.prepend}\n` : ""}${source}`, loader: "js" };
+          const prepend = [patch.prepend ?? []].flat().map((fn) => `${fn}\n`).join("");
+          return { contents: `${prepend}${source}`, loader: "js" };
         });
       }
       build.onEnd((result) => {
