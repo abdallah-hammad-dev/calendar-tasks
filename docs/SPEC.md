@@ -138,11 +138,16 @@ A note is created **only when I click** the event (calendar view, or the `URL` o
 - If the event is renamed or moved, the note is renamed (links follow).
 - `start`/`end` go **CalDAV → note only**: events are moved in the calendar, not by editing frontmatter.
 - **Header** (2026-10-19, asked: a band with the information, like task notes, not the properties): when, ↻,
-  place, the collection (its colour), Accept / Maybe / Decline for an invitation, "No longer in the calendar" when
-  the event is gone; properties hidden (the same toggle as task notes). A click on the time (or the calendar
-  button) opens the calendar on the event, in its day's view (2026-10-19), scrolled to it, blinking, to move it
-  there (the week's tab opens its week, to move it to another day): never the system's date
-  picker on `start` / `end`.
+  place, the collection (its colour), Accept / Maybe / Decline for an invitation; properties hidden (the same toggle
+  as task notes). A click on the time (or the calendar button) opens the calendar on the event, in its day's view
+  (2026-10-19), scrolled to it, blinking, to move it there (the week's tab opens its week, to move it to another
+  day): never the system's date picker on `start` / `end`. Its collection hidden, it is shown again (a notice says
+  so).
+- **Not in the calendar** (2026-10-19, asked: the calendar button opened a day without the event): the header says
+  why and has nothing to open there (the time isn't a link, no calendar button). Declined: "Declined: hidden from
+  the calendar", the answer still there to change it. Deleted (not on the server after a sync): "Event deleted
+  from the calendar" and **Delete the note**, through Obsidian's own deletion (its confirmation and trash
+  settings). Before the first sync nothing is said.
 
 ```yaml
 ---
@@ -195,6 +200,12 @@ Events in mirror collections are **read-only except my `PARTSTAT`**.
 - **RSVP = the extension edits my `ATTENDEE;PARTSTAT=…` on the server** (`PUT` with `If-Match`). The backend sees
   the change and relays it to Google / Microsoft. Same path as answering from the iPhone. When iOS answers it also
   rewrites the `ATTENDEE` parameters (adds `CUTYPE`, `EMAIL`, drops `RSVP`): the backend compares `PARTSTAT` only.
+- **Where my answer stands** (2026-10-19, asked: "le bouton accepter refuse marche ?"): sent at the first click, as in
+  Apple Calendar and Google (no Validate step: an answer can be changed any time). The card stays open and a line under
+  the buttons says where it is: "Sending your answer to the server…", "Not sent yet: the server can't be reached…",
+  "Answer saved.", then from the backend's `X-RSVP-STATE`: on its way to the organizer, "Sent to the organizer.", or
+  why it failed (in red). A new answer removes `X-RSVP-STATE` (it told how the previous one went); the backend writes
+  it again. Declining hides the invitation, so a notice says so.
 - Properties the backend writes and the extension reads (names to fix together with the backend):
   `X-SOURCE-ACCOUNT` (which account), `X-SOURCE-ATTENDEE` (which `ATTENDEE` is me), `X-RSVP-STATE`
   (`pending` / `confirmed` / `failed:<reason>`). "Me" = the server's `calendar-user-address-set` for my principal
@@ -322,7 +333,8 @@ Implementation: CodeMirror 6 view plugin (Live Preview) + `registerMarkdownPostP
 - **Tasks** panel in the calendar view (toggle, remembered): every open task, sorted by deadline (the most urgent
   first for the same one), each with its priority and how
   many time blocks it has this week or later (one dropped on a day already past this week counts, and one waiting
-  for the task's reminder). A task can get several blocks in a week, so planned tasks stay (2026-10-18: the user
+  for the task's reminder), in words after the work session's dashed shape: "2 créneaux" (2026-10-19: a clock and a
+  number read as nothing). A task can get several blocks in a week, so planned tasks stay (2026-10-18: the user
   disliked a "To plan" list that dropped them); a "No time block" toggle (remembered) shows only those with none.
   Drag one onto the calendar to block time there (a time slot: an hour, resizable; a day: all day); click one to
   type a slot. On a phone the open panel replaces the grid.
@@ -377,8 +389,8 @@ create / rename / delete.
 
 ### 6.4 Deletion (implemented as proposed in M2)
 
-- Server-side deletion never deletes a note: an event note stays as is; a task note gets `done: true` and loses
-  its `caldav_uid`.
+- Server-side deletion never deletes a note: an event note stays as is (its header says the event is deleted and
+  offers to delete the note, §4.3); a task note gets `done: true` and loses its `caldav_uid`.
 - Deleting a task note deletes its `VTODO`. Deleting an event note deletes nothing on the server (event notes are
   optional).
 
@@ -409,16 +421,34 @@ popovers.
   that Apple reads, nothing Apple-specific; the list iOS created as `DEFAULT_TASK_CALENDAR_NAME` gets a real name
   by being renamed on the server).
 - **Display types — three shapes, whatever the colors** (2026-10-17: with every collection in the same blue, the
-  user couldn't tell events from tasks): an **event** is a filled block (tint + solid bar; a dot in the month);
-  anything about a task carries the **task's checkbox**, ticked in place: a **work session** is a dashed, barely
-  tinted block (a dashed ring in the month), a **deadline** a one-line outlined marker, cornered like events (2026-10-19: a pill
+  user couldn't tell events from tasks): an **event** is a filled block (tint + solid bar; a solid vertical bar in the month and the agenda);
+  anything about a task carries the **task's checkbox**, ticked in place: a **work session** is drawn like an
+  event, its bar dashed (2026-10-20: a dashed outline around a barely tinted block didn't read as time taken; a
+  finely dotted vertical bar in the month and the agenda, where a dot and a dashed ring said little; the bars are
+  Apple Calendar's), a **deadline** a one-line outlined marker, cornered like events (2026-10-19: a pill
   read badly; a line across the day through it was tried and dropped: ugly), with "⚑ 18:00" (the time drops
   first when narrow; the checkbox, flag and time turn red once missed, the title stays readable; struck through
-  when done). A key under the toolbar names the three shapes, each drawn as in the grid (the deadline's: an
-  outlined box with its checkbox). Deadlines closer than 20 minutes on a day are one
+  when done). A key under the toolbar names the three shapes, each drawn as the view draws it: blocks in the week
+  and day (the deadline's: an outlined box with its checkbox), the line marks in the month and the agenda (a solid
+  bar, a dashed one, the checkbox). Deadlines closer than 20 minutes on a day are one
   marker, "3 tâches" + their names, whose card lists them with checkboxes (Google Calendar's "N tasks"; side by
   side they were unreadable slivers). Invitations: striped and an envelope while unanswered, faded for "maybe".
-  Month lines are aligned: mark, time, title.
+  Month lines are aligned: mark, time, title; all day, events stay bars, deadlines and work sessions are lines too.
+  The dotted bar is whole 2px dots, the same in every line (fitted to the height, some looked thicker; 2026-10-20).
+  Bars, dots and dashes are whole device pixels at any screen scaling: at 125 % (Windows) 2px is 2.5 pixels, and
+  dots came out 2 or 3 pixels long, bars 3 or 4 wide, depending on where each fell (2026-10-20). So these sizes are
+  2 and 3 CSS pixels rounded down to the pixel (2 and 3 pixels at 125 %, 3 and 4 at 150 %), followed as the
+  scaling or Obsidian's zoom changes.
+- **Agenda** (2026-10-20: FullCalendar's list read as a spreadsheet): a heading per day in one piece, "Mardi
+  27 octobre" (the year when it isn't this one) then "Aujourd'hui" (the accent) or "Demain"; a click opens the day.
+  Then the day's items without lines between them: when (muted; a deadline's after a flag, "⚑ 18:00" or
+  "⚑ Journée", red once missed), the month's mark in a column of its own (a solid bar, a dashed one, the checkbox, which
+  ticks the task), the title (the same weight for all) and "· where". What's over fades.
+- **What's at the same time** (week and day; 2026-10-19: a deadline at 14:05 covered the title of the event at
+  14:00), as in Google Calendar: what starts together (less than a title and its time apart) sits side by side;
+  what starts well below an event sits over its lower part, a little in from its left edge, the event drawn whole
+  behind it (side by side always, as in Apple Calendar, halved a 3-hour event for a deadline at its end). Narrow,
+  titles wrap whole words and the repeat icon makes room.
 - **Precision: 5 minutes** (Apple Calendar's): dragging and resizing snap to 5 minutes, and a dragged event shows
   the time it lands on. A click on an empty slot gives an hour from the half hour clicked. **To the minute**: the
   new event form and an event's card (click its time) have Start / End, each a day field and a time field (2026-10-19:
@@ -430,10 +460,27 @@ popovers.
   (26 to 312 px an hour, 52 by default, kept per device); the time under the pointer stays put. Taller hours get
   quarter-hour lines and their half / quarter hours written, fainter. A deadline stays one line high.
 - **Click** shows the event's card beside it (a modal on phones): when, ↻, place, collection, the task it's a time
-  block for, a checkbox for a deadline's task, Accept / Maybe / Decline for an invitation, "Open the note" (or the
-  task), and "…" for the other actions (the right-click menu); while its time is being changed, Save is the only
-  main button. Dragging a deadline edits `due`.
-- **Drag / resize** moves an event (not mirror events). **Selecting a range** creates an event (title, collection, or a task it's a work session for: picking it names the event, unless a title was typed), in a popover beside the selection, which stays drawn until the popover closes (a modal on phones).
+  block for, a checkbox for a deadline's task, Accept / Maybe / Decline for an invitation (and where my answer stands, §4.6), "Create the note" while
+  the event has none (notes are made on first open, §4.3; 2026-10-19), then "Open the note" (or "Open the task"; the
+  right-click menu says the same), and "…" for the other actions (the right-click menu); while its time is being changed, Save is the only
+  main button. The card is drawn again when the data changes (an answer pushed, a sync), and closes only if its
+  occurrence is gone. Dragging a deadline edits `due`.
+- **Drag / resize** moves an event (not mirror events or invitations: their tooltip says why), a work session or a
+  deadline, **only in Move mode** (2026-10-19, asked: "pas envie de bouger mon calendrier en glissant des trucs sans
+  faire exprès"): a "Move" toggle in the toolbar, off whenever the calendar opens (2026-10-20, confirmed: it's a
+  mode for a moment, the one that changes the calendar, and must read as such; never remembered). It shows all over, not only on
+  its button (2026-10-19, asked; Apple's jiggling icons as the idea, not the look): the button turns to "✓ Done",
+  the grid is framed in the accent, what can't move fades, what can be stretched shows a grip at its bottom, and the
+  key under the toolbar gives way to the hint ("Drag to move, pull the bottom edge to change the length"; in the
+  month "Drag onto another day"; "Esc to finish"). Escape or Done ends it; the agenda (nothing drags) ends it too. Off, a press on an event only
+  opens its card. Dropping a task from the Tasks panel and changing times in a card work either way (both are on
+  purpose). The event follows the pointer from where it was grabbed, to the 5 minutes (2026-10-19: it jumped up
+  to 15 minutes as it started to move). In the month, what's dragged stays under the pointer (it was far from
+  it) and the day it lands on is outlined; it keeps its time. What's dropped stays where it lands: a deadline
+  changes its reminder at once, then its note (2026-10-19: "ça revient puis ça se redéplace" when the calendar
+  redrew before the note's change reached the reminder). While something is held, the calendar doesn't redraw
+  (2026-10-19: a redraw from the move just before showed the old one again beside the one in hand); it does once
+  it's dropped. **Selecting a range** creates an event (title, collection, or a task it's a work session for: picking it names the event, unless a title was typed), in a popover beside the selection, which stays drawn until the popover closes (a modal on phones).
 - Editing an event's details (title, place, recurrence) can be done from a small modal; complex edits stay in
   Apple Calendar.
 

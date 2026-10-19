@@ -14,6 +14,36 @@ export interface EventCardInfo {
   lang: string;
   /** Its times can be changed (not an invitation, not a read-only calendar). */
   editable: boolean;
+  /** An event's note exists already: "Open the note", else "Create the note" (made on first open). */
+  hasNote: boolean;
+  /** Its last change made here: on the server, waiting to be pushed, or waiting while the server can't be reached. */
+  sync: SyncState;
+}
+
+export type SyncState = "synced" | "queued" | "offline";
+
+/**
+ * The line under the answer buttons (spec §7.1): nothing before an answer; after one, where it stands — still
+ * here, on the server, then (when a backend relays it, X-RSVP-STATE) on its way to the organizer, sent or failed.
+ */
+export function answerStatus(
+  invitation: Occurrence["invitation"],
+  sync: SyncState,
+): { icon: string; text: string; failed?: boolean } | null {
+  if (!invitation || invitation.partstat === "NEEDS-ACTION") return null;
+  if (sync === "offline") return { icon: "cloud-off", text: t("card.answerOffline") };
+  if (sync === "queued") return { icon: "clock", text: t("card.answerSending") };
+  const relay = invitation.relay;
+  if (relay?.startsWith("failed")) return { icon: "triangle-alert", text: t("view.rsvpFailed", { reason: relay.slice(7) || "?" }), failed: true };
+  if (relay === "pending") return { icon: "clock", text: t("view.rsvpPending") };
+  if (relay === "confirmed") return { icon: "check-check", text: t("card.answerRelayed") };
+  return { icon: "check", text: t("card.answerSaved") };
+}
+
+/** The button that opens an occurrence's note: the task's, or the event's, which may not exist yet. */
+export function openLabel(occ: Pick<Occurrence, "kind">, hasNote: boolean): { text: string; icon: string } {
+  if (occ.kind !== "event") return { text: t("menu.openTask"), icon: "file-text" };
+  return hasNote ? { text: t("menu.open"), icon: "file-text" } : { text: t("menu.createNote"), icon: "file-plus" };
 }
 
 export interface EventCardActions {
@@ -108,7 +138,18 @@ export function renderEventCard(el: HTMLElement, info: EventCardInfo, actions: E
   if (occ.invitation) {
     const r = rows.createDiv({ cls: "ct-card-row ct-card-rsvp" });
     setIcon(r.createSpan({ cls: "ct-card-icon" }), "mail");
-    const seg = r.createDiv({ cls: "ct-segmented" });
+    const body = r.createDiv({ cls: "ct-card-rsvp-body" });
+    const seg = body.createDiv({ cls: "ct-segmented" });
+    const status = body.createDiv({ cls: "ct-card-status" });
+    const showStatus = (s: ReturnType<typeof answerStatus>) => {
+      status.empty();
+      status.toggle(!!s);
+      status.toggleClass("is-failed", !!s?.failed);
+      if (!s) return;
+      setIcon(status.createSpan({ cls: "ct-card-icon" }), s.icon);
+      status.createSpan({ text: s.text });
+    };
+    showStatus(answerStatus(occ.invitation, info.sync));
     const answers: [PartStat, string][] = [
       ["ACCEPTED", t("menu.accept")],
       ["TENTATIVE", t("menu.maybe")],
@@ -119,6 +160,8 @@ export function renderEventCard(el: HTMLElement, info: EventCardInfo, actions: E
       b.addEventListener("click", () => {
         for (const x of buttons) x.removeClass("is-active");
         b.addClass("is-active");
+        // On its way until the calendar draws the card again from the cache (right after, and once it's pushed).
+        showStatus(answerStatus({ partstat: ps }, "queued"));
         actions.rsvp(ps);
       });
       return b;
@@ -126,7 +169,10 @@ export function renderEventCard(el: HTMLElement, info: EventCardInfo, actions: E
   }
 
   const foot = el.createDiv({ cls: "ct-card-foot" });
-  const open = foot.createEl("button", { cls: "mod-cta", text: occ.kind === "event" ? t("menu.open") : t("menu.openTask") });
+  const label = openLabel(occ, info.hasNote);
+  const open = foot.createEl("button", { cls: "mod-cta ct-card-open" });
+  setIcon(open.createSpan({ cls: "ct-card-open-icon" }), label.icon);
+  open.createSpan({ text: label.text });
   open.addEventListener("click", () => actions.open());
 }
 

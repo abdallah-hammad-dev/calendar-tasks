@@ -8,7 +8,16 @@ import { ItemView, Platform, setIcon, setTooltip, type WorkspaceLeaf } from "obs
 import { PRIORITY_MARK, type Priority } from "../constants";
 import { t, type StringKey } from "../i18n";
 import type { NewCalendar } from "../caldav/client";
-import { CardModal, renderCalendarCard, renderEventCard, renderNewCalendarCard, renderTaskGroup, type EventCardActions, type EventCardInfo } from "./event-card";
+import {
+  CardModal,
+  renderCalendarCard,
+  renderEventCard,
+  renderNewCalendarCard,
+  renderTaskGroup,
+  type EventCardActions,
+  type EventCardInfo,
+  type SyncState,
+} from "./event-card";
 import { closeDeadlines, type Occurrence } from "./expand";
 import { NewEventModal, renderNewEventForm, type NewEventOptions } from "./modals";
 import type { PartStat } from "./vevent";
@@ -35,8 +44,12 @@ export interface CalendarHost {
   createCalendar(spec: NewCalendar): Promise<boolean>;
   /** Asks, then deletes a collection and everything in it from the server. */
   deleteCalendar(url: string): void;
-  /** Opens the event's note, or the task's for a deadline or time block. */
+  /** Opens the event's note (creating it on first open), or the task's for a deadline or time block. */
   open(occ: Occurrence): void;
+  /** The event has its note already (event notes are created on first open). */
+  hasNote(occ: Occurrence): boolean;
+  /** Whether its last change made here is on the server yet. */
+  syncState(occ: Occurrence): SyncState;
   sync(): void;
   language(): string;
   /** Date to open on (default: today). */
@@ -87,6 +100,7 @@ const clock = (d: Date) => `${String(d.getHours()).padStart(2, "0")}:${String(d.
 const SNAP_MS = 5 * 60_000;
 /** A deadline is a moment, drawn as a one-line marker this long; closer deadlines share one marker. */
 const MARK_MS = 20 * 60_000;
+const DAY_MS = 86_400_000;
 /** An hour's height in the week and day views, in pixels (26 per half hour by default); pinch or Ctrl + wheel. */
 const ZOOM = { min: 26, max: 312, base: 52, step: 1.4 };
 const ZOOM_KEY = "calendar-tasks-zoom";
@@ -114,6 +128,8 @@ export class CalendarView extends ItemView {
   private panel: HTMLElement | null = null;
   private draggable: Draggable | null = null;
   private popover: { el: HTMLElement; kind: PopoverKind; closed: () => void } | null = null;
+  /** The event card on screen (beside the event, or a phone's modal): `refresh` draws it again from new data. */
+  private card: OpenCard | null = null;
   /** The "To plan" tasks, read once per refresh (the toolbar shows their count, the panel lists them). */
   private toPlan: ReturnType<CalendarHost["planTasks"]> = [];
   /** An occurrence to blink once it's drawn (`reveal`). */
@@ -125,6 +141,25 @@ export class CalendarView extends ItemView {
   private pendingZoom: { zoom: number; y: number | undefined } | null = null;
   /** The selection is being moved to the times typed in the new event form (not a new selection). */
   private reselecting = false;
+  /**
+   * Move mode: only then do events, work sessions and deadlines move or stretch when dragged, so nothing moves by
+   * accident. Off whenever the calendar opens.
+   */
+  private moving = false;
+  /**
+   * Where FullCalendar puts what's dragged in the month (a copy following the pointer, `position: fixed`): outside
+   * the tab, whose `contain: strict` would place it from the tab's corner instead of the window's (2026-10-19: it
+   * was far from the pointer). It has our classes (`ct-calendar`, `fc`), so the copy keeps our look.
+   */
+  private dragLayer: HTMLElement | null = null;
+  /**
+   * An event is pressed, dragged or stretched: redraws wait until it's let go. FullCalendar hides the original of
+   * what's dragged by its instance, which a redraw replaces: the old one showed again beside the one in hand
+   * (2026-10-19, right after another move, while its sync redrew the calendar).
+   */
+  private pressed = false;
+  private dragging = false;
+  private redrawLater = false;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -167,12 +202,15 @@ export class CalendarView extends ItemView {
     const saved = this.host.savedView();
     const initialView = saved && this.views().some(([type]) => type === saved) ? saved : Platform.isPhone ? "listWeek" : "timeGridWeek";
     this.zoom = Math.min(ZOOM.max, Math.max(ZOOM.min, Number(this.app.loadLocalStorage(ZOOM_KEY)) || ZOOM.base));
+    this.dragLayer?.remove();
+    this.dragLayer = root.ownerDocument.body.createDiv({ cls: "ct-calendar ct-drag-layer" });
     root.style.setProperty("--ct-slot-h", `${this.slotHeight()}px`);
     this.calendar = new Calendar(grid, {
       plugins: [dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin],
       headerToolbar: false,
       footerToolbar: false,
       editable: true,
+      fixedMirrorParent: this.dragLayer.createDiv({ cls: "fc fc-direction-ltr" }),
       droppable: true,
       drop: (info) => {
         const path = info.draggedEl.dataset.path;
@@ -200,6 +238,10 @@ export class CalendarView extends ItemView {
       unselect: () => {
         if (this.popover?.kind === "new") this.closePopover();
       },
+      eventDragStart: () => (this.dragging = true),
+      eventDragStop: () => this.letGo(),
+      eventResizeStart: () => (this.dragging = true),
+      eventResizeStop: () => this.letGo(),
       eventDrop: (info) =>
         void this.host
           .move(info.event.extendedProps.occ as Occurrence, info.event.start!, info.event.end, info.event.allDay)
@@ -230,12 +272,17 @@ export class CalendarView extends ItemView {
       dayMaxEvents: true,
       slotLabelFormat: { hour: "2-digit", minute: "2-digit", hour12: false },
       eventTimeFormat: { hour: "2-digit", minute: "2-digit", hour12: false },
+      defaultRangeSeparator: " – ",
       events: (info, success) => success(this.inputs(info.start, info.end)),
       eventContent: (arg) => this.eventContent(arg),
       dayHeaderContent: (arg) => this.dayHeader(arg),
       datesSet: (arg) => {
         this.closePopover();
         this.host.saveView(arg.view.type);
+        // Nothing drags in the agenda: move mode ends there. Elsewhere its hint says what dragging does in this view.
+        if (this.moving && arg.view.type.startsWith("list")) this.setMoving(false);
+        // The key draws the shapes as this view does; in move mode, the hint says what dragging does here.
+        else this.renderLegend();
         this.renderToolbar();
         // Switching between the agenda and the week (same dates) doesn't refetch: regroup the deadlines.
         if (arg.view.type.startsWith("timeGrid") !== this.grouped) this.calendar?.refetchEvents();
@@ -259,14 +306,23 @@ export class CalendarView extends ItemView {
         const occ = arg.event.extendedProps.occ as Occurrence | undefined;
         if (!occ) return;
         arg.el.dataset.occ = occ.id;
+        if (this.card?.occ.id === occ.id && !Platform.isPhone) arg.el.addClass("is-active");
         if (this.revealing === occ.id) this.blink(arg.el);
         if (color) arg.el.style.setProperty("--ct-ev-color", color);
-        // The agenda shows a deadline's moment, not the marker it's drawn as.
-        if (occ.kind === "deadline" && !occ.allDay) arg.el.querySelector(".fc-list-event-time")?.setText(hm(occ.start));
+        // The agenda shows a deadline's moment after a flag, as its marker in the grid says "⚑ 18:00" (not the
+        // marker's length), so it doesn't read as an event at that time.
+        const time = occ.kind === "deadline" ? arg.el.querySelector<HTMLElement>(".fc-list-event-time") : null;
+        if (time) {
+          time.empty();
+          setIcon(time.createSpan({ cls: "ct-ev-due-icon" }), "flag");
+          time.appendText(occ.allDay ? t("view.allDay") : hm(occ.start));
+        }
         const relay = occ.invitation?.relay;
         const relayText = relay ? (relay.startsWith("failed") ? t("view.rsvpFailed", { reason: relay.slice(7) || "?" }) : relay === "pending" ? t("view.rsvpPending") : "") : "";
         const kind = occ.kind === "deadline" ? t("key.deadline") : occ.kind === "timeblock" ? t("key.block") : "";
-        setTooltip(arg.el, [occ.title, kind, occ.location, relayText].filter(Boolean).join("\n"));
+        // In move mode, why this one doesn't move (an invitation is the organizer's to move).
+        const fixed = this.moving && !this.host.editable(occ) ? t(occ.invitation ? "view.fixedInvitation" : "view.fixed") : "";
+        setTooltip(arg.el, [occ.title, kind, occ.location, relayText, fixed].filter(Boolean).join("\n"));
         arg.el.addEventListener("contextmenu", (e) => {
           e.preventDefault();
           this.host.menu(occ, e);
@@ -309,16 +365,31 @@ export class CalendarView extends ItemView {
     this.registerDomEvent(grid, "touchend", (e) => {
       if (e.touches.length < 2) pinch = null;
     });
+    this.registerDomEvent(grid, "pointerdown", (e) => {
+      if ((e.target as HTMLElement | null)?.closest(".fc-event")) this.pressed = true;
+    }, { capture: true });
+    for (const type of ["pointerup", "pointercancel"] as const) {
+      this.registerDomEvent(window, type, () => {
+        this.pressed = false;
+        this.redrawIfLetGo();
+      });
+    }
     // An event's card closes on a click elsewhere (the new event popover closes with its selection), and on Escape.
     this.registerDomEvent(document, "mousedown", (e) => {
       const target = e.target as HTMLElement | null;
       if (!this.popover || this.popover.kind === "new" || !target || this.popover.el.contains(target) || target.closest(".menu, .modal-container")) return;
       this.closePopover();
     });
+    // Escape closes the card first, then ends move mode (in this calendar's tab).
     this.registerDomEvent(window, "keydown", (e) => {
-      if (e.key !== "Escape" || !this.popover || document.querySelector(".menu, .modal-container")) return;
-      e.preventDefault();
-      this.closePopover();
+      if (e.key !== "Escape" || document.querySelector(".menu, .modal-container")) return;
+      if (this.popover) {
+        e.preventDefault();
+        this.closePopover();
+      } else if (this.moving && this.app.workspace.getActiveViewOfType(CalendarView) === this) {
+        e.preventDefault();
+        this.setMoving(false);
+      }
     });
   }
 
@@ -328,6 +399,8 @@ export class CalendarView extends ItemView {
     this.draggable = null;
     this.calendar?.destroy();
     this.calendar = null;
+    this.dragLayer?.remove();
+    this.dragLayer = null;
   }
 
   /** What the user is looking at, for Claude's context. */
@@ -372,9 +445,18 @@ export class CalendarView extends ItemView {
     window.setTimeout(() => el.removeClass("ct-ev-reveal"), 2400);
   }
 
-  /** Re-reads events and calendars (after a sync or a task change). An open card may show stale data: it closes. */
+  /**
+   * Re-reads events and calendars (after a sync or a task change). An open event card is drawn again from the new
+   * data, so it shows where an answer stands (it closes if its occurrence is gone; times being typed are kept);
+   * a card listing close deadlines closes. While an event is held, it waits until it's let go.
+   */
   refresh(): void {
-    if (this.popover?.kind === "card") this.closePopover();
+    if (this.pressed || this.dragging) {
+      this.redrawLater = true;
+      return;
+    }
+    if (this.card) this.redrawCard(this.card);
+    else if (this.popover?.kind === "card") this.closePopover();
     this.calendar?.refetchEvents();
     this.toPlan = this.host.planTasks();
     this.renderToolbar();
@@ -384,7 +466,20 @@ export class CalendarView extends ItemView {
 
   /** Time passed: deadlines turn red once missed. Skipped while a popover is open (it would lose its anchor). */
   tick(): void {
-    if (!this.popover) this.calendar?.refetchEvents();
+    if (this.pressed || this.dragging) this.redrawLater = true;
+    else if (!this.popover) this.calendar?.refetchEvents();
+  }
+
+  /** A drag or stretch ended: FullCalendar applies the drop next, then the redraws that waited (see `pressed`). */
+  private letGo(): void {
+    this.dragging = false;
+    this.redrawIfLetGo();
+  }
+
+  private redrawIfLetGo(): void {
+    if (this.pressed || this.dragging || !this.redrawLater) return;
+    this.redrawLater = false;
+    window.setTimeout(() => this.refresh(), 0);
   }
 
   /** A task note changed: only the "To plan" list and its count (the events come from the server data). */
@@ -444,8 +539,8 @@ export class CalendarView extends ItemView {
       end: o.end ?? (o.allDay ? undefined : new Date(new Date(o.start).getTime() + MARK_MS)),
       allDay: o.allDay,
       classNames: classes,
-      editable: this.host.editable(o),
-      durationEditable: o.kind !== "deadline" && this.host.editable(o),
+      editable: this.moving && this.host.editable(o),
+      durationEditable: o.kind !== "deadline" && this.moving && this.host.editable(o),
       extendedProps: { occ: o, color: colors.get(o.calendarUrl) ?? null },
     };
   }
@@ -481,9 +576,9 @@ export class CalendarView extends ItemView {
   }
 
   /**
-   * An event drawn by us, in three shapes that say what it is: an event is a filled block (a dot in the month);
-   * anything about a task has its checkbox: a work session is a dashed block, a deadline a one-line marker with
-   * its time after a flag. Times come from FullCalendar's event, so a drag shows where it lands.
+   * An event drawn by us, in three shapes that say what it is: an event is a filled block (a bar in the month);
+   * anything about a task has its checkbox: a work session is the same block with its bar dashed, a deadline a
+   * one-line marker with its time after a flag. Times come from FullCalendar's event, so a drag shows where it lands.
    */
   private eventContent(arg: EventContentArg): { domNodes: Node[] } | true {
     const group = arg.event.extendedProps.group as Occurrence[] | undefined;
@@ -519,11 +614,21 @@ export class CalendarView extends ItemView {
         if (occ.location) time.createSpan({ cls: "ct-ev-place", text: ` · ${occ.location}` });
       }
     } else if (type === "dayGridMonth" && (!occ.allDay || task)) {
-      // Month: one aligned line each, a dot (event), a dashed ring (work session) or the checkbox (deadline).
-      el.addClass("is-dot");
-      if (occ.kind !== "deadline") el.createSpan({ cls: `ct-ev-dot${occ.kind === "timeblock" ? " is-ring" : ""}` });
+      // Month: one aligned line each, after a bar as in Apple Calendar (solid: event, dashed: work session) or the
+      // checkbox (deadline).
+      el.addClass("is-line");
+      if (occ.kind !== "deadline") el.createSpan({ cls: `ct-ev-bar${occ.kind === "timeblock" ? " is-dashed" : ""}` });
       const line = title(el, occ.kind === "deadline");
       if (!occ.allDay) line.insertBefore(createSpan({ cls: "ct-ev-time", text: clock(start) }), line.querySelector(".ct-ev-name"));
+    } else if (type.startsWith("list")) {
+      // The agenda: the month's marks in a column of their own (a solid bar, a dashed one, the checkbox), so every
+      // title starts at the same place, then where. Its time is FullCalendar's column.
+      el.addClass("is-agenda");
+      const mark = el.createSpan({ cls: "ct-ev-mark" });
+      if (occ.kind === "deadline") this.checkbox(mark, occ.taskUid, arg.event.classNames.includes("ct-ev-done"), !arg.isMirror);
+      else mark.createSpan({ cls: `ct-ev-bar${occ.kind === "timeblock" ? " is-dashed" : ""}` });
+      const line = title(el, false);
+      if (occ.location) line.createSpan({ cls: "ct-ev-place", text: `· ${occ.location}` });
     } else title(el);
     return { domNodes: [el] };
   }
@@ -542,8 +647,29 @@ export class CalendarView extends ItemView {
     return el;
   }
 
-  /** Week and day views: the weekday small, the date large (today in the accent color). */
+  /**
+   * The agenda's heading for a day, in one piece: "Tuesday 27 October" (the year when it isn't this one), then
+   * Today or Tomorrow (2026-10-20: the weekday on the left and the date on the far right read badly). It opens
+   * the day, as FullCalendar's link did.
+   */
+  private agendaDay(arg: DayHeaderContentArg): HTMLElement {
+    const now = new Date();
+    const date = arg.date;
+    const el = createDiv({ cls: `ct-ld${arg.isToday ? " is-today" : ""}` });
+    const format: Intl.DateTimeFormatOptions = { weekday: "long", day: "numeric", month: "long" };
+    if (date.getFullYear() !== now.getFullYear()) format.year = "numeric";
+    const text = new Intl.DateTimeFormat(this.host.language(), format).format(date);
+    el.createSpan({ cls: "ct-ld-date", text: text.charAt(0).toUpperCase() + text.slice(1) });
+    const midnight = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    const days = Math.round((midnight(date) - midnight(now)) / DAY_MS);
+    if (days === 0 || days === 1) el.createSpan({ cls: "ct-ld-rel", text: t(days === 0 ? "chip.today" : "chip.tomorrow") });
+    el.addEventListener("click", () => this.calendar?.changeView("timeGridDay", date));
+    return el;
+  }
+
+  /** Week and day views: the weekday small, the date large (today in the accent color). The agenda: `agendaDay`. */
   private dayHeader(arg: DayHeaderContentArg): { domNodes: Node[] } | true {
+    if (arg.view.type.startsWith("list")) return { domNodes: [this.agendaDay(arg)] };
     if (!arg.view.type.startsWith("timeGrid")) return true;
     const el = createDiv({ cls: `ct-dh${arg.isToday ? " is-today" : ""}` });
     el.createSpan({ cls: "ct-dh-weekday", text: new Intl.DateTimeFormat(this.host.language(), { weekday: "short" }).format(arg.date).replace(/\.$/, "") });
@@ -596,6 +722,10 @@ export class CalendarView extends ItemView {
       b.addEventListener("click", run);
     };
     action("plus", t("command.newTask"), t("command.newTask"), () => this.host.newTask());
+    // As iOS's Edit / Done: while moving, the button says how to finish.
+    if (!view.type.startsWith("list")) {
+      action(this.moving ? "check" : "move", t(this.moving ? "view.move.done" : "view.move"), t(this.moving ? "view.move.on" : "view.move.off"), () => this.setMoving(!this.moving), this.moving);
+    }
     const open = this.host.planPanelOpen();
     action("list-todo", t("view.tasksPanel"), t("view.tasksPanel.desc"), () => {
       this.host.setPlanPanelOpen(!open);
@@ -606,6 +736,18 @@ export class CalendarView extends ItemView {
     const sync = right.createEl("button", { cls: "clickable-icon ct-cal-sync", attr: { "aria-label": t("command.syncNow") } });
     setIcon(sync, "refresh-cw");
     sync.addEventListener("click", () => this.host.sync());
+  }
+
+  /**
+   * Move mode shows all over, not only on its button (2026-10-19, asked): the grid framed in the accent, what can't
+   * move faded, a stretch grip on what can, and the hint under the toolbar instead of the key.
+   */
+  private setMoving(on: boolean): void {
+    this.moving = on;
+    this.contentEl.toggleClass("is-moving", on);
+    this.renderToolbar();
+    this.renderLegend();
+    this.calendar?.refetchEvents();
   }
 
   /**
@@ -637,8 +779,18 @@ export class CalendarView extends ItemView {
     const add = legend.createEl("button", { cls: "clickable-icon ct-legend-add", attr: { "aria-label": t("cal.new") } });
     setIcon(add, "plus");
     add.addEventListener("click", () => this.newCalendar(add));
-    // What the shapes mean, the same in every view.
-    const key = legend.createDiv({ cls: "ct-key" });
+    if (this.moving) {
+      const hint = legend.createDiv({ cls: "ct-move-hint" });
+      setIcon(hint.createSpan({ cls: "ct-chip-icon" }), "move");
+      const month = this.calendar?.view.type.startsWith("dayGrid") ?? false;
+      hint.createSpan({ text: t(month ? "view.move.hintMonth" : "view.move.hint") });
+      if (!Platform.isMobile) hint.createSpan({ cls: "ct-move-hint-key", text: t("view.move.escape") });
+      return;
+    }
+    // What the shapes mean, drawn as this view draws them: blocks in the week and day, the marks before each line
+    // in the month and the agenda (a solid bar, a dashed one, the checkbox).
+    const lines = !(this.calendar?.view.type.startsWith("timeGrid") ?? true);
+    const key = legend.createDiv({ cls: `ct-key${lines ? " is-lines" : ""}` });
     for (const [shape, label] of [["event", "key.event"], ["block", "key.block"], ["deadline", "key.deadline"]] as const) {
       const item = key.createSpan({ cls: "ct-key-item" });
       const swatch = item.createSpan({ cls: `ct-key-swatch is-${shape}` });
@@ -690,9 +842,10 @@ export class CalendarView extends ItemView {
         due.appendText(task.due.text);
       }
       if (task.blocks) {
+        // Its time blocks in words, after the shape they have in the grid (a clock and a number read as nothing).
         const planned = text.createSpan({ cls: "ct-chip ct-plan-blocks" });
-        setIcon(planned.createSpan({ cls: "ct-chip-icon" }), "clock");
-        planned.appendText(String(task.blocks));
+        planned.createSpan({ cls: "ct-key-swatch is-block" });
+        planned.appendText(task.blocks === 1 ? t("view.blockShort") : t("view.blocksShort", { n: task.blocks }));
         setTooltip(planned, task.blocks === 1 ? t("view.blockPlanned") : t("view.blocksPlanned", { n: task.blocks }));
       }
       item.addEventListener("click", () => this.host.pickSlot(task.path));
@@ -844,47 +997,85 @@ export class CalendarView extends ItemView {
 
   /** An event's card: beside it on a computer, in a modal on a phone. */
   private showCard(occ: Occurrence, el: HTMLElement): void {
+    const actions = (o: Occurrence, close: () => void): EventCardActions => ({
+      open: () => {
+        close();
+        this.host.open(o);
+      },
+      toggleTask: () => o.taskUid && this.host.toggleTask(o.taskUid),
+      rsvp: (ps) => this.host.rsvp(o, ps),
+      more: (e) => this.host.menu(o, e),
+      move: (w) => {
+        close();
+        void this.host.move(o, localDate(w.start), w.end === null ? null : localDate(w.end), w.allDay);
+      },
+      close,
+    });
+    if (Platform.isPhone) {
+      new CardModal(this.app, (box, close) => {
+        const card: OpenCard = {
+          occ,
+          el: box,
+          draw: (o: Occurrence) => {
+            card.occ = o;
+            box.empty();
+            renderEventCard(box, this.cardInfo(o), actions(o, close));
+          },
+          close,
+        };
+        card.draw(occ);
+        this.card = card;
+        return () => {
+          if (this.card === card) this.card = null;
+        };
+      }).open();
+      return;
+    }
+    el.addClass("is-active");
+    const anchor = el.getBoundingClientRect();
+    // The event may be drawn again while its card is open (eventDidMount marks the new one).
+    const pop = this.openPopover("card", anchor, () => {
+      for (const e of Array.from(this.contentEl.querySelectorAll(".fc-event.is-active"))) e.removeClass("is-active");
+      this.card = null;
+    });
+    const close = () => this.closePopover();
+    const card: OpenCard = {
+      occ,
+      el: pop,
+      draw: (o: Occurrence) => {
+        const first = card.occ === o;
+        card.occ = o;
+        pop.empty();
+        renderEventCard(pop, this.cardInfo(o), actions(o, close));
+        if (!first) this.place(pop, anchor); // its height may have changed
+      },
+      close,
+    };
+    card.draw(occ);
+    this.card = card;
+  }
+
+  private cardInfo(occ: Occurrence): EventCardInfo {
     const calendar = this.host.calendars().find((c) => c.url === occ.calendarUrl) ?? null;
-    const info: EventCardInfo = {
+    return {
       occ,
       calendar: calendar && { name: calendar.name, color: calendar.color },
       task: occ.taskUid ? this.host.task(occ.taskUid) : null,
       lang: this.host.language(),
       editable: this.host.editable(occ),
+      hasNote: this.host.hasNote(occ),
+      sync: this.host.syncState(occ),
     };
-    const actions: Omit<EventCardActions, "close"> = {
-      open: () => {
-        this.closePopover();
-        this.host.open(occ);
-      },
-      toggleTask: () => occ.taskUid && this.host.toggleTask(occ.taskUid),
-      rsvp: (ps) => this.host.rsvp(occ, ps),
-      more: (e) => this.host.menu(occ, e),
-      move: (w) => {
-        this.closePopover();
-        void this.host.move(occ, localDate(w.start), w.end === null ? null : localDate(w.end), w.allDay);
-      },
-    };
-    if (Platform.isPhone) {
-      const card = (box: HTMLElement, close: () => void) =>
-        renderEventCard(box, info, {
-          ...actions,
-          open: () => {
-            close();
-            actions.open();
-          },
-          move: (w) => {
-            close();
-            actions.move(w);
-          },
-          close,
-        });
-      new CardModal(this.app, card).open();
-      return;
-    }
-    el.addClass("is-active");
-    const pop = this.openPopover("card", el.getBoundingClientRect(), () => el.removeClass("is-active"));
-    renderEventCard(pop, info, { ...actions, close: () => this.closePopover() });
+  }
+
+  /** The open card again, from the occurrence as it is now; closed if it's gone, left alone while times are typed. */
+  private redrawCard(card: OpenCard): void {
+    if (card.el.querySelector(".ct-card-when")) return;
+    const start = localDate(card.occ.start).getTime();
+    const end = card.occ.end ? localDate(card.occ.end).getTime() : start;
+    const fresh = this.host.occurrences(new Date(start - DAY_MS), new Date(end + DAY_MS)).find((o) => o.id === card.occ.id);
+    if (fresh) card.draw(fresh);
+    else card.close();
   }
 
   /** Close deadlines drawn as one marker: their list, each with its checkbox and a link to its note. */
@@ -919,6 +1110,14 @@ export class CalendarView extends ItemView {
 
 /** "new": the form beside a selection (closes with it); "card": an event's card; "calendar": a calendar's card. */
 type PopoverKind = "new" | "card" | "calendar";
+
+/** An event's card on screen, and how to draw it again for the occurrence as it is now. */
+interface OpenCard {
+  occ: Occurrence;
+  el: HTMLElement;
+  draw(occ: Occurrence): void;
+  close(): void;
+}
 
 /** A deadline already behind us (a whole day counts until it ends). */
 function isPast(o: Occurrence, now: Date): boolean {

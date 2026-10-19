@@ -1,4 +1,5 @@
 import esbuild from "esbuild";
+import { fullcalendarPatch } from "./tools/fullcalendar-patch.mjs";
 
 const prod = process.argv[2] === "production";
 
@@ -16,6 +17,7 @@ const ctx = await esbuild.context({
   treeShaking: true,
   minify: prod,
   outfile: "main.js",
+  plugins: [fullcalendarPatch()],
 });
 
 if (prod) {

@@ -138,10 +138,18 @@ user at each one.
   FullCalendar's own colors are transparent. Buttons need a selector stronger than Obsidian's
   `button:not(.clickable-icon)` (0,1,1) to lose its background and shadow.
 - **Event shapes say what they are** (2026-10-17, see spec §7.1): event = filled block, task things carry a
-  checkbox (`CalendarView.checkbox`, ticks the task in place), session = dashed block, deadline = outlined one-line
+  checkbox (`CalendarView.checkbox`, ticks the task in place), session = an event's block with its bar dashed (a background
+  under a transparent border, so it lays out as an event), deadline = outlined one-line
   marker (radius as events) with "⚑ time" (a line across the day through it was tried 2026-10-19: the user found
   it ugly). Close deadlines (< 20 min, same day) become one "N tâches" marker in week/day views only
   (`closeDeadlines` in `expand.ts`; `grouped` + a refetch in `datesSet`, since agenda ↔ week keeps the same dates).
+  The agenda (2026-10-20, spec §7.1) draws the month's mark (`ct-ev-bar`, `.is-dashed` for sessions, or the checkbox; its height
+  is the text's, or the month's lines grow and hide some) inside our content (`.ct-ev-mark`; FullCalendar's
+  `.fc-list-event-graphic` dot column is hidden, so titles line up), a deadline's time cell is rewritten in
+  `eventDidMount` (flag + time or "Journée"), day headings are `agendaDay` (`dayHeaderContent`, which replaces
+  FullCalendar's nav link: its own click opens the day), ranges use `defaultRangeSeparator: " – "`. The key's
+  swatches follow the view (`.ct-key.is-lines` outside the week and day; `datesSet` redraws the legend). The
+  `calendar-list` previews set the browser clock (`page.clock`) to Thursday 15 at 11:00 for Today / past.
   The checkbox stops `mousedown`/`touchstart`/`pointerdown` (no drag) and prevents mousedown's default: focusing
   the event lays FullCalendar's `.fc-event:focus::before` overlay over it and the release opened the card.
   Snap 5 min (`SNAP_MS`); a click selects one snap, so `select` turns it into an hour from the half hour.
@@ -159,6 +167,16 @@ user at each one.
   ~2.9em): `.fc-event-main` is a size container; under 2.9em the start goes on the title's line, and the title is
   clamped to the lines left (bands of 1.25em). `ui:preview` fails on any event whose box or line is cut
   (`clipped`, each line too: a line with `overflow: hidden` shrinks instead of overflowing the box).
+- **Whole device pixels** (2026-10-20, the user on Windows at 125 %: dots and bars "pas uniformes"): 2px is 2.5
+  device pixels there, and Chrome lays out in device pixels, so each dot or bar edge snapped to 2 or 3 depending on
+  where it fell. `wholeDevicePixels` (`src/calendar/device-pixels.ts`, from `main.onload` and on each `window-open`)
+  sets `--ct-2px` / `--ct-3px` on the body: 2 and 3 CSS px rounded down to whole device pixels, followed through a
+  `resolution` media query (scaling, Obsidian's zoom). Every bar, dot, dash and key swatch is sized from them
+  (`var(--ct-2px, 2px)` …), whole multiples only. Checked from the pixels by the `calendar-marks-*` previews
+  (month, week, agenda at 1.25 and 1.5: same width per kind, same dots, a session's dashes alike, the key too).
+  Those run in a browser started with `--force-device-scale-factor` (only the size emulated): Playwright's
+  `deviceScaleFactor` lays out in CSS pixels and scales the paint, which blurred what Windows draws sharp and passed
+  dashes Windows drew unequal.
 - **Calendars row** (2026-10-18): every collection looks the same (dot, name, Show/Hide), in the server's order.
   A list icon and per-kind tooltips for task lists were tried and removed: the user read them as hardcoded
   special cases ("c des collections ? pk ils ont des logos différents ?"); what a collection holds, and the
@@ -215,6 +233,46 @@ user at each one.
 - **Compact forms** (2026-10-19): the new event form and an event's times are one `.ct-form-grid` (`formRow` in
   `src/ui/form-row.ts`: icon, name, field); `renderWhenFields` writes day + time fields (`readFields`) into it, not
   `datetime-local`. Inputs that show their name carry no `aria-label`: Obsidian shows it as a tooltip on hover.
+- **Event cards stay open across a refresh** (2026-10-19): `CalendarView.card` (popover or phone modal) is drawn
+  again by `refresh()` from the occurrence found by id (`redrawCard`; closed if gone, left alone while
+  `.ct-card-when` is being typed); the event is marked active again in `eventDidMount`. Needed so the RSVP line
+  (`answerStatus`: host `syncState` = queued / offline from `syncFailed` / synced, then `X-RSVP-STATE`) shows after a
+  click. `syncNow` also redraws when the sync starts or stops failing with changes queued. `setPartstat` drops
+  `X-RSVP-STATE` when the answer changes. Event notes are lazy: the card and menu say "Create the note" until one
+  exists (`openLabel`, host `hasNote`).
+- **Dragging in the calendar** (2026-10-19): FullCalendar aims a dragged event from the middle of the slot row
+  it was grabbed in (`useEventCenter`), but reads the start under the pointer to `snapDuration` (5 min): with
+  30-minute rows the event jumped up to 15 minutes as soon as it moved, even sideways. `tools/fullcalendar-patch.mjs`
+  (an esbuild plugin, in the plugin build and the preview) sets `useSubjectCenter = false`, and fails the build if
+  FullCalendar loses a line it patches. It also lays out what's at the same time in the week and day (SPEC §7.1,
+  Google Calendar's way): `markBehind`, injected into `@fullcalendar/timegrid/internal.js`, marks an event whose
+  overlaps all start `HEADING_PX` (48) or more below its top; it weighs `BEHIND_WIDTH` (0.25) instead of 1 in
+  FullCalendar's columns and is drawn to the right edge behind them; the rest sits side by side (FullCalendar's
+  default drew the later one over the earlier from its middle, covering its title). Only with `slotEventOverlap`
+  (the task form's day preview turns it off: side by side always). The `calendar-week` preview checks a deadline
+  5 minutes into "Cours réseau" sits beside it, and "Séminaire" keeps its width with one at 12:00. Moving is behind `CalendarView.moving` (the toolbar's "Move", off at each open):
+  events get `editable` only then; the panel's drop and the card's time fields don't depend on it. The
+  `calendar-drag` preview checks nothing moves while locked, then exact landings (event, work session, deadline).
+  Move mode shows through `.ct-calendar.is-moving` (frame on `.ct-calendar-grid`, `.fc-event:not(.fc-event-draggable)`
+  faded, `.fc-event-resizer-end` shown with a grip) and `renderLegend` (the hint replaces `.ct-key`); Escape ends it
+  only when this calendar is the active view (the keydown is on window).
+  In the month, FullCalendar drags a `position: fixed` copy, which Obsidian's `.workspace-leaf { contain: strict }`
+  placed from the tab's corner (far from the pointer): `fixedMirrorParent` is `CalendarView.dragLayer`, a
+  `ct-calendar` > `fc` div on the document's body (our look still applies), removed on close. The
+  `calendar-month-drag` preview puts the calendar in a `.workspace-leaf` beside a fake sidebar to catch it.
+  A deadline set from the calendar (drag, picker) goes through `TaskSync.setDue`: the cached VTODO first (the
+  calendar draws from it), then the note. Through the note alone it waited for `NOTE_DEBOUNCE_MS`, and any redraw
+  in between (a sync ending, another move) drew it back at its old place. The `calendar-drag` harness redraws
+  100 ms after each drop to catch this, and reads positions in one `evaluate` (a locator can catch a redraw midway).
+  `refresh()` and `tick()` wait while an event is pressed (pointerdown on `.fc-event` until pointerup) or dragged /
+  stretched (`eventDragStart` … `eventDragStop`), then run once let go (after FullCalendar applies the drop):
+  FullCalendar hides what's dragged by instance id, and a refetch mid-drag made new instances, so the original
+  (even twice) showed beside the one in hand. `calendar-drag` holds an event while the previous drop's redraws come.
+- **Event notes whose event isn't in the calendar** (2026-10-19): `eventOfNote` finds the occurrence with
+  `findOccurrence(…, { declined: true })`, so a declined invitation's note still answers it; the header's `missing`
+  is `"declined"` or `"deleted"` (no catalog entry once calendars are synced), and then has no reveal (time static,
+  no calendar button). Deleted offers "Delete the note" = `fileManager.promptForDeletion` (Obsidian's confirmation
+  and trash settings; it trashes the file itself). `revealInCalendar` shows a hidden collection again.
 - **Calendar navigation** (2026-10-19): `navLinks` with `navLinkDayClick: "timeGridDay"` / `navLinkWeekClick:
   "timeGridWeek"` (our toolbar isn't FullCalendar's, so its own "day" was `dayGridDay`, a list); `weekNumbers`
   drawn as small tabs ("S43", `view.weekShort`). `reveal` switches to the occurrence's day view.

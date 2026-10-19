@@ -212,6 +212,24 @@ export class TaskSync {
     return this.serial(() => this.pushNote(path));
   }
 
+  /**
+   * A deadline set from the calendar (dragged, or picked): the reminder changes at once, since the calendar is drawn
+   * from it, then the note. Through the note alone it waited for the note's debounce, and a redraw meanwhile put
+   * the deadline back where it was for a moment (2026-10-19: "ça revient puis ça se redéplace").
+   */
+  setDue(path: string, due: string | null): Promise<void> {
+    return this.serial(async () => {
+      const note = this.d.vault.getNote(path);
+      const state = note && readNote(note.frontmatter);
+      if (!note || !state) return;
+      if (state.uid) await this.pushState(note, { ...state, due });
+      await this.d.vault.editFrontmatter(path, (fm) => {
+        if (due === null) delete fm[PROP.due];
+        else fm[PROP.due] = due;
+      });
+    });
+  }
+
   noteRenamed(oldPath: string, newPath: string): Promise<void> {
     return this.serial(async () => {
       for (const [uid, p] of this.notes) if (p === oldPath) this.notes.set(uid, newPath);

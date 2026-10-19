@@ -135,14 +135,15 @@ export function expandItem(itemUrl: string, calendarUrl: string, data: string, o
 
 /**
  * One occurrence of an event item: the event itself (rid null) or the occurrence whose RECURRENCE-ID is `rid`,
- * wherever it was moved to. Null if it doesn't exist (any more), was cancelled or declined.
+ * wherever it was moved to. Null if it doesn't exist (any more), was cancelled or declined (unless `declined`: an
+ * event note still shows the answer, to change it).
  */
 export function findOccurrence(
   itemUrl: string,
   calendarUrl: string,
   data: string,
   rid: string | null,
-  opts: Pick<ExpandOptions, "tz" | "me">,
+  opts: Pick<ExpandOptions, "tz" | "me"> & { declined?: boolean },
 ): Occurrence | null {
   let cal: Comp;
   try {
@@ -185,11 +186,11 @@ function build(
   start: Time,
   end: Time,
   recurrenceId: string | null,
-  opts: Pick<ExpandOptions, "tz" | "me">,
+  opts: Pick<ExpandOptions, "tz" | "me"> & { declined?: boolean },
 ): Occurrence | null {
   if (String(comp.getFirstPropertyValue("status") ?? "").toUpperCase() === "CANCELLED") return null;
   const invitation = invitationOf(comp, opts.me);
-  if (invitation?.partstat === "DECLINED") return null; // declined invitations are hidden
+  if (invitation?.partstat === "DECLINED" && !opts.declined) return null; // declined invitations are hidden
   const startLocal = toLocal(start, opts.tz);
   let endLocal = toLocal(end, opts.tz);
   if (start.isDate && endLocal <= startLocal) {

@@ -10,21 +10,28 @@ export interface EventHeaderModel {
   location: string | null;
   /** My answer, when I'm invited (null: not answered yet). */
   invitation: { partstat: PartStat | null } | null;
-  /** Not in the calendar (deleted, or not synced yet): only what the note says. */
-  gone: boolean;
+  /**
+   * Why it isn't in the calendar: declined (still on the server, hidden; the answer can change), or deleted (no longer
+   * on the server: only what the note says). Null when it's there, or before the first sync (nothing known yet).
+   */
+  missing: "declined" | "deleted" | null;
 }
 
 export interface EventHeaderActions {
   /** The calendar on this event (it blinks), to move it there. */
   reveal(): void;
   rsvp(partstat: PartStat): void;
+  /** Its event deleted, the note can go too (asked first, as Obsidian does). */
+  deleteNote(): void;
   properties: { shown: boolean; toggle(): void };
 }
 
 export interface EventHeaderLabels {
   reveal: string;
   repeats: string;
-  gone: string;
+  declined: string;
+  deleted: string;
+  deleteNote: string;
   answers: Record<PartStat, string>;
   showProperties: string;
   hideProperties: string;
@@ -32,7 +39,8 @@ export interface EventHeaderLabels {
 
 /**
  * The bar above an event note, like a task note's (spec §5.4): when (a click shows it in the calendar, where it's
- * moved), repetition, place, collection, the answer to an invitation; the raw properties hidden.
+ * moved), repetition, place, collection, the answer to an invitation; the raw properties hidden. An event not in the
+ * calendar says why, and has nothing to show there; a deleted one offers to delete the note.
  */
 export function renderEventHeader(model: EventHeaderModel, actions: EventHeaderActions, labels: EventHeaderLabels): HTMLElement {
   const header = createDiv({ cls: "ct-task-header ct-event-header" });
@@ -40,15 +48,22 @@ export function renderEventHeader(model: EventHeaderModel, actions: EventHeaderA
   const inner = header.createDiv({ cls: "ct-task-header-inner" });
 
   const item = (icon: string, text: string, cls = "is-static") => {
-    const el = inner.createEl(cls === "is-static" ? "span" : "button", { cls: `ct-task-header-item ${cls}` });
+    const el = inner.createEl(cls.split(" ").includes("is-static") ? "span" : "button", { cls: `ct-task-header-item ${cls}` });
     setIcon(el.createSpan({ cls: "ct-chip-icon" }), icon);
     el.createSpan({ text });
     return el;
   };
-  const when = item("clock", model.when, "is-due ct-event-when");
-  setTooltip(when, labels.reveal);
-  when.addEventListener("click", () => actions.reveal());
-  if (model.gone) item("calendar-off", labels.gone, "is-static is-gone");
+  if (model.missing) item("clock", model.when, "is-static is-due ct-event-when");
+  else {
+    const when = item("clock", model.when, "is-due ct-event-when");
+    setTooltip(when, labels.reveal);
+    when.addEventListener("click", () => actions.reveal());
+  }
+  if (model.missing === "declined") item("calendar-off", labels.declined, "is-static is-gone");
+  if (model.missing === "deleted") {
+    item("calendar-x", labels.deleted, "is-static is-gone");
+    item("trash-2", labels.deleteNote, "ct-event-delete-note").addEventListener("click", () => actions.deleteNote());
+  }
   if (model.repeats) item("repeat", labels.repeats);
   if (model.location) item("map-pin", model.location);
   if (model.calendar) {
@@ -76,7 +91,7 @@ export function renderEventHeader(model: EventHeaderModel, actions: EventHeaderA
     setTooltip(el, tooltip);
     el.addEventListener("click", onClick);
   };
-  tool("calendar-search", labels.reveal, () => actions.reveal());
+  if (!model.missing) tool("calendar-search", labels.reveal, () => actions.reveal());
   const shown = actions.properties.shown;
   tool("list", shown ? labels.hideProperties : labels.showProperties, () => actions.properties.toggle(), shown);
   return header;

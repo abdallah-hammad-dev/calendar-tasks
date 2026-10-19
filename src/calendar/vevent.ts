@@ -147,7 +147,8 @@ export function endSeries(data: string, taskUid: string, tz: string, now = new D
 
 /**
  * My answer to an invitation, for the whole event (series and exceptions). Null if I'm not an attendee.
- * The backend relays it to the provider; nothing else in the event changes (spec §4.6).
+ * The backend relays it to the provider; nothing else in the event changes (spec §4.6), except the backend's
+ * X-RSVP-STATE when the answer changes: it told how the previous answer went, and the backend writes it again.
  */
 export function setPartstat(data: string, me: string[], partstat: PartStat, now = new Date()): string | null {
   const { cal, events } = parse(data);
@@ -156,13 +157,19 @@ export function setPartstat(data: string, me: string[], partstat: PartStat, now 
   for (const ev of events) {
     const declared = ev.getFirstPropertyValue("x-source-attendee");
     const set = declared ? new Set([...mine, address(declared)]) : mine;
+    let mineHere = false;
+    let changed = false;
     for (const att of ev.getAllProperties("attendee")) {
       if (!set.has(address(att.getFirstValue()))) continue;
+      if (String(att.getParameter("partstat") ?? "NEEDS-ACTION").toUpperCase() !== partstat) changed = true;
       att.setParameter("partstat", partstat);
       att.removeParameter("rsvp");
-      found = true;
+      mineHere = true;
     }
-    if (found) touch(ev, now);
+    if (!mineHere) continue;
+    found = true;
+    if (changed) ev.removeAllProperties("x-rsvp-state");
+    touch(ev, now);
   }
   return found ? cal.toString() : null;
 }

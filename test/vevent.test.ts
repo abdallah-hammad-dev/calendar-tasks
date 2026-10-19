@@ -108,6 +108,16 @@ describe("invitations", () => {
     expect(setPartstat(invite, ["nobody@else.com"], "ACCEPTED", NOW)).toBeNull();
   });
 
+  it("drops the backend's relay state when the answer changes, not when it's the same", () => {
+    const relayed = invite.replace("X-SOURCE-ACCOUNT:school\r\n", "X-SOURCE-ACCOUNT:school\r\nX-RSVP-STATE:confirmed\r\n");
+    expect(occ(relayed)[0]!.invitation).toEqual({ partstat: "NEEDS-ACTION", relay: "confirmed" });
+    const answered = setPartstat(relayed, ["abd@bench.test"], "ACCEPTED", NOW)!;
+    expect(lines(answered).some((l) => l.startsWith("X-RSVP-STATE"))).toBe(false);
+    expect(lines(answered)).toContain("X-SOURCE-ACCOUNT:school");
+    const again = answered.replace("X-SOURCE-ACCOUNT:school\r\n", "X-SOURCE-ACCOUNT:school\r\nX-RSVP-STATE:pending\r\n");
+    expect(lines(setPartstat(again, ["abd@bench.test"], "ACCEPTED", NOW)!)).toContain("X-RSVP-STATE:pending");
+  });
+
   it("knows mirrored events", () => {
     expect(isMirror(invite)).toBe(true);
     expect(isMirror(weekly)).toBe(false);

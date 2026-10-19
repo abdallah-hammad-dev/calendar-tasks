@@ -2,6 +2,7 @@ import { getLanguage, MarkdownView, Menu, Notice, Platform, Plugin, TFile, type 
 import type { Line, Text } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { ItemCatalog } from "./calendar/catalog";
+import { wholeDevicePixels } from "./calendar/device-pixels";
 import { CALENDAR_VIEW, CalendarView, type CalendarEntry, type CalendarHost } from "./calendar/CalendarView";
 import { EventNotes, noteDate, type EventDateFormat } from "./calendar/event-notes";
 import { expandItem, findOccurrence, pickOccurrence, type Occurrence } from "./calendar/expand";
@@ -25,7 +26,7 @@ import { repeatFromNote, repeatLabel, repeatToNote, taskEdit, type Block, type W
 import { refreshTaskDecorations, taskEditorExtension } from "./editor/live-preview";
 import { decorateRendered } from "./editor/reading-view";
 import { renderCheckbox, renderChips, type EditFocus, type RenderLabels } from "./editor/render";
-import { whenText } from "./calendar/event-card";
+import { openLabel, whenText } from "./calendar/event-card";
 import { renderEventHeader } from "./editor/event-header";
 import { renderTaskHeader, type TaskHeaderModel } from "./editor/task-header";
 import { DatePickerModal } from "./editor/date-picker";
@@ -49,6 +50,14 @@ const RESTART_DEBOUNCE_MS = 1_500;
 const DAY_MS = 86_400_000;
 const PALETTE = ["#4f8cff", "#e2725b", "#3fb68b", "#c678dd", "#d19a66", "#56b6c2"];
 
+/** An event note and what it stands for: its occurrence (null if gone), and the times it says. */
+interface EventOfNote {
+  file: TFile;
+  occ: Occurrence | null;
+  start: string;
+  end: string | null;
+}
+
 export default class CalendarTasksPlugin extends Plugin implements SettingsHost {
   declare settings: CalendarTasksSettings;
   /** Null until a server is configured. */
@@ -61,6 +70,8 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
   private interval: number | null = null;
   private intervalMinutes = 0;
   private lastSync = 0;
+  /** The last sync couldn't reach the server: queued changes wait for the next one. */
+  private syncFailed = false;
   private syncTimer: number | null = null;
   private noteTimers = new Map<string, number>();
   private calendarsShown = "";
@@ -95,6 +106,9 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     this.catalog = new ItemCatalog(() => this.sync);
     this.settingTab = new SettingsTab(this.app, this);
     this.addSettingTab(this.settingTab);
+    // The calendar's dots and bars in whole device pixels, in this window and the ones popped out.
+    this.register(wholeDevicePixels(window));
+    this.registerEvent(this.app.workspace.on("window-open", (_win, popout) => this.register(wholeDevicePixels(popout))));
     this.addCommand({ id: "sync-now", name: t("command.syncNow"), callback: () => void this.syncNow(true) });
     this.addCommand({ id: "reset-cache", name: t("command.resetCache"), callback: () => void this.resetCache() });
     this.addCommand({
@@ -459,6 +473,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
   }
 
   private async setDeadline(path: string, value: string | null): Promise<void> {
+    if (this.tasks) return this.tasks.setDue(path, value);
     const file = this.app.vault.getFileByPath(path);
     if (!file) return;
     await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
@@ -629,6 +644,8 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     // and a refused push is merged field by field (TaskSync.onConflict).
     await this.flushNoteChanges();
     const r = await this.sync.sync();
+    const failedChanged = !r.ok !== this.syncFailed;
+    this.syncFailed = !r.ok;
     if (!r.ok) {
       console.warn(`[calendar-tasks] sync failed: ${r.error}`);
       if (manual) new Notice(t("sync.failed", { error: r.error ?? "?" }));
@@ -638,9 +655,9 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     }
     this.catalog.invalidate();
     if (r.pulled) await this.updateEventNotes();
-    // Redraw only when something moved (an open event card would close for nothing); pushes turn the
-    // "waiting to sync" icons off.
-    if (r.pulled || r.pushed) this.scheduleRedraw(true);
+    // Redraw only when something moved; pushes turn the "waiting to sync" icons off, and an open card says
+    // whether an answer reached the server (or can't, while it's unreachable).
+    if (r.pulled || r.pushed || (failedChanged && this.sync.pendingCount)) this.scheduleRedraw(true);
     this.refreshSettingsIfCalendarsChanged();
   }
 
@@ -648,6 +665,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
   private async restart(): Promise<void> {
     this.connection = this.connectionKey();
     this.tasks = null;
+    this.syncFailed = false;
     const client = this.client();
     this.sync = client
       ? new SyncEngine(client, this.store, `${this.settings.serverUrl}|${this.settings.username}`, {
@@ -721,6 +739,8 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
         void this.saveData(this.settings);
       },
       open: (occ) => void this.openOccurrence(occ),
+      hasNote: (occ) => this.hasEventNote(occ),
+      syncState: (occ) => (!this.sync?.isPending(occ.itemUrl) ? "synced" : this.syncFailed ? "offline" : "queued"),
       sync: () => void this.syncNow(true),
       language: () => getLanguage(),
       editable: (occ) => this.editable(occ),
@@ -940,12 +960,8 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     const menu = new Menu();
     const run = (fn: () => Promise<void>) => () =>
       void fn().catch((e: unknown) => new Notice(t("error.write", { error: e instanceof Error ? e.message : String(e) })));
-    menu.addItem((i) =>
-      i
-        .setTitle(occ.kind === "event" ? t("menu.open") : t("menu.openTask"))
-        .setIcon("file-text")
-        .onClick(() => void this.openOccurrence(occ)),
-    );
+    const open = openLabel(occ, this.hasEventNote(occ));
+    menu.addItem((i) => i.setTitle(open.text).setIcon(open.icon).onClick(() => void this.openOccurrence(occ)));
     const taskPath = occ.kind === "deadline" ? this.taskNotePath(occ.taskUid) : null;
     if (taskPath) {
       menu.addItem((i) => i.setTitle(t("menu.editTask")).setIcon("pencil").onClick(() => this.editTask(taskPath, null)));
@@ -1008,6 +1024,8 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       return;
     }
     await this.saveEvent(occ.calendarUrl, occ.itemUrl, updated);
+    // A declined invitation leaves the calendar (spec §4.6): say so, rather than let it vanish.
+    if (partstat === "DECLINED") new Notice(t("rsvp.declined"));
   }
 
   private async saveEvent(calendarUrl: string, url: string, data: string): Promise<void> {
@@ -1064,6 +1082,11 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       return;
     }
     await this.openPath(await this.eventNotes.ensure(occ));
+  }
+
+  /** An event's note is made on first open; until then the calendar offers to create it. */
+  private hasEventNote(occ: Occurrence): boolean {
+    return occ.kind === "event" && this.eventNotes.pathFor(occ.uid, occ.recurrenceId) !== null;
   }
 
   /** `obsidian://calendar-tasks?uid=…[&rid=…]`, e.g. tapped in Apple Calendar or Reminders (spec §4.5). */
@@ -1305,21 +1328,21 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     }
   }
 
-  /** What an event note stands for: its occurrence in the calendar (null if gone), and the times it says. */
-  private eventOfNote(file: TFile): { occ: Occurrence | null; start: string; end: string | null } | null {
+  /** What an event note stands for: its occurrence (null if gone; declined ones too), and the times it says. */
+  private eventOfNote(file: TFile): EventOfNote | null {
     const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
     const uid: unknown = fm?.[PROP.uid];
     if (fm?.[PROP.type] !== NOTE_TYPE.event || typeof uid !== "string") return null;
     const rid: unknown = fm[PROP.recurrenceId];
     const entry = this.catalog.get(uid);
     const data = entry && this.sync?.item(entry.url)?.data;
-    const opts = { tz: localZone(), me: this.myAddresses() };
+    const opts = { tz: localZone(), me: this.myAddresses(), declined: true };
     const occ = entry && data ? findOccurrence(entry.url, entry.calendarUrl, data, typeof rid === "string" ? rid : null, opts) : null;
     const start = occ?.start ?? normalizeDue(fm[PROP.start]);
-    return start ? { occ, start, end: occ ? occ.end : normalizeDue(fm[PROP.end]) } : null;
+    return start ? { file, occ, start, end: occ ? occ.end : normalizeDue(fm[PROP.end]) } : null;
   }
 
-  private eventHeader({ occ, start, end }: { occ: Occurrence | null; start: string; end: string | null }): HTMLElement {
+  private eventHeader({ file, occ, start, end }: EventOfNote): HTMLElement {
     const calendar = occ ? this.calendarEntries().find((c) => c.url === occ.calendarUrl) : undefined;
     const answer = occ?.invitation?.partstat;
     return renderEventHeader(
@@ -1329,14 +1352,15 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
         repeats: !!occ?.recurring,
         location: occ?.location ?? null,
         invitation: occ?.invitation ? { partstat: answer === "ACCEPTED" || answer === "TENTATIVE" || answer === "DECLINED" ? answer : null } : null,
-        // Before the first sync nothing is known yet: not "gone".
-        gone: !occ && !!this.sync?.calendars().length,
+        // Before the first sync nothing is known yet: not "deleted".
+        missing: answer === "DECLINED" ? "declined" : !occ && this.sync?.calendars().length ? "deleted" : null,
       },
       {
         reveal: () => void this.revealInCalendar(occ, start),
         rsvp: (ps) => {
           if (occ) void this.rsvp(occ, ps).catch((e: unknown) => new Notice(t("error.write", { error: e instanceof Error ? e.message : String(e) })));
         },
+        deleteNote: () => void this.app.fileManager.promptForDeletion(file),
         properties: {
           shown: this.settings.showTaskProperties,
           toggle: () => {
@@ -1349,7 +1373,9 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       {
         reveal: t("header.reveal"),
         repeats: t("card.repeats"),
-        gone: t("header.gone"),
+        declined: t("header.declined"),
+        deleted: t("header.deleted"),
+        deleteNote: t("header.deleteNote"),
         answers: { ACCEPTED: t("menu.accept"), TENTATIVE: t("menu.maybe"), DECLINED: t("menu.decline") },
         showProperties: t("header.showProperties"),
         hideProperties: t("header.hideProperties"),
@@ -1359,6 +1385,13 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
 
   /** The calendar on an occurrence: its day, scrolled to it, blinking once (or just its day when it's gone). */
   private async revealInCalendar(occ: Occurrence | null, start: string): Promise<void> {
+    // Its collection hidden, it wouldn't be there: the collection is shown again.
+    if (occ && this.settings.hiddenCalendars.includes(occ.calendarUrl)) {
+      this.settings.hiddenCalendars = this.settings.hiddenCalendars.filter((u) => u !== occ.calendarUrl);
+      void this.saveData(this.settings);
+      this.refreshViews();
+      new Notice(t("header.calendarShown", { name: this.calendarEntries().find((c) => c.url === occ.calendarUrl)?.name ?? "" }));
+    }
     await this.openCalendar();
     const view = this.app.workspace.getLeavesOfType(CALENDAR_VIEW)[0]?.view;
     if (!(view instanceof CalendarView)) return;

@@ -3,7 +3,10 @@
  * ?scenario=<name>&theme=light|dark&lang=fr|en
  */
 import { CalendarView, type CalendarHost } from "../../src/calendar/CalendarView";
+import { wholeDevicePixels } from "../../src/calendar/device-pixels";
 import { expandItem } from "../../src/calendar/expand";
+import { moveEvent, setPartstat } from "../../src/calendar/vevent";
+import { writeTask } from "../../src/tasks/vtodo";
 import { chipModel, type ChipModel } from "../../src/editor/chips";
 import { DateSuggest } from "../../src/editor/date-suggest";
 import { TaskModal } from "../../src/tasks/modals";
@@ -41,6 +44,8 @@ const ITEMS: [string, string][] = [
   ["https://c/perso/", ev("s", "Séminaire", "20261014T090000", "20261014T123000", "LOCATION:Salle 3\r\n")],
   ["https://c/perso/", ics("BEGIN:VEVENT\r\nUID:trip\r\nSUMMARY:Lyon\r\nDTSTART;VALUE=DATE:20261016\r\nDTEND;VALUE=DATE:20261018\r\nEND:VEVENT\r\n")],
   ["https://c/ecole/", ev("c1", "Cours réseau", "20261013T083000", "20261013T103000", "RRULE:FREQ=WEEKLY;COUNT=10\r\n")],
+  // A deadline right after an event starts: beside it, not over its title.
+  ["https://c/taches/", todo("t12", "Imprimer les grilles", "20261013T083500")],
   ["https://c/ecole/", ev("inv", "Jury de projet", "20261015T140000", "20261015T153000",
     "ORGANIZER:mailto:prof@uni.edu\r\nATTENDEE;PARTSTAT=NEEDS-ACTION:mailto:abd@bench.test\r\n")],
   ["https://c/ecole/", ev("inv2", "Réunion pédagogique", "20261016T110000", "20261016T120000",
@@ -62,6 +67,8 @@ const ITEMS: [string, string][] = [
   ["https://c/perso/", ev("blk3", "Relire le plan", "20261013T143500", "20261013T150500", "RELATED-TO:t8\r\n")],
   ["https://c/taches/", todo("t8", "Rédiger le mémoire", "20261023T180000")],
   ["https://c/taches/", ics("BEGIN:VTODO\r\nUID:t9\r\nSUMMARY:Acheter du lait\r\nDUE;VALUE=DATE:20261017\r\nEND:VTODO\r\n")],
+  // A work session all day: a line in the month, like an all-day deadline.
+  ["https://c/perso/", ics("BEGIN:VEVENT\r\nUID:blk4\r\nSUMMARY:Relire le chapitre 2\r\nRELATED-TO:t8\r\nDTSTART;VALUE=DATE:20261017\r\nDTEND;VALUE=DATE:20261018\r\nEND:VEVENT\r\n")],
   ["https://c/taches/", ics("BEGIN:VTODO\r\nUID:t10\r\nSUMMARY:Appeler la banque\r\nDUE;VALUE=DATE:20261015\r\nEND:VTODO\r\n")],
 ];
 // The week after, for the task form's day preview.
@@ -81,7 +88,27 @@ const TASKS: Record<string, { title: string; done: boolean }> = {
   t8: { title: "Rédiger le mémoire", done: false },
 };
 
-function calendar(view: "timeGridWeek" | "dayGridMonth" | "listWeek"): void {
+/** `inTab`: inside an Obsidian tab beside a sidebar, whose `contain: strict` shifts `position: fixed` children. */
+function calendar(view: "timeGridWeek" | "dayGridMonth" | "listWeek", inTab = false): void {
+  const queued = new Set<string>();
+  // "calendar-drag": moves are written as the plugin writes them: the data changes at once (a deadline's reminder
+  // too, TaskSync.setDue), the view redraws, then again once pushed. A redraw from elsewhere comes right after (a
+  // sync ending, another move): what was dropped must stay.
+  const drag = scenario === "calendar-drag" || scenario === "calendar-month-drag";
+  const realMove = (o: Parameters<CalendarHost["move"]>[0], start: Date, end: Date | null, allDay: boolean) => {
+    const i = ITEMS.findIndex(([cal], j) => `${cal}${j}.ics` === o.itemUrl);
+    const local = (d: Date) => localValue(d, allDay);
+    setTimeout(() => v.refresh(), 100);
+    if (o.kind === "deadline") {
+      ITEMS[i]![1] = writeTask(ITEMS[i]![1], { due: local(start) }, { tz: TZ });
+      setTimeout(() => v.refresh(), 200);
+      return;
+    }
+    const fallback = new Date(start.getTime() + (allDay ? 86_400_000 : 3_600_000));
+    ITEMS[i]![1] = moveEvent(ITEMS[i]![1], o.recurring ? o.recurrenceId : null, local(start), local(end ?? fallback), TZ);
+    v.refresh();
+    setTimeout(() => v.refresh(), 600);
+  };
   const host: CalendarHost = {
     occurrences: (from, to) =>
       ITEMS.flatMap(([cal], i) => expandItem(`${cal}${i}.ics`, cal, ITEMS[i]![1], { from, to, tz: TZ, me: ["abd@bench.test"] })),
@@ -94,12 +121,16 @@ function calendar(view: "timeGridWeek" | "dayGridMonth" | "listWeek"): void {
     },
     deleteCalendar: (url) => ((window as unknown as { __deleted: string }).__deleted = url),
     open: () => undefined,
+    // Invitations have no note yet ("Create the note"), the other events have one ("Open the note").
+    hasNote: (o) => !o.invitation,
+    syncState: (o) => (queued.has(o.itemUrl) ? "queued" : "synced"),
     sync: () => undefined,
     language: () => q.get("lang") ?? "fr",
     initialDate: () => "2026-10-15",
-    editable: (o) => o.kind !== "deadline" && !o.invitation,
-    move: async (_o, start, end) => {
+    editable: (o) => (drag ? !CALS.find((c) => c.url === o.calendarUrl)?.readOnly && !o.invitation : o.kind !== "deadline" && !o.invitation),
+    move: async (o, start, end, allDay) => {
       (window as unknown as { __moved: string }).__moved = `${start.toString().slice(16, 21)}-${end?.toString().slice(16, 21) ?? ""}`;
+      if (drag) realMove(o, start, end, allDay);
       return true;
     },
     newEvent: (start, end, allDay) => ({
@@ -125,15 +156,30 @@ function calendar(view: "timeGridWeek" | "dayGridMonth" | "listWeek"): void {
     setPlanPanelOpen: () => undefined,
     task: (uid) => TASKS[uid] ?? null,
     toggleTask: () => undefined,
-    rsvp: () => undefined,
+    // As in the plugin: the answer is written and queued (the view redraws), then pushed (it redraws again).
+    rsvp: (o, ps) => {
+      const i = ITEMS.findIndex(([cal], j) => `${cal}${j}.ics` === o.itemUrl);
+      ITEMS[i]![1] = setPartstat(ITEMS[i]![1], ["abd@bench.test"], ps)!;
+      queued.add(o.itemUrl);
+      v.refresh();
+      setTimeout(() => {
+        queued.delete(o.itemUrl);
+        v.refresh();
+      }, 400);
+    },
     savedView: () => null,
     saveView: () => undefined,
   };
-  const leaf = { app: { workspace: { on: () => ({}) }, loadLocalStorage: () => null, saveLocalStorage: () => undefined } };
+  const leaf = { app: { workspace: { on: () => ({}), getActiveViewOfType: () => v }, loadLocalStorage: () => null, saveLocalStorage: () => undefined } };
   const v = new CalendarView(leaf as never, host);
   (window as unknown as { __reveal: (id: string, start: string) => void }).__reveal = (id, start) => v.reveal(id, start);
   v.containerEl.style.height = "100vh";
-  document.body.appendChild(v.containerEl);
+  if (inTab) {
+    const tab = document.body.createDiv({ cls: "workspace-leaf" });
+    Object.assign(tab.style, { position: "fixed", top: "40px", left: "260px", right: "0", bottom: "0" });
+    v.containerEl.style.height = "100%";
+    tab.appendChild(v.containerEl);
+  } else document.body.appendChild(v.containerEl);
   void v.onOpen().then(() => {
     if (view !== "timeGridWeek") (v as unknown as { calendar: { changeView(v: string): void } }).calendar.changeView(view);
     setTimeout(done, 300);
@@ -378,29 +424,40 @@ function taskNote(): void {
   done();
 }
 
-/** An event note: its header (when, repetition, place, collection, the answer to an invitation), no properties. */
-function eventNote(): void {
+/**
+ * An event note: its header (when, repetition, place, collection, the answer to an invitation), no properties.
+ * Declined, it says it's hidden and keeps the answer; deleted, only the note's times and a button to delete it.
+ */
+function eventNote(missing: "declined" | "deleted" | null = null): void {
   const leaf = document.body.createDiv({ cls: "workspace-leaf-content", attr: { "data-type": "markdown" } });
   Object.assign(leaf.style, { height: "100vh", display: "flex", flexDirection: "column" });
   leaf.createDiv({ cls: "view-header", text: "" }).style.height = "40px";
   const content = leaf.createDiv({ cls: "view-content ct-task-view" });
   content.style.flex = "1";
-  const revealed = () => ((window as unknown as { __revealed: number }).__revealed = 1);
+  const win = window as unknown as { __revealed: number; __deleted: number };
+  const there = missing !== "deleted";
   content.appendChild(
     renderEventHeader(
       {
-        when: "mardi 13 octobre · 07:00 – 10:30",
-        calendar: { name: "École", color: "#E5484D" },
-        repeats: true,
-        location: "Salle B204",
-        invitation: { partstat: null },
-        gone: false,
+        when: there ? "mardi 13 octobre · 07:00 – 10:30" : "lundi 19 octobre · 10:00 – 11:00",
+        calendar: there ? { name: "École", color: "#E5484D" } : null,
+        repeats: there && !missing,
+        location: there ? "Salle B204" : null,
+        invitation: there ? { partstat: missing === "declined" ? "DECLINED" : null } : null,
+        missing,
       },
-      { reveal: revealed, rsvp: () => undefined, properties: { shown: false, toggle: () => undefined } },
+      {
+        reveal: () => (win.__revealed = 1),
+        rsvp: () => undefined,
+        deleteNote: () => (win.__deleted = 1),
+        properties: { shown: false, toggle: () => undefined },
+      },
       {
         reveal: "Voir dans le calendrier (pour le déplacer)",
         repeats: "Se répète",
-        gone: "Plus dans le calendrier",
+        declined: "Refusée : masquée du calendrier",
+        deleted: "Événement supprimé du calendrier",
+        deleteNote: "Supprimer la note",
         answers: { ACCEPTED: "Accepter", TENTATIVE: "Peut-être", DECLINED: "Refuser" },
         showProperties: "Afficher les propriétés",
         hideProperties: "Masquer les propriétés",
@@ -410,7 +467,7 @@ function eventNote(): void {
   const reading = content.createDiv({ cls: "markdown-reading-view" });
   const page = reading.createDiv({ cls: "markdown-preview-view markdown-rendered is-readable-line-width" });
   const sizer = page.createDiv({ cls: "markdown-preview-sizer markdown-preview-section" });
-  sizer.createDiv({ cls: "inline-title", text: "13-10-2026 Cours réseau" });
+  sizer.createDiv({ cls: "inline-title", text: there ? "13-10-2026 Cours réseau" : "19-10-2026 Point projet" });
   sizer.createEl("p", { text: "Notes du cours…" });
   done();
 }
@@ -447,9 +504,15 @@ function dateSuggest(): void {
   done();
 }
 
-if (["calendar-week", "calendar-interact", "calendar-card", "calendar-group", "calendar-edit", "calendar-time", "calendar-zoom", "calendar-new"].includes(scenario)) calendar("timeGridWeek");
-else if (scenario === "calendar-list") calendar("listWeek");
-else if (scenario === "calendar-month") calendar("dayGridMonth");
+// As the plugin does when it loads: the calendar's dots and bars in whole device pixels.
+wholeDevicePixels(window);
+
+if (["calendar-week", "calendar-drag", "calendar-interact", "calendar-card", "calendar-group", "calendar-edit", "calendar-time", "calendar-zoom", "calendar-new"].includes(scenario)) calendar("timeGridWeek");
+else if (scenario === "calendar-list" || scenario === "calendar-list-narrow") calendar("listWeek");
+else if (scenario === "calendar-month" || scenario.startsWith("calendar-marks-month")) calendar("dayGridMonth");
+else if (scenario.startsWith("calendar-marks-week")) calendar("timeGridWeek");
+else if (scenario.startsWith("calendar-marks-list")) calendar("listWeek");
+else if (scenario === "calendar-month-drag") calendar("dayGridMonth", true);
 else if (scenario === "task-links") taskLinks();
 else if (scenario === "settings") settings();
 else if (scenario === "date-suggest") dateSuggest();
@@ -463,3 +526,5 @@ else if (scenario === "date-picker") datePicker();
 else if (scenario === "slot-picker") slotPicker();
 else if (scenario === "task-note") taskNote();
 else if (scenario === "event-note") eventNote();
+else if (scenario === "event-note-declined") eventNote("declined");
+else if (scenario === "event-note-deleted") eventNote("deleted");

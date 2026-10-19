@@ -110,6 +110,12 @@ describe("invitations", () => {
     expect(expand(invite("DECLINED"))).toEqual([]);
   });
 
+  it("finds a declined one for its note only when asked (its answer can still change)", () => {
+    const find = (declined?: boolean) => findOccurrence("u", "c", invite("DECLINED"), null, { tz: TZ, me: ["abd@bench.test"], declined });
+    expect(find()).toBeNull();
+    expect(find(true)?.invitation).toEqual({ partstat: "DECLINED" });
+  });
+
   it("isn't an invitation when I'm not invited, or when I organize", () => {
     expect(expand(invite("NEEDS-ACTION", "someone@else.com"))[0]!.invitation).toBeNull();
     expect(expand(invite("NEEDS-ACTION"), undefined, undefined, ["boss@example.com"])[0]!.invitation).toBeNull();

@@ -13,6 +13,7 @@ import { existsSync, globSync, mkdirSync, readdirSync, writeFileSync, copyFileSy
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright-core";
+import { fullcalendarPatch } from "../fullcalendar-patch.mjs";
 
 const here = import.meta.dirname;
 const repo = resolve(here, "../..");
@@ -24,8 +25,14 @@ mkdirSync(out, { recursive: true });
 const SCENARIOS = [
   ["calendar-week", 1200, 820],
   ["calendar-month", 1600, 900],
+  // In a tab beside a sidebar, as in Obsidian: what's dragged in the month stays under the pointer, the day it
+  // lands on is outlined, and it lands there.
+  ["calendar-month-drag", 1600, 900],
   // Drags a task from the panel, then clicks an empty slot: the form must open beside the selection, which stays.
   ["calendar-interact", 1200, 820],
+  // Drags an event, a work session and a deadline (written as the plugin writes them): nothing moves until "Move"
+  // is on, then each lands where it's dropped, to the 5 minutes, and stays.
+  ["calendar-drag", 1200, 820],
   // Clicks an event: its card opens beside it.
   ["calendar-card", 1200, 820],
   // Clicks the marker of close deadlines: their list opens beside it.
@@ -38,7 +45,19 @@ const SCENARIOS = [
   ["calendar-time", 1200, 820],
   // Ctrl + wheel on the hours: taller hours, quarter-hour lines.
   ["calendar-zoom", 1200, 820],
+  // The agenda on Thursday 15 at 11:00 (the clock is set): a heading per day with Today and Tomorrow, one mark per
+  // line in one column, a deadline's time after a flag, what's over faded; narrow as on a phone (its first view).
   ["calendar-list", 1200, 820],
+  ["calendar-list-narrow", 400, 820],
+  // At 125 % and 150 % (Windows scaling), read from the pixels: every dotted bar has the same dots, every bar the
+  // same width, the key's too, a work session's side its dashes all alike (2026-10-20: dots fell between pixels,
+  // unequal).
+  ["calendar-marks-month-125", 1600, 900, 1.25],
+  ["calendar-marks-month-150", 1600, 900, 1.5],
+  ["calendar-marks-week-125", 1200, 820, 1.25],
+  ["calendar-marks-week-150", 1200, 820, 1.5],
+  ["calendar-marks-list-125", 1200, 820, 1.25],
+  ["calendar-marks-list-150", 1200, 820, 1.5],
   ["task-links", 760, 520],
   ["settings", 760, 2000],
   ["date-suggest", 1700, 560],
@@ -54,6 +73,10 @@ const SCENARIOS = [
   ["task-note", 900, 600],
   // An event note's header; a click on its time shows the event in the calendar.
   ["event-note", 900, 300],
+  // Declined: hidden from the calendar, the answer kept to change it; nothing to show in the calendar.
+  ["event-note-declined", 900, 300],
+  // Its event deleted: says so, nothing to show in the calendar, a button deletes the note.
+  ["event-note-deleted", 900, 300],
 ];
 const wanted = process.argv.slice(2);
 const run = SCENARIOS.filter(([name]) => !wanted.length || wanted.includes(name));
@@ -97,6 +120,7 @@ await esbuild.build({
     obsidian: stub("obsidian-browser.ts"),
   },
   plugins: [
+    fullcalendarPatch(),
     {
       name: "node-builtins",
       setup(b) {
@@ -121,6 +145,238 @@ writeFileSync(
 </style></head><body><script src="harness.js"></script></body></html>`,
 );
 
+/** Drags what's at `from` by (dx, dy), in steps as a hand does; `shot` names a screenshot taken mid-drag. */
+async function dragBy(page, from, dx, dy, shot) {
+  await page.mouse.move(from.x + from.width / 2, from.y + Math.min(8, from.height / 2));
+  await page.mouse.down();
+  await page.mouse.move(from.x + from.width / 2 + dx, from.y + Math.min(8, from.height / 2) + dy, { steps: 12 });
+  if (shot) await page.screenshot({ path: shot });
+  await page.mouse.up();
+}
+
+/**
+ * Turns move mode on (events only move when dragged then), and checks it shows all over: the button says "Done",
+ * the grid is framed, the hint replaces the key, what can't move is faded.
+ */
+async function moveMode(page, errors) {
+  await page.locator(".ct-cal-action:has-text('Déplacer')").click();
+  await page.waitForTimeout(150);
+  if (!(await page.locator(".ct-cal-action.is-active:has-text('Terminé')").count())) errors.push("on, the Move button should say Done");
+  const frame = await page.locator(".ct-calendar-grid").evaluate((el) => getComputedStyle(el).outlineStyle);
+  if (frame !== "solid") errors.push("in move mode the grid should be framed");
+  if (!(await page.locator(".ct-move-hint").count()) || (await page.locator(".ct-key").count())) errors.push("in move mode the hint should replace the key");
+  const fixed = await page.locator(".fc-event.ct-ev-pending").first().evaluate((el) => getComputedStyle(el).opacity).catch(() => null);
+  if (fixed !== null && Number(fixed) > 0.5) errors.push(`an invitation (can't move) should fade in move mode, opacity ${fixed}`);
+}
+
+/** Moves an event, a work session and a deadline, and checks where each one is drawn after its data changed. */
+async function drag(page, errors, theme) {
+  const box = async (sel) => (await page.locator(sel).first().boundingBox()) ?? errors.push(`missing ${sel}`);
+  const col = async (day) => box(`.fc-timegrid-col[data-date='${day}']`);
+  const lane = async (time) => box(`.fc-timegrid-slot-lane[data-time='${time}']`);
+  const [wed, thu, fri] = [await col("2026-10-14"), await col("2026-10-15"), await col("2026-10-16")];
+  const dayW = thu.x - wed.x;
+  const hourH = (await lane("10:00:00")).y - (await lane("09:00:00")).y;
+  // Read in one go in the page: between two Playwright calls a redraw may be replacing the element.
+  const where = async (sel) => {
+    const [css, text] = [sel.replace(/:has-text\('[^']*'\)/, ""), sel.match(/:has-text\('([^']*)'\)/)[1]];
+    const at = await page.evaluate(([css, text]) => {
+      const el = [...document.querySelectorAll(css)].find((e) => e.textContent.includes(text) && !e.classList.contains("fc-event-mirror"));
+      const top = document.querySelector(".fc-timegrid-slot-lane[data-time='00:00:00']")?.getBoundingClientRect().top;
+      return el && top !== undefined ? { day: el.closest("[data-date]")?.dataset.date ?? "?", y: el.getBoundingClientRect().top - top } : null;
+    }, [css, text]);
+    if (!at) return "gone";
+    const minutes = Math.round(((at.y / hourH) * 60) / 5) * 5;
+    return `${at.day} ${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+  };
+  // Locked (as the calendar opens): a drag moves nothing.
+  const seminar = ".fc-timegrid-event.ct-ev-event:has-text('Séminaire')";
+  await dragBy(page, await box(seminar), dayW, 0);
+  await page.waitForTimeout(100);
+  if (await page.evaluate(() => window.__moved)) errors.push("a drag shouldn't move anything until Move is on");
+  if ((await where(seminar)) !== "2026-10-14 09:00") errors.push(`locked, the event should stay at Wednesday 09:00, is at ${await where(seminar)}`);
+  await page.keyboard.press("Escape");
+  await moveMode(page, errors);
+  const cases = [
+    ["an event", ".fc-timegrid-event.ct-ev-event:has-text('Séminaire')", dayW, 0, "2026-10-15 09:00"],
+    ["a work session", ".fc-timegrid-event.ct-ev-timeblock:has-text('Préparer slides')", 0, -3 * hourH, "2026-10-15 13:00"],
+    ["a deadline", ".fc-timegrid-event.ct-ev-deadline:has-text('Préparer slides')", dayW, -8 * hourH, "2026-10-16 10:00"],
+  ];
+  for (const [what, sel, dx, dy, want] of cases) {
+    const el = await box(sel);
+    const before = await where(sel);
+    await dragBy(page, el, dx, dy, join(out, `calendar-drag-${what.replace(/ /g, "-")}-${theme}.png`));
+    const seen = [];
+    // Sampled right after the drop, after the redraw from elsewhere (100 ms), and once it's all settled.
+    for (const wait of [50, 150, 400, 1400]) {
+      await page.waitForTimeout(wait);
+      seen.push(await where(sel));
+    }
+    console.log(`${what}: ${before} → ${seen.join(" → ")} (want ${want}) moved=${await page.evaluate(() => window.__moved)}`);
+    if (seen.some((s) => s !== want)) errors.push(`${what} should land at ${want} and stay there, was at ${seen.join(", then ")}`);
+  }
+  // Week and day: what can be stretched shows its grip.
+  const grip = await page.locator(".fc-timegrid-event.fc-event-draggable .fc-event-resizer-end").first().evaluate((el) => getComputedStyle(el).display).catch(() => "none");
+  if (grip === "none") errors.push("in move mode, what can be stretched should show its grip");
+  await page.screenshot({ path: join(out, `calendar-drag-mode-${theme}.png`) });
+  // Right after a move, its redraws come while the next one is held: the original stays hidden (it showed again
+  // beside the one in hand), and the redraws happen once it's dropped.
+  await dragBy(page, await box(seminar), dayW, 0); // Thursday → Friday, then at once:
+  // Measured in the page: the redraw right after the drop may be replacing it (Playwright then measures nothing).
+  const cafe = await page.evaluate(() => {
+    const el = [...document.querySelectorAll(".fc-timegrid-event.ct-ev-event")].find((e) => e.textContent.includes("Café avec Léa"));
+    const r = el?.getBoundingClientRect();
+    return r && { x: r.x, y: r.y, width: r.width, height: r.height };
+  });
+  if (!cafe) return errors.push("missing Café avec Léa");
+  await page.mouse.move(cafe.x + cafe.width / 2, cafe.y + 8);
+  await page.mouse.down();
+  const shown = new Set();
+  for (let i = 1; i <= 20; i++) {
+    await page.mouse.move(cafe.x + cafe.width / 2 - (dayW * i) / 20, cafe.y + 8);
+    await page.waitForTimeout(40);
+    shown.add(await page.evaluate(() => [...document.querySelectorAll(".fc-timegrid-event")].filter((e) => e.textContent.includes("Café avec Léa") && !e.classList.contains("fc-event-mirror")).map((e) => getComputedStyle(e).visibility).join(",")));
+  }
+  await page.mouse.up();
+  if ([...shown].some((v) => v !== "hidden")) errors.push(`what's dragged should leave no copy behind while redraws come in (its original was ${[...shown].join(", then ")})`);
+  await page.waitForTimeout(800);
+  if ((await where(seminar)) !== "2026-10-16 09:00") errors.push(`the event moved just before should be on Friday 09:00, is at ${await where(seminar)}`);
+  // Escape ends move mode: the key is back, the button says Move again.
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(150);
+  if ((await page.locator(".ct-move-hint").count()) || !(await page.locator(".ct-cal-action:not(.is-active):has-text('Déplacer')").count())) errors.push("Escape should end move mode");
+  if ((await where(".fc-timegrid-event.ct-ev-event:has-text('Café avec Léa')")) !== "2026-10-15 15:45") errors.push(`the event held during redraws should land on Thursday 15:45, is at ${await where(".fc-timegrid-event.ct-ev-event:has-text('Café avec Léa')")}`);
+}
+
+/** Drags a work session to the next day in the month, inside a tab: the copy in hand stays under the pointer. */
+async function monthDrag(page, errors, theme) {
+  await moveMode(page, errors);
+  const sel = ".fc-daygrid-event.ct-ev-timeblock:has-text('Préparer slides')";
+  const from = await page.locator(sel).first().boundingBox();
+  const to = await page.locator(".fc-daygrid-day[data-date='2026-10-16']").boundingBox();
+  if (!from || !to) return errors.push("missing the work session or Friday's cell");
+  const start = { x: from.x + 30, y: from.y + from.height / 2 };
+  const end = { x: to.x + to.width / 2, y: to.y + to.height / 2 };
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(end.x, end.y, { steps: 15 });
+  await page.waitForTimeout(100);
+  const copy = await page.locator(".fc-event-dragging").first().boundingBox();
+  if (!copy) errors.push("no copy follows the pointer");
+  else if (Math.abs(copy.x + 30 - end.x) > 3 || Math.abs(copy.y + copy.height / 2 - end.y) > 3) {
+    errors.push(`the copy should stay where it was grabbed, under the pointer (${end.x}, ${end.y}); it's at (${copy.x}, ${copy.y})`);
+  }
+  if (!(await page.locator(".fc-daygrid-day[data-date='2026-10-16'] .fc-highlight").count())) errors.push("the day it lands on should be outlined");
+  await page.screenshot({ path: join(out, `calendar-month-drag-held-${theme}.png`) });
+  await page.mouse.up();
+  await page.waitForTimeout(700);
+  if (!(await page.locator(`.fc-daygrid-day[data-date='2026-10-16'] ${sel}`).count())) errors.push("the work session should land on Friday");
+}
+
+/**
+ * The marks read from the screenshot's pixels (see SCENARIOS). A pixel is ink when it differs from the background
+ * by more than half the most any pixel there does; runs of ink and gaps down a column give a bar's dots.
+ */
+async function evenMarks(page, errors, scale) {
+  const png = (await page.screenshot()).toString("base64");
+  const found = await page.evaluate(
+    async ([png, scale]) => {
+      const img = new Image();
+      img.src = `data:image/png;base64,${png}`;
+      await img.decode();
+      const canvas = document.createElement("canvas");
+      [canvas.width, canvas.height] = [img.width, img.height];
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0);
+      const data = ctx.getImageData(0, 0, img.width, img.height).data;
+      const at = (x, y) => [...data.slice((y * img.width + x) * 4, (y * img.width + x) * 4 + 3)];
+      const away = (a, b) => Math.max(...a.map((v, i) => Math.abs(v - b[i])));
+      // Ink and gaps down column x, from y0 to y1 (device pixels), against the background bg: "■2 ·2 ■2".
+      const runs = (x, y0, y1, bg, half) => {
+        const out = [];
+        for (let y = y0; y < y1; y++) {
+          const ink = away(at(x, y), bg) > half;
+          const last = out[out.length - 1];
+          if (last && last.ink === ink) last.n++;
+          else out.push({ ink, n: 1 });
+        }
+        return out;
+      };
+      // Its box in device pixels, and `pad` CSS pixels around (the key's bars are no wider than their ink; a line's bar
+      // has room around it, and the line above is close).
+      const box = (el, pad = 0) => {
+        const r = el.getBoundingClientRect();
+        return { x0: Math.floor((r.left - pad) * scale), x1: Math.ceil((r.right + pad) * scale), y0: Math.floor((r.top - pad) * scale), y1: Math.ceil((r.bottom + pad) * scale) };
+      };
+      // The calendar's bars wholly on screen (not those under "+2 more", nor scrolled away) and the key's.
+      const shown = (el) => {
+        const r = el.getBoundingClientRect();
+        return [r.top + 0.5, r.top + r.height / 2, r.bottom - 0.5].every((y) => el.contains(document.elementFromPoint(r.left + r.width / 2, y)));
+      };
+      const marks = [...document.querySelectorAll(".ct-ev-bar, .ct-key.is-lines .ct-key-swatch:not(.is-deadline)")];
+      const bars = marks.filter(shown).map((el) => {
+        const b = box(el, el.matches(".ct-key-swatch") ? 2 : 0);
+        const bg = at(b.x0, b.y0);
+        let most = 0;
+        for (let x = b.x0; x < b.x1; x++) for (let y = b.y0; y < b.y1; y++) most = Math.max(most, away(at(x, y), bg));
+        const columns = [];
+        for (let x = b.x0; x < b.x1; x++) if (runs(x, b.y0, b.y1, bg, most / 2).some((r) => r.ink)) columns.push(x);
+        const middle = columns[Math.floor(columns.length / 2)] ?? b.x0;
+        const dots = runs(middle, b.y0, b.y1, bg, most / 2);
+        while (dots.length && !dots[0].ink) dots.shift();
+        while (dots.length && !dots[dots.length - 1].ink) dots.pop();
+        const name = el.closest(".fc-event")?.querySelector(".ct-ev-title")?.textContent ?? "the key";
+        return { name, dashed: el.matches(".is-dashed, .is-block"), width: columns.length, dots: dots.map((r) => `${r.ink ? "■" : "·"}${r.n}`).join(" ") };
+      });
+      // A work session's side: its dashes away from the rounded corners, against its tint just inside.
+      const sides = [...document.querySelectorAll(".fc-timegrid-event.ct-ev-timeblock")].map((el) => {
+        const b = box(el);
+        const x = b.x0 + 1;
+        const [y0, y1] = [b.y0 + Math.ceil(6 * scale), b.y1 - Math.ceil(6 * scale)];
+        const bg = at(x + Math.ceil(4 * scale), y0);
+        const dashes = runs(x, y0, y1, bg, away(at(x, b.y0 + Math.ceil(6 * scale)), bg) / 2 || 40).slice(1, -1);
+        return { ink: [...new Set(dashes.filter((r) => r.ink).map((r) => r.n))], gaps: [...new Set(dashes.filter((r) => !r.ink).map((r) => r.n))] };
+      });
+      return { bars, sides };
+    },
+    [png, scale],
+  );
+  const kinds = (dashed) => found.bars.filter((b) => b.dashed === dashed);
+  for (const dashed of [false, true]) {
+    const widths = [...new Set(kinds(dashed).map((b) => b.width))];
+    const named = widths.map((w) => `${w} (${kinds(dashed).find((b) => b.width === w).name})`);
+    if (widths.length > 1) errors.push(`${dashed ? "dotted" : "solid"} bars should all be as wide, are ${named.join(", ")} device px`);
+  }
+  const dots = [...new Set(kinds(true).map((b) => b.dots))];
+  const named = dots.map((d) => `${d} (${kinds(true).find((b) => b.dots === d).name})`);
+  if (dots.length > 1) errors.push(`dotted bars should all have the same dots: ${named.join(" | ")}`);
+  for (const side of found.sides) {
+    if (side.ink.length > 1 || side.gaps.length > 1) errors.push(`a work session's dashes should all be alike: dashes ${side.ink.join("/")}, gaps ${side.gaps.join("/")} device px`);
+  }
+}
+
+/** The agenda reads as a list of days: see SCENARIOS. */
+async function agenda(page, errors) {
+  const days = await page.locator(".fc-list-day .ct-ld").allTextContents();
+  if (days[0] !== "Lundi 12 octobre") errors.push(`a day's heading should read "Lundi 12 octobre", reads "${days[0]}"`);
+  if (!days.includes("Jeudi 15 octobreAujourd'hui") || !days.includes("Vendredi 16 octobreDemain")) errors.push(`today and tomorrow should say so: ${days.join(" | ")}`);
+  // One mark per line, all in one column: every title starts at the same place.
+  const rows = await page.evaluate(() =>
+    [...document.querySelectorAll(".fc-list-event")].map((row) => ({
+      marks: row.querySelectorAll(".ct-ev-mark").length + row.querySelectorAll(".ct-ev-title .ct-ev-check").length,
+      x: Math.round(row.querySelector(".ct-ev-title")?.getBoundingClientRect().left ?? -1),
+    })),
+  );
+  if (rows.some((r) => r.marks !== 1)) errors.push("each line should have one mark (a solid bar, a dashed one or the checkbox)");
+  if (new Set(rows.map((r) => r.x)).size !== 1) errors.push(`titles should all start at the same place, start at ${[...new Set(rows.map((r) => r.x))].join(", ")}`);
+  const due = page.locator(".fc-list-event.ct-ev-deadline:has-text('Préparer slides') .fc-list-event-time");
+  if (!(await due.locator(".ct-ev-due-icon").count()) || (await due.textContent()) !== "18:00") errors.push("a deadline's time should follow a flag");
+  const over = await page.locator(".fc-list-event.ct-ev-event:has-text('Point Olera')").first().evaluate((el) => Number(getComputedStyle(el).opacity));
+  const ahead = await page.locator(".fc-list-event.ct-ev-event:has-text('Jury de projet')").first().evaluate((el) => Number(getComputedStyle(el).opacity));
+  if (!(over < 1) || ahead !== 1) errors.push(`what's over should fade, not what's ahead (opacity ${over}, ${ahead})`);
+  if (!(await page.locator(".ct-key.is-lines").count()) && page.viewportSize().width > 600) errors.push("the key should draw the agenda's marks");
+}
+
 /** Real mouse input on the calendar: drag a task from the "To plan" panel, then click an empty slot. */
 async function interact(page, errors) {
   const box = async (sel) => (await page.locator(sel).first().boundingBox()) ?? errors.push(`missing ${sel}`);
@@ -130,6 +386,7 @@ async function interact(page, errors) {
   const at13 = await box(".fc-timegrid-slot-lane[data-time='13:00:00']");
   const item = await box(".ct-plan-item");
   if (!tue || !fri || !at15 || !at13 || !item) return;
+  await moveMode(page, errors);
   await page.mouse.move(item.x + 20, item.y + 10);
   await page.mouse.down();
   await page.mouse.move(tue.x + tue.width / 2, at15.y + 5, { steps: 10 });
@@ -207,19 +464,35 @@ async function zoom(page, errors, theme) {
 }
 
 // Native date and time fields follow the system language, like Obsidian on a French system (13:37, not 01:37 PM).
-const browser = await chromium.launch({ executablePath: findChromium(), args: ["--lang=fr-FR"], env: { ...process.env, LANG: "fr_FR.UTF-8", LANGUAGE: "fr" } });
-for (const [name, width, height] of run) {
+const launch = (args = []) => chromium.launch({ executablePath: findChromium(), args: ["--lang=fr-FR", ...args], env: { ...process.env, LANG: "fr_FR.UTF-8", LANGUAGE: "fr" } });
+const browser = await launch();
+// Windows scaling as Chrome does it there: laid out in device pixels, so every edge falls on one. The emulated scale
+// (`deviceScaleFactor`) lays out in CSS pixels and scales the paint: it blurred bars Windows draws sharp, and passed
+// dashes Windows drew unequal (2026-10-20). So a browser per scale, the screen's own, with only the size emulated.
+const scaled = new Map();
+async function open(width, height, scale) {
+  // French, like the harness: native date and time fields follow the locale (13:37, not 01:37 PM).
+  if (scale === 2) return browser.newPage({ viewport: { width, height }, deviceScaleFactor: scale, locale: "fr-FR" });
+  if (!scaled.has(scale)) scaled.set(scale, await launch([`--force-device-scale-factor=${scale}`]));
+  const page = await scaled.get(scale).newPage({ viewport: null, locale: "fr-FR" });
+  // deviceScaleFactor 0: the screen's.
+  await (await page.context().newCDPSession(page)).send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 0, mobile: false });
+  return page;
+}
+for (const [name, width, height, scale = 2] of run) {
   for (const theme of ["light", "dark"]) {
-    // French, like the harness: native date and time fields follow the locale (13:37, not 01:37 PM).
-    const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 2, locale: "fr-FR" });
+    const page = await open(width, height, scale);
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
     // Obsidian's bundled fonts aren't extracted; ignore those 404s.
     page.on("console", (m) => m.type() === "error" && !m.text().includes("ERR_FILE_NOT_FOUND") && errors.push(m.text()));
+    if (name.startsWith("calendar-list")) await page.clock.setFixedTime(new Date(2026, 9, 15, 11, 0));
     await page.goto(`file://${join(cache, "index.html")}?scenario=${name}&theme=${theme}`);
     await page.waitForFunction(() => window.__ready === true, null, { timeout: 10000 }).catch(() => errors.push("timed out"));
     await page.waitForTimeout(150);
     if (name === "calendar-interact") await interact(page, errors);
+    if (name === "calendar-drag") await drag(page, errors, theme);
+    if (name === "calendar-month-drag") await monthDrag(page, errors, theme);
     if (name === "calendar-card") {
       // Ticking a task in the calendar ticks it, without opening its card.
       const check = page.locator(".fc-timegrid-event.ct-ev-timeblock .ct-ev-check").first();
@@ -228,9 +501,28 @@ for (const [name, width, height] of run) {
       if (!(await check.evaluate((el) => el.classList.contains("is-checked")))) errors.push("a checkbox click didn't tick");
       if (await page.locator(".ct-popover").count()) errors.push("a checkbox click opened the card");
       await check.click();
+      // An event with its note offers to open it; one without, to create it (event notes are lazy).
+      await page.locator(".fc-timegrid-event.ct-ev-event:not(.ct-ev-pending)").first().click();
+      await page.waitForTimeout(200);
+      const opened = await page.locator(".ct-popover.ct-card .ct-card-open").textContent().catch(() => "");
+      if (opened !== "Ouvrir la note") errors.push(`an event with a note shows "${opened}"`);
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(100);
       await page.locator(".fc-timegrid-event.ct-ev-pending").first().click();
       await page.waitForTimeout(200);
       if (!(await page.locator(".ct-popover.ct-card").count())) errors.push("no card after clicking an event");
+      const created = await page.locator(".ct-popover.ct-card .ct-card-open").textContent().catch(() => "");
+      if (created !== "Créer la note") errors.push(`an event without a note shows "${created}"`);
+      // An answer keeps the card open and says where it stands: on its way, then saved once pushed.
+      await page.locator(".ct-popover.ct-card .ct-card-rsvp button:has-text('Peut-être')").click();
+      await page.waitForTimeout(150);
+      const sending = await page.locator(".ct-popover.ct-card .ct-card-status").textContent().catch(() => "");
+      if (sending !== "Envoi de ta réponse au serveur…") errors.push(`right after an answer the card says "${sending}"`);
+      await page.waitForTimeout(500);
+      const saved = await page.locator(".ct-popover.ct-card .ct-card-status").textContent().catch(() => "");
+      if (saved !== "Réponse enregistrée.") errors.push(`once pushed the card says "${saved}"`);
+      if (!(await page.locator(".ct-popover.ct-card .ct-card-rsvp button.is-active:has-text('Peut-être')").count())) errors.push("the answer isn't shown as chosen");
+      if (!(await page.locator(".fc-event.is-active").count())) errors.push("the event lost its highlight when drawn again");
     }
     if (name === "calendar-edit") {
       await page.locator(".ct-legend-item:has-text('Rappels')").click({ button: "right" });
@@ -244,6 +536,15 @@ for (const [name, width, height] of run) {
     if (name === "calendar-week") {
       const cut = await clipped(page);
       if (cut.length) errors.push(`cut: ${cut.join(" | ")}`);
+      // What starts right after an event sits beside it (drawn over it, it hid its title); what starts well below
+      // still sits over its lower part, so the event keeps its width.
+      const at = (sel) => page.locator(sel).first().boundingBox();
+      const [course, sheets] = [await at(".fc-timegrid-event:has-text('Cours réseau')"), await at(".fc-timegrid-event:has-text('Imprimer les grilles')")];
+      if (!course || !sheets || sheets.x < course.x + course.width) errors.push("a deadline starting right after an event should sit beside it, not over its title");
+      const [seminar, wed] = [await at(".fc-timegrid-event:has-text('Séminaire')"), await at(".fc-timegrid-col[data-date='2026-10-14']")];
+      if (!seminar || !wed || seminar.width < wed.width * 0.8) errors.push("an event with a deadline near its end should keep its width");
+      // The panel says a task's time blocks in words (a clock and a number read as nothing).
+      if (!(await page.locator(".ct-plan-blocks:has-text('2 créneaux')").count())) errors.push("the panel should say \"2 créneaux\" for a task with two time blocks");
       // As in Apple Calendar: a day's header opens that day, the week's tab (top left) that week.
       await page.locator(".fc-col-header-cell-cushion").nth(2).click();
       await page.waitForTimeout(200);
@@ -257,6 +558,17 @@ for (const [name, width, height] of run) {
       const id = await target.getAttribute("data-occ");
       await page.evaluate((occ) => window.__reveal(occ, "2026-10-12T10:00"), id);
       if (!(await target.evaluate((el) => el.classList.contains("ct-ev-reveal")))) errors.push("a revealed event should blink");
+    }
+    if (name.startsWith("calendar-list")) await agenda(page, errors);
+    if (name.startsWith("calendar-marks")) await evenMarks(page, errors, scale);
+    if (name === "calendar-month") {
+      // Every line looks alike, whatever it is: a work session all day isn't a block (it was, under its line's mark),
+      // and the dashes are whole pixels, the same in every bar (fitted to the height, some looked thicker).
+      const allDay = page.locator(".fc-daygrid-block-event.ct-ev-timeblock:has-text('Relire le chapitre 2')");
+      const look = await allDay.evaluate((el) => getComputedStyle(el).backgroundImage + getComputedStyle(el).backgroundColor).catch(() => "missing");
+      if (look !== "nonergba(0, 0, 0, 0)") errors.push(`a work session all day should be a line in the month, not a block (${look})`);
+      const bars = await page.evaluate(() => [...document.querySelectorAll(".ct-ev-bar")].map((b) => b.getBoundingClientRect().height));
+      if (!bars.length || bars.some((h) => h !== 14)) errors.push(`the line bars should all be 14px tall: ${[...new Set(bars)].join(", ")}`);
     }
     if (name === "calendar-zoom") await zoom(page, errors, theme);
     if (name === "task-preview") {
@@ -326,6 +638,23 @@ for (const [name, width, height] of run) {
       if ((await page.locator(".ct-event-header .ct-task-header-item").count()) < 4) errors.push("the event header should show when, repetition, place and collection");
       await page.locator(".ct-event-when").click();
       if (!(await page.evaluate(() => window.__revealed))) errors.push("a click on the time should show the event in the calendar");
+    }
+    if (name === "event-note-declined" || name === "event-note-deleted") {
+      const header = (await page.locator(".ct-event-header").textContent()) ?? "";
+      const says = name === "event-note-declined" ? "Refusée : masquée du calendrier" : "Événement supprimé du calendrier";
+      if (!header.includes(says)) errors.push(`the header should say "${says}", says "${header}"`);
+      if (await page.locator(".ct-task-header-tools .clickable-icon").count() !== 1) errors.push("only the properties button should be left: nothing to show in the calendar");
+      await page.locator(".ct-event-when").click();
+      if (await page.evaluate(() => window.__revealed)) errors.push("the time shouldn't open the calendar on an event not in it");
+      const rsvp = page.locator(".ct-event-rsvp button.is-active");
+      if (name === "event-note-declined" && (await rsvp.textContent()) !== "Refuser") errors.push("a declined invitation should keep its answer, to change it");
+      const del = page.locator(".ct-event-delete-note");
+      if (name === "event-note-declined" && (await del.count())) errors.push("a declined invitation's note isn't offered for deletion: its event is still there");
+      if (name === "event-note-deleted") {
+        if ((await del.textContent()) !== "Supprimer la note") errors.push("a deleted event's note should offer to delete it");
+        await del.click();
+        if (!(await page.evaluate(() => window.__deleted))) errors.push("the button should delete the note");
+      }
     }
     if (name === "date-picker") {
       // The day and the time, each in its field: typed, clicked or quick.
@@ -445,4 +774,5 @@ for (const [name, width, height] of run) {
   }
 }
 await browser.close();
+for (const other of scaled.values()) await other.close();
 console.log(`Screenshots in ${out}`);

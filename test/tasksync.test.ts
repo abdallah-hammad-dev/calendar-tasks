@@ -210,6 +210,23 @@ describe("from notes to the server", () => {
     expect(onServer("a")).toMatchObject({ summary: "A bis", done: true, due: "2026-11-02" });
   });
 
+  it("a deadline set from the calendar changes the reminder at once, then the note", async () => {
+    server.externalPut(`${calendar}a.ics`, vtodo("a", "SUMMARY:A\r\nDUE;TZID=Europe/Paris:20261020T140000\r\n"));
+    await start();
+    const url = `${calendar}a.ics`;
+    const done = tasks.setDue("Tâches/A.md", "2026-10-22T16:00");
+    await done;
+    // The calendar draws from the cached reminder: it's there before any sync or note debounce.
+    expect(readTask(engine.item(url)!.data, TZ)!.due).toBe("2026-10-22T16:00");
+    expect(vault.fm("Tâches/A.md")).toMatchObject({ due: "2026-10-22T16:00" });
+    await tasks.noteChanged("Tâches/A.md"); // the note's own change, later: nothing more to push
+    await cycle();
+    expect(onServer("a")!.due).toBe("2026-10-22T16:00");
+    await tasks.setDue("Tâches/A.md", null);
+    expect(readTask(engine.item(url)!.data, TZ)!.due).toBeNull();
+    expect(vault.fm("Tâches/A.md")).not.toHaveProperty("due");
+  });
+
   it("deletes the reminder when the note is deleted", async () => {
     server.externalPut(`${calendar}a.ics`, vtodo("a", "SUMMARY:A\r\n"));
     await start();
