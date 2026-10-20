@@ -30,7 +30,7 @@ export class TaskConverter {
     private readonly vault: ObsidianVault,
     private readonly settings: () => CalendarTasksSettings,
     private readonly index: Pick<TaskIndex, "prime" | "remove">,
-    /** Time blocks asked on the line (`@créneau …`), for the plugin to create once the task has its reminder. */
+    /** Time blocks asked on the line (`@session …`), for the plugin to create once the task has its reminder. */
     private readonly onBlocks: (path: string, blocks: Block[]) => void = () => undefined,
   ) {}
 

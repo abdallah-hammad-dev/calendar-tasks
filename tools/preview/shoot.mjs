@@ -278,18 +278,32 @@ async function monthDrag(page, errors, theme) {
 
 /**
  * Each day of the month: its lines one under the other, then "+N more" right under them (2026-10-20: FullCalendar
- * left a hidden line's room empty, a shorter one below it; see tools/fullcalendar-patch.mjs).
+ * left a hidden line's room empty, a shorter one below it; see tools/fullcalendar-patch.mjs). Between kinds (the
+ * bars, the day's deadlines, its work sessions, what has a time), a little room (asked the same day): 6px more
+ * there, and only there, in that order.
  */
 async function packedDays(page, errors) {
-  const gaps = await page.evaluate(() =>
+  const found = await page.evaluate(() =>
     [...document.querySelectorAll(".fc-daygrid-day")].flatMap((day) => {
-      const shown = [...day.querySelectorAll(".fc-daygrid-event-harness")].filter((h) => getComputedStyle(h).visibility !== "hidden");
+      const shown = [...day.querySelectorAll(".fc-daygrid-event-harness > .fc-event")].filter((e) => getComputedStyle(e).visibility !== "hidden");
       const link = day.querySelector(".fc-daygrid-more-link");
-      const rects = [...shown, ...(link ? [link] : [])].map((el) => el.getBoundingClientRect()).sort((a, b) => a.top - b.top);
-      return rects.slice(1).flatMap((r, i) => (r.top - rects[i].bottom > 4 ? [`${day.dataset.date} (${Math.round(r.top - rects[i].bottom)}px)`] : []));
+      const lines = [...shown, ...(link ? [link] : [])]
+        .map((el) => {
+          const kind = el.classList.contains("fc-daygrid-dot-event") ? 3 : ["ct-ev-event", "ct-ev-deadline", "ct-ev-timeblock"].findIndex((c) => el.classList.contains(c));
+          return { kind: el.matches("a.fc-daygrid-more-link") ? 9 : kind, r: el.getBoundingClientRect() };
+        })
+        .sort((a, b) => a.r.top - b.r.top);
+      return lines.slice(1).map((line, i) => ({
+        day: day.dataset.date,
+        order: line.kind >= lines[i].kind,
+        apart: line.kind !== 9 && line.kind !== lines[i].kind,
+        gap: Math.round(line.r.top - lines[i].r.bottom),
+      }));
     }),
   );
-  if (gaps.length) errors.push(`a day's lines should follow one another, then "+N more": gaps on ${gaps.join(", ")}`);
+  const wrong = found.filter((f) => !f.order || (f.apart ? f.gap < 5 || f.gap > 10 : f.gap > 4));
+  if (wrong.length) errors.push(`a day's lines should follow one another by kind (a little room between kinds), then "+N more": ${wrong.map((f) => `${f.day} ${f.gap}px${f.order ? "" : " out of order"}`).join(", ")}`);
+  if (!found.some((f) => f.apart)) errors.push("no day with lines of two kinds, to check the room between them");
 }
 
 /**
@@ -584,7 +598,7 @@ for (const [name, width, height, scale = 2] of run) {
       const [seminar, wed] = [await at(".fc-timegrid-event:has-text('Séminaire')"), await at(".fc-timegrid-col[data-date='2026-10-14']")];
       if (!seminar || !wed || seminar.width < wed.width * 0.8) errors.push("an event with a deadline near its end should keep its width");
       // The panel says a task's time blocks in words (a clock and a number read as nothing).
-      if (!(await page.locator(".ct-plan-blocks:has-text('2 créneaux')").count())) errors.push("the panel should say \"2 créneaux\" for a task with two time blocks");
+      if (!(await page.locator(".ct-plan-blocks:has-text('2 sessions')").count())) errors.push("the panel should say \"2 sessions\" for a task with two work sessions");
       // As in Apple Calendar: a day's header opens that day, the week's tab (top left) that week.
       await page.locator(".fc-col-header-cell-cushion").nth(2).click();
       await page.waitForTimeout(200);

@@ -233,6 +233,50 @@ export function pickOccurrence(occurrences: Occurrence[], now: Date, tz: string)
 /** Minutes since midnight of a local "YYYY-MM-DDTHH:mm" value (no zone needed: both sides are local). */
 const minuteOf = (local: string) => Number(local.slice(11, 13)) * 60 + Number(local.slice(14, 16));
 
+/** The day after a "YYYY-MM-DD". */
+function nextDay(day: string): string {
+  const d = new Date(`${day}T12:00`);
+  d.setDate(d.getDate() + 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** The days an occurrence is drawn on, first to last ("YYYY-MM-DD"; the end is exclusive, a midnight end too). */
+function daysOf(o: Occurrence): string[] {
+  const first = o.start.slice(0, 10);
+  const last = o.end === null ? first : o.allDay || o.end.endsWith("T00:00") ? o.end.slice(0, 10) : nextDay(o.end.slice(0, 10));
+  const days = [first];
+  for (let day = nextDay(first); day < last; day = nextDay(day)) days.push(day);
+  return days;
+}
+
+/**
+ * How the month stacks a day's lines: 0 the bars (events all day or over several days), 1 deadlines all day, 2
+ * work sessions all day (or over several days), 3 what has a time within the day (2026-10-20, asked: a little room
+ * between what's all day and what has a time; a session all day sat among the day's tasks, sorted by title).
+ */
+export function monthGroup(o: Occurrence): number {
+  if (!o.allDay && daysOf(o).length === 1) return 3;
+  return o.kind === "event" ? 0 : o.kind === "deadline" ? 1 : 2;
+}
+
+/**
+ * The month's lines that start a group under another one on their first day (they get a little room above). In
+ * FullCalendar's order there: `monthGroup`, then start, longest first, title (the view's `eventOrder`).
+ */
+export function monthGroupStarts(occurrences: Occurrence[]): Set<string> {
+  const byDay = new Map<string, Occurrence[]>();
+  for (const o of occurrences) for (const day of daysOf(o)) byDay.set(day, [...(byDay.get(day) ?? []), o]);
+  const length = (o: Occurrence) => (o.end ? new Date(o.end).getTime() - new Date(o.start).getTime() : 0);
+  const starts = new Set<string>();
+  for (const [day, list] of byDay) {
+    list.sort((a, b) => monthGroup(a) - monthGroup(b) || a.start.localeCompare(b.start) || length(b) - length(a) || a.title.localeCompare(b.title));
+    list.forEach((o, i) => {
+      if (i > 0 && monthGroup(o) !== monthGroup(list[i - 1]!) && o.start.slice(0, 10) === day) starts.add(o.id);
+    });
+  }
+  return starts;
+}
+
 /**
  * Timed deadlines in groups that can't be drawn apart: each group starts with a deadline, and takes the ones of the
  * same day less than `gapMinutes` after it (the height of its marker). Sorted by time, then title.

@@ -98,24 +98,26 @@ describe("the @ grammar: one thing per @", () => {
   });
 
   it("keeps each @ to one thing", () => {
-    expect(cut("Mémoire @ven @créneau mar")).toBe("@ven | @créneau mar");
-    expect(cut("Mémoire @ven créneau mar")).toBe("@ven"); // without its own @, "créneau" is the title
+    expect(cut("Mémoire @ven @session mar")).toBe("@ven | @session mar");
+    expect(cut("Mémoire @ven session mar")).toBe("@ven"); // without its own @, "session" is the title
   });
 
   it("reads time blocks: a range, a duration, a part of the day, or a whole day", () => {
     const blocks = (line: string) => when(line)!.blocks;
-    expect(blocks("Rapport @créneau mar 14h-16h")).toEqual([{ start: "2026-10-20T14:00", end: "2026-10-20T16:00" }]);
-    expect(blocks("Rapport @créneau mar 14h à 16h30")).toEqual([{ start: "2026-10-20T14:00", end: "2026-10-20T16:30" }]);
-    expect(blocks("Rapport @bloc demain 9h")).toEqual([{ start: "2026-10-16T09:00", end: "2026-10-16T10:00" }]);
-    expect(blocks("Rapport @block tue 2pm for 90min")).toEqual([{ start: "2026-10-20T14:00", end: "2026-10-20T15:30" }]);
-    expect(blocks("Rapport @créneau mar matin")).toEqual([{ start: "2026-10-20T09:00", end: "2026-10-20T12:00" }]);
-    expect(blocks("Rapport @créneau mar")).toEqual([{ start: "2026-10-20", end: "2026-10-21" }]);
-    expect(blocks("Rapport @créneau 23h-1h")).toEqual([{ start: "2026-10-15T23:00", end: "2026-10-16T01:00" }]);
-    expect(blocks("Rapport @créneau lun au mer")).toEqual([{ start: "2026-10-19", end: "2026-10-22" }]);
-    expect(blocks("Rapport @créneau lun-mer")).toEqual([{ start: "2026-10-19", end: "2026-10-22" }]);
-    expect(blocks("Rapport @block 20/10 to 22/10")).toEqual([{ start: "2026-10-20", end: "2026-10-23" }]);
-    expect(blocks("Rapport @créneau mar à 14h")).toEqual([{ start: "2026-10-20T14:00", end: "2026-10-20T15:00" }]);
-    expect(when("Rapport @ven 18h @créneau mar 14h-16h @créneau jeu 10h-12h")).toMatchObject({
+    expect(blocks("Rapport @session mar 14h-16h")).toEqual([{ start: "2026-10-20T14:00", end: "2026-10-20T16:00" }]);
+    // Its name until 2026-10-20 isn't a keyword any more: the line keeps it as text.
+    expect(when("Rapport @créneau mar 14h-16h")?.blocks ?? []).toEqual([]);
+    expect(blocks("Rapport @session mar 14h à 16h30")).toEqual([{ start: "2026-10-20T14:00", end: "2026-10-20T16:30" }]);
+    expect(blocks("Rapport @session demain 9h")).toEqual([{ start: "2026-10-16T09:00", end: "2026-10-16T10:00" }]);
+    expect(blocks("Rapport @session tue 2pm for 90min")).toEqual([{ start: "2026-10-20T14:00", end: "2026-10-20T15:30" }]);
+    expect(blocks("Rapport @session mar matin")).toEqual([{ start: "2026-10-20T09:00", end: "2026-10-20T12:00" }]);
+    expect(blocks("Rapport @session mar")).toEqual([{ start: "2026-10-20", end: "2026-10-21" }]);
+    expect(blocks("Rapport @session 23h-1h")).toEqual([{ start: "2026-10-15T23:00", end: "2026-10-16T01:00" }]);
+    expect(blocks("Rapport @session lun au mer")).toEqual([{ start: "2026-10-19", end: "2026-10-22" }]);
+    expect(blocks("Rapport @session lun-mer")).toEqual([{ start: "2026-10-19", end: "2026-10-22" }]);
+    expect(blocks("Rapport @session 20/10 to 22/10")).toEqual([{ start: "2026-10-20", end: "2026-10-23" }]);
+    expect(blocks("Rapport @session mar à 14h")).toEqual([{ start: "2026-10-20T14:00", end: "2026-10-20T15:00" }]);
+    expect(when("Rapport @ven 18h @session mar 14h-16h @session jeu 10h-12h")).toMatchObject({
       due: "2026-10-16T18:00",
       blocks: [
         { start: "2026-10-20T14:00", end: "2026-10-20T16:00" },
@@ -174,8 +176,8 @@ describe("suggestions while typing after @", () => {
     suggestAt(typed, TODAY, "fr")?.items.map((i) => (i.kind === "accept" ? `✓${i.label}` : i.kind === "more" ? "+" : i.label)) ?? null;
 
   it("first offers what to add", () => {
-    expect(items("")).toEqual(["Deadline", "Créneau", "Répéter", "✓Transformer en tâche"]);
-    expect(items("cr")).toEqual(["Créneau"]);
+    expect(items("")).toEqual(["Deadline", "Session", "Répéter", "✓Transformer en tâche"]);
+    expect(items("se")).toEqual(["Session"]);
   });
 
   it("offers shortcuts for a day or a repetition being typed", () => {
@@ -191,8 +193,8 @@ describe("suggestions while typing after @", () => {
     expect(afterDay[0]).toBe("✓@deadline ven");
     expect(afterDay).toContain("matin");
     expect(afterDay.at(-1)).toBe("+");
-    expect(items("créneau mar ")).toEqual(expect.arrayContaining(["✓@créneau mar", "14h-16h", "matin"]));
-    expect(items("créneau mar 14")).toEqual(["14h-15h", "14h-16h", "14h-17h"]);
+    expect(items("session mar ")).toEqual(expect.arrayContaining(["✓@session mar", "14h-16h", "matin"]));
+    expect(items("session mar 14")).toEqual(["14h-15h", "14h-16h", "14h-17h"]);
     expect(items("répéter ")!.slice(0, 2)).toEqual(["chaque semaine", "chaque jour"]);
     expect(items("répéter chaque l")).toEqual(["chaque lundi"]);
   });
@@ -259,7 +261,7 @@ describe("full dates", () => {
     expect(due("Visa @1er novembre 14h")).toBe("2026-11-01T14:00");
     expect(due("Visa @oct 20")).toBe("2026-10-20");
     expect(due("Visa @deadline 3 déc")).toBe("2026-12-03");
-    expect(when("Visa @créneau 20 oct 14h-16h")!.blocks).toEqual([{ start: "2026-10-20T14:00", end: "2026-10-20T16:00" }]);
+    expect(when("Visa @session 20 oct 14h-16h")!.blocks).toEqual([{ start: "2026-10-20T14:00", end: "2026-10-20T16:00" }]);
   });
 
   it("keeps the list open while a date is typed, and lists days in date order", () => {
@@ -277,24 +279,24 @@ describe("time blocks that come back", () => {
   const blocks = (line: string) => when(line)!.blocks;
 
   it("reads a repetition inside the slot, starting on its first day", () => {
-    expect(blocks("Mémoire @créneau chaque mardi 14h-16h")).toEqual([
+    expect(blocks("Mémoire @session chaque mardi 14h-16h")).toEqual([
       { start: "2026-10-20T14:00", end: "2026-10-20T16:00", repeat: "FREQ=WEEKLY;BYDAY=TU" },
     ]);
-    expect(blocks("Sport @créneau en semaine 7h-8h")).toEqual([
+    expect(blocks("Sport @session en semaine 7h-8h")).toEqual([
       { start: "2026-10-15T07:00", end: "2026-10-15T08:00", repeat: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR" },
     ]);
-    expect(blocks("Revue @créneau chaque semaine ven matin")).toEqual([
+    expect(blocks("Revue @session chaque semaine ven matin")).toEqual([
       { start: "2026-10-16T09:00", end: "2026-10-16T12:00", repeat: "FREQ=WEEKLY" },
     ]);
-    expect(blocks("Atelier @créneau chaque lundi")).toEqual([{ start: "2026-10-19", end: "2026-10-20", repeat: "FREQ=WEEKLY;BYDAY=MO" }]);
+    expect(blocks("Atelier @session chaque lundi")).toEqual([{ start: "2026-10-19", end: "2026-10-20", repeat: "FREQ=WEEKLY;BYDAY=MO" }]);
     // The task itself doesn't repeat.
-    expect(when("Mémoire @créneau chaque mardi 14h-16h")).toMatchObject({ due: null, repeat: null });
+    expect(when("Mémoire @session chaque mardi 14h-16h")).toMatchObject({ due: null, repeat: null });
   });
 
   it("is offered while typing a slot", () => {
     const items = (typed: string) => suggestAt(typed, TODAY, "fr")?.items.map((i) => (i.kind === "accept" ? `✓${i.label}` : i.label)) ?? null;
-    expect(items("créneau chaque m")).toEqual(["chaque mardi", "chaque mercredi"]);
-    expect(items("créneau chaque mardi ")).toEqual(expect.arrayContaining(["✓@créneau chaque mardi", "14h-16h", "matin"]));
+    expect(items("session chaque m")).toEqual(["chaque mardi", "chaque mercredi"]);
+    expect(items("session chaque mardi ")).toEqual(expect.arrayContaining(["✓@session chaque mardi", "14h-16h", "matin"]));
   });
 });
 
@@ -303,7 +305,7 @@ describe("changing a task already made", () => {
 
   it("sets what is written, and only that", () => {
     expect(edit("@ven", "2026-10-20")).toEqual({ due: "2026-10-16", blocks: [] });
-    expect(edit("@créneau mar 14h-16h", "2026-10-20")).toEqual({ blocks: [{ start: "2026-10-20T14:00", end: "2026-10-20T16:00" }] });
+    expect(edit("@session mar 14h-16h", "2026-10-20")).toEqual({ blocks: [{ start: "2026-10-20T14:00", end: "2026-10-20T16:00" }] });
     expect(edit("@répéter chaque lundi 7h", "2026-10-20")).toEqual({ due: "2026-10-19T07:00", repeat: "FREQ=WEEKLY;BYDAY=MO", blocks: [] });
   });
 
@@ -349,9 +351,9 @@ describe("changing a task already made", () => {
   it("offers taking things off instead of \"no date\"", () => {
     const items = (typed: string, editing: { due: boolean; repeat: boolean }) =>
       suggestAt(typed, TODAY, "fr", editing)?.items.map((i) => (i.kind === "accept" ? `✓${i.label}` : i.label)) ?? null;
-    expect(items("", { due: true, repeat: true })).toEqual(["Deadline", "Créneau", "Répéter", "✓Retirer la deadline", "✓Ne plus répéter"]);
-    expect(items("", { due: true, repeat: false })).toEqual(["Deadline", "Créneau", "Répéter", "✓Retirer la deadline"]);
-    expect(items("", { due: false, repeat: false })).toEqual(["Deadline", "Créneau", "Répéter"]);
+    expect(items("", { due: true, repeat: true })).toEqual(["Deadline", "Session", "Répéter", "✓Retirer la deadline", "✓Ne plus répéter"]);
+    expect(items("", { due: true, repeat: false })).toEqual(["Deadline", "Session", "Répéter", "✓Retirer la deadline"]);
+    expect(items("", { due: false, repeat: false })).toEqual(["Deadline", "Session", "Répéter"]);
     expect(items("répéter ", { due: true, repeat: true })![0]).toBe("jamais");
     const off = suggestAt("", TODAY, "fr", { due: true, repeat: true })!.items.filter((i) => i.kind === "accept");
     expect(off.map((i) => i.text)).toEqual(["sans date", "répéter jamais"]);

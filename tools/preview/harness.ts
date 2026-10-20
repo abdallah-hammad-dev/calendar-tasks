@@ -73,9 +73,16 @@ const ITEMS: [string, string][] = [
 ];
 // The week after, for the task form's day preview.
 ITEMS.push(
+  // Over two days: on the second, what has a time sits under its bar, a little apart (the month).
+  ["https://c/perso/", ics("BEGIN:VEVENT\r\nUID:fair\r\nSUMMARY:Salon\r\nDTSTART;VALUE=DATE:20261019\r\nDTEND;VALUE=DATE:20261021\r\nEND:VEVENT\r\n")],
   ["https://c/perso/", ev("team", "Réunion d'équipe", "20261022T093000", "20261022T103000")],
   ["https://c/ecole/", ev("cours2", "Cours réseau", "20261022T110000", "20261022T123000")],
   ["https://c/perso/", ev("dentist", "Dentiste", "20261023T170000", "20261023T174500")],
+  // A session all day between two deadlines by title: in the month, the day's deadlines, then its session (the week
+  // after the one the drag previews use, so their all-day row keeps its height).
+  ["https://c/taches/", ics("BEGIN:VTODO\r\nUID:t13\r\nSUMMARY:Acheter des timbres\r\nDUE;VALUE=DATE:20261024\r\nEND:VTODO\r\n")],
+  ["https://c/perso/", ics("BEGIN:VEVENT\r\nUID:blk5\r\nSUMMARY:Ranger le bureau\r\nRELATED-TO:t8\r\nDTSTART;VALUE=DATE:20261024\r\nDTEND;VALUE=DATE:20261025\r\nEND:VEVENT\r\n")],
+  ["https://c/taches/", ics("BEGIN:VTODO\r\nUID:t14\r\nSUMMARY:Trier les photos\r\nDUE;VALUE=DATE:20261024\r\nEND:VTODO\r\n")],
   ["https://c/taches/", ics("BEGIN:VTODO\r\nUID:t11\r\nSUMMARY:Envoyer le compte rendu\r\nDUE;TZID=Europe/Paris:20261023T160000\r\nEND:VTODO\r\n")],
 );
 const occurrencesFor = (from: Date, to: Date) =>
@@ -407,7 +414,7 @@ function taskNote(): void {
     },
     { toggle: () => undefined, edit: () => undefined, open: () => undefined, block: () => undefined, showBlock: () => undefined, properties: { shown: false, toggle: () => undefined } },
     {
-      todo: "À faire", done: "Terminée", deadline: "Deadline", addBlock: "Ajouter un créneau", repeat: "Répétition",
+      todo: "À faire", done: "Terminée", deadline: "Deadline", addBlock: "Ajouter une session", repeat: "Répétition",
       project: "Projet", parent: "Tâche parente", progress: "Sous-tâches faites", edit: "Modifier la tâche…",
       showProperties: "Afficher les propriétés", hideProperties: "Masquer les propriétés", pending: "", local: "",
     },
@@ -492,7 +499,7 @@ function slotPicker(): void {
 function dateSuggest(): void {
   const popup = new DateSuggest({} as never, { task: () => null, edit: () => undefined });
   const editing = { path: "Tâches/Sport.md", due: "2026-10-19T07:00", repeat: "FREQ=WEEKLY;BYDAY=MO,TH" };
-  ["", "deadline ven ", "créneau chaque mardi ", "edit:"].forEach((col_typed, col) => {
+  ["", "deadline ven ", "session chaque mardi ", "edit:"].forEach((col_typed, col) => {
     const edit = col_typed.startsWith("edit:");
     const typed = edit ? col_typed.slice(5) : col_typed;
     (popup as unknown as { editing: unknown }).editing = edit ? editing : null;

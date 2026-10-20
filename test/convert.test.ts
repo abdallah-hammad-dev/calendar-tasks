@@ -21,7 +21,7 @@ beforeEach(() => {
 describe("hasTaskMarker", () => {
   it("wants an @ (a deadline, a time block, a repetition, or alone); other checklist lines stay steps", () => {
     expect(hasTaskMarker("Appeler Paul @demain", TODAY)).toBe(true);
-    expect(hasTaskMarker("Appeler Paul @créneau lun 14h", TODAY)).toBe(true);
+    expect(hasTaskMarker("Appeler Paul @session lun 14h", TODAY)).toBe(true);
     expect(hasTaskMarker("Appeler Paul @chaque lundi", TODAY)).toBe(true);
     expect(hasTaskMarker("Appeler Paul @", TODAY)).toBe(true);
     expect(hasTaskMarker("Acheter du lait", TODAY)).toBe(false);
@@ -48,7 +48,7 @@ describe("linkLineEdit", () => {
     const res = linkLineEdit("- [[Rapport]] @ven", today)!;
     expect(res).toMatchObject({ linkpath: "Rapport", rest: "- [[Rapport]]" });
     expect(res.found.when.due).toBe("2026-10-16");
-    expect(linkLineEdit("  * [[Projets/Rapport|R]] @créneau mar 14h-16h voir Paul", today)).toMatchObject({
+    expect(linkLineEdit("  * [[Projets/Rapport|R]] @session mar 14h-16h voir Paul", today)).toMatchObject({
       linkpath: "Projets/Rapport",
       rest: "  * [[Projets/Rapport|R]] voir Paul",
     });
@@ -79,7 +79,7 @@ describe("planTask", () => {
   });
 
   it("keeps time blocks apart: they become events, not note fields", () => {
-    const p = plan("Rapport @ven 18h @créneau mar 14h-16h")!;
+    const p = plan("Rapport @ven 18h @session mar 14h-16h")!;
     expect(p).toMatchObject({ title: "Rapport", due: "2026-10-16T18:00", blocks: [{ start: "2026-10-20T14:00", end: "2026-10-20T16:00" }] });
     expect(plannedFrontmatter(p, (x) => x)).toEqual({ type: "task", done: false, due: "2026-10-16T18:00" });
   });

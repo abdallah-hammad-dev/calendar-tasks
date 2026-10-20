@@ -4,7 +4,7 @@ import { addDays, fold, resolveDate, suggestDates, WEEKDAYS, weekdayOf, type Ymd
 
 /**
  * The `@` grammar (spec §5.2). Each `@` adds one thing to the task, named by a keyword, then its value:
- * `@deadline ven 14h`, `@créneau mar 14h-16h`, `@répéter chaque lundi`, `@sans date`. Shortcuts: a
+ * `@deadline ven 14h`, `@session mar 14h-16h`, `@répéter chaque lundi`, `@sans date`. Shortcuts: a
  * day straight after `@` is a deadline (`@demain`), a repetition is a repetition (`@chaque lundi`), and `@` alone
  * makes a task with no date. On a task already made, the same `@` changes it (`@sans date`, `@répéter jamais` take
  * things off). French and English.
@@ -26,7 +26,7 @@ export type Cleared = "due" | "repeat";
 export interface Block {
   start: string;
   end: string;
-  /** RRULE when the slot comes back (`@créneau chaque mardi 14h-16h`): a recurring event, from `start` on. */
+  /** RRULE when the slot comes back (`@session chaque mardi 14h-16h`): a recurring event, from `start` on. */
   repeat?: string;
 }
 
@@ -35,7 +35,7 @@ export type Feature = "due" | "block" | "repeat";
 /** Keywords naming what an `@` adds (folded). */
 const FEATURE_WORDS: Record<string, Feature> = {
   deadline: "due", due: "due", echeance: "due",
-  creneau: "block", bloc: "block", block: "block",
+  session: "block",
   repeter: "repeat", repete: "repeat", repetition: "repeat", repeat: "repeat",
 };
 
@@ -715,14 +715,14 @@ const L: Record<"fr" | "en", Words> = {
   fr: {
     features: [
       ["due", "deadline", "Deadline", "flag", "à rendre pour…"],
-      ["block", "créneau", "Créneau", "clock", "bloquer du temps dans le calendrier"],
+      ["block", "session", "Session", "clock", "bloquer du temps dans le calendrier"],
       ["repeat", "répéter", "Répéter", "repeat", "chaque semaine, chaque lundi…"],
     ],
     noDate: ["sans date", "Transformer en tâche", "sans date pour l'instant"],
     clearDue: ["Retirer la deadline", "et la répétition"],
     clearRepeat: ["Ne plus répéter", "garde la deadline"],
     never: "jamais",
-    more: "Autre chose (créneau, répétition…)",
+    more: "Autre chose (session, répétition…)",
     days: ["aujourd'hui", "demain", "après-demain", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"],
     times: ["matin", "midi", "14h", "18h"],
     slots: ["matin", "aprem", "9h-10h", "10h-12h", "14h-16h", "16h-18h"],
@@ -735,14 +735,14 @@ const L: Record<"fr" | "en", Words> = {
   en: {
     features: [
       ["due", "deadline", "Deadline", "flag", "due by…"],
-      ["block", "block", "Time block", "clock", "block time in the calendar"],
+      ["block", "session", "Session", "clock", "block time in the calendar"],
       ["repeat", "repeat", "Repeat", "repeat", "every week, every monday…"],
     ],
     noDate: ["no date", "Make it a task", "no date for now"],
     clearDue: ["Remove the deadline", "and the repeat"],
     clearRepeat: ["Stop repeating", "keeps the deadline"],
     never: "never",
-    more: "Something else (time block, repeat…)",
+    more: "Something else (session, repeat…)",
     days: ["today", "tomorrow", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"],
     times: ["morning", "noon", "2pm", "6pm"],
     slots: ["morning", "afternoon", "9am-10am", "10am-12pm", "2pm-4pm", "4pm-6pm"],

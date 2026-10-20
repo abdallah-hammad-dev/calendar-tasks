@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { closeDeadlines, expandItem, findOccurrence, pickOccurrence, type Occurrence } from "../src/calendar/expand";
+import { closeDeadlines, expandItem, findOccurrence, monthGroup, monthGroupStarts, pickOccurrence, type Occurrence } from "../src/calendar/expand";
 import { fixture } from "./support/fixtures";
 
 const TZ = "Europe/Paris";
@@ -161,5 +161,36 @@ describe("closeDeadlines", () => {
   it("takes the gap as a parameter", () => {
     const groups = closeDeadlines([d("a", "2026-10-14T16:00"), d("b", "2026-10-14T16:05")], 5);
     expect(groups.map((g) => g.length)).toEqual([1, 1]);
+  });
+});
+
+describe("monthGroup / monthGroupStarts", () => {
+  const o = (id: string, kind: Occurrence["kind"], start: string, end: string | null, title = id): Occurrence =>
+    ({ id, kind, start, end, title, allDay: start.length === 10 }) as Occurrence;
+
+  it("tells the month's kinds: bars, deadlines all day, sessions all day, what has a time", () => {
+    expect(monthGroup(o("trip", "event", "2026-10-16", "2026-10-18"))).toBe(0);
+    expect(monthGroup(o("night", "event", "2026-10-16T22:00", "2026-10-17T02:00"))).toBe(0); // over two days: a bar
+    expect(monthGroup(o("late", "event", "2026-10-16T23:00", "2026-10-17T00:00"))).toBe(3); // ends at midnight: one day
+    expect(monthGroup(o("milk", "deadline", "2026-10-17", null))).toBe(1);
+    expect(monthGroup(o("read", "timeblock", "2026-10-17", "2026-10-18"))).toBe(2);
+    expect(monthGroup(o("due", "deadline", "2026-10-17T18:00", null))).toBe(3);
+  });
+
+  it("marks the first line of each kind of a day, in the month's order, not the first of the day", () => {
+    const starts = monthGroupStarts([
+      o("v", "deadline", "2026-10-17", null, "tache v"),
+      o("rerz", "timeblock", "2026-10-17", "2026-10-18", "rerz"),
+      o("milk", "deadline", "2026-10-17", null, "Acheter du lait"),
+      o("call", "event", "2026-10-17T10:00", "2026-10-17T11:00"),
+      o("due", "deadline", "2026-10-17T09:00", null),
+    ]);
+    // Deadlines (milk, v), then the session, then what has a time (due at 9:00 first).
+    expect([...starts].sort()).toEqual(["due", "rerz"]);
+  });
+
+  it("puts a line under a bar from the day before apart, not the bar on its next days", () => {
+    const starts = monthGroupStarts([o("fair", "event", "2026-10-19", "2026-10-21"), o("course", "event", "2026-10-20T08:30", "2026-10-20T10:30")]);
+    expect([...starts]).toEqual(["course"]);
   });
 });

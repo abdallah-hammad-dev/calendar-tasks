@@ -116,7 +116,7 @@ user at each one.
   2026-10-15→16 and was removed at the user's request: it doubled the time blocks.
 - **One trigger, `@`, one thing per `@`** (`src/editor/when.ts`). History: `>date`, then a free-form phrase
   after a single `@` ("@ven prévu mar chaque semaine"); the user found both confusing (2026-10-16) and asked for
-  separate features. Now each `@` = keyword + value (`parseToken`): `@deadline`, `@créneau`, `@répéter`,
+  separate features. Now each `@` = keyword + value (`parseToken`): `@deadline`, `@session`, `@répéter`,
   `@sans date`; shortcuts `@demain` (deadline) and `@chaque lundi` (repeat). `findWhen`
   combines every `@` of the line. `suggestAt` drives the assistant: features first, then values it keeps only if
   the parser accepts them.
@@ -200,7 +200,7 @@ user at each one.
   mode switches and re-renders); `.ct-task-view` makes `.view-content` a flex column. Properties are hidden with
   `--metadata-display-editing/reading: none` on that element (setting `showTaskProperties` turns it off).
 - **Two kinds of repetition**: a repeating task (`@répéter`, RRULE on the VTODO, the deadline comes back when
-  ticked) and a session that comes back (`@créneau chaque mardi 14h-16h`, RRULE on the VEVENT, `Block.repeat`).
+  ticked) and a session that comes back (`@session chaque mardi 14h-16h`, RRULE on the VEVENT, `Block.repeat`).
   A task done for good ends its recurring sessions (`endSeries`: UNTIL = now; deleted if not started), hooked on
   the done transition in `metadataCache.on("changed")`.
 - **Collections are contexts, each holding events and tasks** (2026-10-18; the user never wanted a list for tasks
@@ -258,7 +258,10 @@ user at each one.
   `moreLinkRoom` (the link's height at the row's font) doesn't fit, and `closeDays` / `hideInClosedDays` hide
   everything after the first hidden line of a day (a multi-day event still shows on its other days). The
   `calendar-month` / `calendar-month-narrow` previews check each day's lines follow one another, then the link
-  (`packedDays`). A ticked checkbox shows its tick by `opacity`: `visibility: visible` showed it through
+  (`packedDays`), and the kinds of a day in order with 6px between them: `monthGroup` (expand.ts: bars, deadlines
+  all day, sessions all day, what has a time) is the month's first `eventOrder` key (`extendedProps.monthGroup`),
+  and `monthGroupStarts` marks the first line of each kind on its day `ct-ev-apart` (its margin is inside
+  FullCalendar's harness, so it's measured). A ticked checkbox shows its tick by `opacity`: `visibility: visible` showed it through
   FullCalendar's hidden lines. Moving is behind `CalendarView.moving` (the toolbar's "Move", off at each open,
   confirmed 2026-10-20: it's the mode that changes the calendar, never remembered):
   events get `editable` only then; the panel's drop and the card's time fields don't depend on it, and a drop from the panel turns it
@@ -296,7 +299,10 @@ user at each one.
   `readFields` (when.ts; errors `day` / `time` / `end` / `noDay` / `noStart` / `endBefore`, said by
   `fieldsProblem`, marked by `markFields`). No on/off switches, no placeholder standing for a state. Free text
   ("ven 14h", "mar 14h-16h", "lun au mer") stays for `@` in notes only.
-- **Time blocks are events, never task fields** (RFC 5545 has no work-session field; agreed with the user): `@créneau`
+- **Their name is "session"** (2026-10-20, the user: "j'aime pas le terme créneau"; chosen over bloc, séance, time
+  block): "Session de travail" in the key, "2 sessions", `@session`; English the same. The old keywords
+  (`@créneau`, `@bloc`, `@block`) were dropped, asked: `@session` is the only one (`FEATURE_WORDS` in when.ts).
+- **Time blocks are events, never task fields** (RFC 5545 has no work-session field; agreed with the user): `@session`
   becomes a VEVENT with `RELATED-TO` once TaskSync gives the note its UID (`TaskSync` `created` callback →
   `main.createBlocks`; pending blocks are in memory, lost if Obsidian closes before the first sync).
 - **Repetition**: `repeat` in the note (English phrase, or raw RRULE) ↔ `RRULE`; `normalizeRule` gives one spelling

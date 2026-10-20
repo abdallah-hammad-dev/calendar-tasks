@@ -66,16 +66,16 @@ a *time block*, an event in your calendar linked to the task (see below).
 
 ```markdown
 - [ ] Prepare slides @friday 2pm [[My project]]        ← deadline (a day right after @)
-- [ ] Write the report @fri @block tue 2pm-4pm         ← deadline + time blocked on Tuesday
+- [ ] Write the report @fri @session tue 2pm-4pm       ← deadline + time blocked on Tuesday
 - [ ] Gym @repeat every monday and thursday 7am        ← repeats
-- [ ] Move house @block mon to wed                     ← whole days blocked
+- [ ] Move house @session mon to wed                   ← whole days blocked
 - [ ] Call the bank @                                  ← a task with no date
 ```
 
-In French: `@deadline ven 14h` (or just `@ven 14h`), `@créneau mar 14h-16h`, `@répéter chaque lundi`,
-`@créneau lun au mer`, `@sans date`.
+In French: `@deadline ven 14h` (or just `@ven 14h`), `@session mar 14h-16h`, `@répéter chaque lundi`,
+`@session lun au mer`, `@sans date`.
 
-**The `@` assistant**: typing `@` in a checklist line first asks what to add (*Deadline*, *Time block*,
+**The `@` assistant**: typing `@` in a checklist line first asks what to add (*Deadline*, *Session*,
 *Repeat*, *No date*), then offers values for it and shows what they mean. The ✓ item ends the line
 and creates the task; *Something else* adds another `@`.
 
@@ -97,7 +97,7 @@ block, project, sub-task progress. Click any of them to change it. The raw prope
 list icon in the bar shows them.
 
 **Changing a task**: click one of its chips (or the pencil that shows when you hover the line) to open its form,
-or type `@` after its link: `- [[Write the report]] @mon` moves the deadline, `@block thu 10am-12pm` adds a time
+or type `@` after its link: `- [[Write the report]] @mon` moves the deadline, `@session thu 10am-12pm` adds a time
 block, `@repeat never` stops the repetition, `@no date` removes the deadline. ✓ applies it and cleans the line.
 
 **The New task button** (ribbon, command palette, or the calendar's *+ New task*) opens a form: title, deadline,

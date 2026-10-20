@@ -13,7 +13,7 @@ export interface NewEvent {
   location?: string | null;
   /** UID of the task this is a work session for (spec §4.4). */
   relatedTo?: string | null;
-  /** RRULE value, for a session that comes back (`@créneau chaque mardi 14h-16h`). */
+  /** RRULE value, for a session that comes back (`@session chaque mardi 14h-16h`). */
   rrule?: string | null;
 }
 

@@ -1886,6 +1886,15 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-select {
 }
 
 /*
+ * A day of the month in kinds, a little room above each (2026-10-20, asked): the bars, the day's deadlines, its work
+ * sessions, then what has a time (`monthGroup`, `monthGroupStarts`). On the line itself, inside FullCalendar's
+ * harness, so it's measured ("+N more" counts it).
+ */
+.ct-calendar .fc .fc-dayGridMonth-view .fc-daygrid-event.ct-ev-apart {
+  margin-top: 6px;
+}
+
+/*
  * Agenda (2026-10-20: it read as a spreadsheet): a heading per day, then its items without lines between them,
  * each one: when (muted; a flag before a deadline's), the month's mark in a column of its own, what and where.
  * Everything is the same weight. What's over fades; a missed deadline's time turns red.

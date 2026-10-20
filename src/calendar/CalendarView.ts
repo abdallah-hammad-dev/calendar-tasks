@@ -18,7 +18,7 @@ import {
   type EventCardInfo,
   type SyncState,
 } from "./event-card";
-import { closeDeadlines, type Occurrence } from "./expand";
+import { closeDeadlines, monthGroup, monthGroupStarts, type Occurrence } from "./expand";
 import { NewEventModal, renderNewEventForm, type NewEventOptions } from "./modals";
 import type { PartStat } from "./vevent";
 import { localDate, type When } from "./when-fields";
@@ -277,6 +277,8 @@ export class CalendarView extends ItemView {
       slotLabelFormat: { hour: "2-digit", minute: "2-digit", hour12: false },
       eventTimeFormat: { hour: "2-digit", minute: "2-digit", hour12: false },
       defaultRangeSeparator: " – ",
+      // A day of the month: the bars, the day's deadlines, its work sessions, then what has a time (`monthGroup`).
+      views: { dayGridMonth: { eventOrder: "monthGroup,start,-duration,allDay,title" } },
       events: (info, success) => success(this.inputs(info.start, info.end)),
       eventContent: (arg) => this.eventContent(arg),
       dayHeaderContent: (arg) => this.dayHeader(arg),
@@ -500,13 +502,16 @@ export class CalendarView extends ItemView {
     const grouped = (this.grouped = this.calendar?.view.type.startsWith("timeGrid") ?? true);
     const out: EventInput[] = [];
     const marks: Occurrence[] = [];
-    for (const o of this.host.occurrences(from, to)) {
+    const occurrences = this.host.occurrences(from, to);
+    // The month: a little room above the first line of each kind of a day (all day, then with a time).
+    const apart = monthGroupStarts(occurrences);
+    for (const o of occurrences) {
       if (grouped && o.kind === "deadline" && !o.allDay) marks.push(o);
-      else out.push(this.input(o, colors, now));
+      else out.push(this.input(o, colors, now, apart.has(o.id)));
     }
     for (const group of closeDeadlines(marks, MARK_MS / 60_000)) {
       if (group.length === 1) {
-        out.push(this.input(group[0]!, colors, now));
+        out.push(this.input(group[0]!, colors, now, false));
         continue;
       }
       const first = group[0]!;
@@ -528,8 +533,9 @@ export class CalendarView extends ItemView {
     return out;
   }
 
-  private input(o: Occurrence, colors: Map<string, string>, now: Date): EventInput {
+  private input(o: Occurrence, colors: Map<string, string>, now: Date, apart: boolean): EventInput {
     const classes = ["ct-ev", `ct-ev-${o.kind}`];
+    if (apart) classes.push("ct-ev-apart");
     if (o.kind === "deadline" && !o.done && isPast(o, now)) classes.push("ct-ev-overdue");
     if (o.invitation?.partstat === "NEEDS-ACTION") classes.push("ct-ev-pending");
     if (o.invitation?.partstat === "TENTATIVE") classes.push("ct-ev-tentative");
@@ -545,7 +551,7 @@ export class CalendarView extends ItemView {
       classNames: classes,
       editable: this.moving && this.host.editable(o),
       durationEditable: o.kind !== "deadline" && this.moving && this.host.editable(o),
-      extendedProps: { occ: o, color: colors.get(o.calendarUrl) ?? null },
+      extendedProps: { occ: o, color: colors.get(o.calendarUrl) ?? null, monthGroup: monthGroup(o) },
     };
   }
 

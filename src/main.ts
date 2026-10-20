@@ -881,7 +881,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     return out;
   }
 
-  /** Time blocks written on a task line (`@créneau mar 14h-16h`): events linked to the task, once it has a UID. */
+  /** Time blocks written on a task line (`@session mar 14h-16h`): events linked to the task, once it has a UID. */
   private async createBlocks(path: string, taskUid: string): Promise<void> {
     const blocks = this.pendingBlocks.get(path);
     this.pendingBlocks.delete(path);
@@ -909,7 +909,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     }
   }
 
-  /** Ends the series of work sessions of a task now done (`@créneau chaque mardi…`). */
+  /** Ends the series of work sessions of a task now done (`@session chaque mardi…`). */
   private async endSessions(taskUid: string): Promise<void> {
     for (const cal of this.sync?.calendars() ?? []) {
       if (!this.writableCalendar(cal.info.url)) continue;

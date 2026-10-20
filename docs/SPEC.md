@@ -165,7 +165,7 @@ recurrence_id: …           # occurrences of recurring events only (original st
 A work session on a task is a `VEVENT` with `RELATED-TO:<task UID>`. Clicking it opens the **task** note (no event
 note). Hovering a deadline highlights its time blocks.
 
-A session can come back (`@créneau chaque mardi 14h-16h`): a recurring `VEVENT` (`RRULE`), which Apple Calendar
+A session can come back (`@session chaque mardi 14h-16h`): a recurring `VEVENT` (`RRULE`), which Apple Calendar
 shows like any recurring event. That's different from a repeating *task* (§4.1), whose deadline comes back each
 time it's ticked. When a task is done for good (not a repeating one), its recurring sessions end: `UNTIL` = now,
 past sessions kept; a series that hasn't started is deleted.
@@ -275,12 +275,13 @@ Implementation: CodeMirror 6 view plugin (Live Preview) + `registerMarkdownPostP
 - **The `@` grammar** (`src/editor/when.ts`), French and English. Each `@` is one thing: a keyword, then its value.
   - `@deadline` / `@échéance` / `@due` + a day and/or a time: `@deadline ven 14h`. **Shortcut**: a day straight
     after `@` is a deadline (`@demain`, `@ven 14h`).
-  - `@créneau` / `@bloc` / `@block` + a slot: `mar 14h-16h`, `mar 14h à 16h`, `14h pendant 2h`, `mar matin`
-    (9–12; `aprem` 14–18, `soir` 18–20), `mar` (all day); a start alone lasts an hour. **A time block is an event**
-    (VEVENT with `RELATED-TO:<task UID>`, in the event calendar), created once the task note has its reminder:
+  - `@session` (2026-10-20: was `@créneau`, the old words dropped, asked) + a slot: `mar 14h-16h`,
+    `mar 14h à 16h`, `14h pendant 2h`, `mar matin` (9–12; `aprem` 14–18, `soir` 18–20), `mar` (all day); a start
+    alone lasts an hour. **A time block is an event** (VEVENT with `RELATED-TO:<task UID>`, in the event
+    calendar), created once the task note has its reminder:
     blocking time is never a task field (RFC 5545 has none for it; DTSTART is a start date, not a work session).
-    A repetition inside the slot makes it come back (§4.4): `@créneau chaque mardi 14h-16h`, `@créneau en semaine
-    7h-8h`, `@créneau chaque semaine ven matin`; it starts on the rule's first day unless one is given.
+    A repetition inside the slot makes it come back (§4.4): `@session chaque mardi 14h-16h`, `@session en semaine
+    7h-8h`, `@session chaque semaine ven matin`; it starts on the rule's first day unless one is given.
   - `@répéter` / `@repeat` + a repetition: `chaque semaine`, `tous les 2 jours`, `chaque lundi et jeudi`,
     `en semaine`, `every month`… optionally + a time (`chaque lundi 7h`). **Shortcut**: a repetition straight after
     `@` (`@chaque lundi`). With no deadline, it starts on its first day from today.
@@ -290,7 +291,7 @@ Implementation: CodeMirror 6 view plugin (Live Preview) + `registerMarkdownPostP
     `1er nov 2027`, `oct 15`, `demain` / `tomorrow`, `lun` / `mon` (next one), `lundi prochain`, `dans 3 jours` /
     `in 2 weeks`. While a date is being typed (`15/10/2`), the list stays open and says how to write one.
     Times: `14h`, `14h30`, `14:30`, `2pm`, `à 9h`, `matin` (9:00), `midi`, `aprem` (14:00), `soir` (18:00).
-  - Several `@` on one line combine: `- [ ] Rapport @ven 18h @créneau mar 14h-16h @répéter chaque semaine`.
+  - Several `@` on one line combine: `- [ ] Rapport @ven 18h @session mar 14h-16h @répéter chaque semaine`.
 
 ### 5.3 New task button, planning
 
@@ -333,12 +334,12 @@ Implementation: CodeMirror 6 view plugin (Live Preview) + `registerMarkdownPostP
 - **Tasks** panel in the calendar view (toggle, remembered): every open task, sorted by deadline (the most urgent
   first for the same one), each with its priority and how
   many time blocks it has this week or later (one dropped on a day already past this week counts, and one waiting
-  for the task's reminder), in words after the work session's dashed shape: "2 créneaux" (2026-10-19: a clock and a
+  for the task's reminder), in words after the work session's dashed shape: "2 sessions" (2026-10-19: a clock and a
   number read as nothing). A task can get several blocks in a week, so planned tasks stay (2026-10-18: the user
   disliked a "To plan" list that dropped them); a "No time block" toggle (remembered) shows only those with none.
   Drag one onto the calendar to block time there (a time slot: an hour, resizable; a day: all day); click one to
   type a slot. On a phone the open panel replaces the grid.
-- Blocking time at capture is `@créneau …`; usually it's decided later, looking at the week.
+- Blocking time at capture is `@session …`; usually it's decided later, looking at the week.
 
 ### 5.4 Task note header
 
@@ -439,6 +440,9 @@ popovers.
   start and the end; on one line, "08:30 – 10:30" left little room for the title in a narrow day). A day too full
   shows its lines one under the other, then "+N more" right under them: nothing further down shows, and the line
   above goes only if the link has no room.
+  A day is in kinds, a little room above each (2026-10-20, asked: a little separation between what's all day and
+  what has a time; a session all day sat among the day's tasks, sorted by title): the bars (events all day or over
+  several days), the day's deadlines, its work sessions all day, then what has a time, by time.
   The dotted bar is whole 2px dots, the same in every line (fitted to the height, some looked thicker; 2026-10-20).
   Bars, dots and dashes are whole device pixels at any screen scaling: at 125 % (Windows) 2px is 2.5 pixels, and
   dots came out 2 or 3 pixels long, bars 3 or 4 wide, depending on where each fell (2026-10-20). So these sizes are
