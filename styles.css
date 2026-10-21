@@ -258,6 +258,34 @@ a.internal-link.ct-task-done {
   margin-inline-start: auto;
 }
 
+/*
+ * When the task was made: handy, not important. Faint, in the room left before the tools: it takes none of its own
+ * (flex-basis 0) and is one line high; when the date doesn't fit, it wraps under the empty first item, out of sight.
+ */
+.ct-task-header-created {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  height: 1.5em;
+  overflow: hidden;
+  font-size: var(--font-ui-smaller);
+  line-height: 1.5;
+}
+
+.ct-task-header-created::before {
+  content: "";
+  height: 100%;
+}
+
+.ct-task-header-created > span {
+  color: var(--text-faint);
+  white-space: nowrap;
+  cursor: default;
+}
+
 .ct-task-header-tools .clickable-icon.is-active {
   color: var(--text-accent);
 }
@@ -1430,7 +1458,8 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-select {
   height: 0.95em;
 }
 
-.ct-ev-repeat {
+.ct-ev-repeat,
+.ct-ev-meeting {
   color: var(--text-faint);
 }
 
@@ -1676,13 +1705,14 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-select {
 }
 
 /* Narrow (beside another, in a small window): words wrap whole ("Cour/s résea/u" read badly), one too long is cut,
-   and the repeat icon makes room. */
+   and the repeat and meeting icons make room. */
 @container (max-width: 90px) {
   .ct-calendar .fc .fc-timegrid-event:not(.ct-ev-deadline) .ct-ev-name {
     overflow-wrap: normal;
   }
 
-  .ct-calendar .fc .fc-timegrid-event:not(.ct-ev-deadline) .ct-ev-repeat {
+  .ct-calendar .fc .fc-timegrid-event:not(.ct-ev-deadline) .ct-ev-repeat,
+  .ct-calendar .fc .fc-timegrid-event:not(.ct-ev-deadline) .ct-ev-meeting {
     display: none;
   }
 }

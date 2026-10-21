@@ -20,6 +20,8 @@ export interface TaskFields {
 
 export interface ReadTask extends TaskFields {
   uid: string;
+  /** `CREATED` as a local "YYYY-MM-DDTHH:mm"; null when the item has none. Read only. */
+  created: string | null;
   /** DESCRIPTION without our link line. */
   notes: string;
   url: string | null;
@@ -99,6 +101,7 @@ export function readTask(data: string, tz: string): ReadTask | null {
     summary: String(todo.getFirstPropertyValue("summary") ?? "").trim(),
     done: status === "COMPLETED" || percent >= 100 || todo.hasProperty("completed"),
     due: readLocal(todo.getFirstProperty("due"), cal, tz),
+    created: readLocal(todo.getFirstProperty("created"), cal, tz),
     categories: todo.getAllProperties("categories").flatMap((p) => p.getValues().map((c) => String(c).trim())).filter(Boolean),
     parentUid: parent ? String(parent.getFirstValue()) : null,
     repeat: readRule(todo),
@@ -211,13 +214,14 @@ export function writeTask(data: string, changes: Partial<TaskFields>, opts: Writ
   return parsed.cal.toString();
 }
 
-export function newTask(uid: string, fields: TaskFields, opts: WriteOptions): string {
+/** `created`: when the task was made (default: now), written as `CREATED`. */
+export function newTask(uid: string, fields: TaskFields, opts: WriteOptions, created = opts.now ?? new Date()): string {
   const cal = new ICAL.Component("vcalendar");
   cal.updatePropertyWithValue("version", "2.0");
   cal.updatePropertyWithValue("prodid", "-//calendar-tasks//Obsidian//EN");
   const todo = new ICAL.Component("vtodo", cal);
   todo.updatePropertyWithValue("uid", uid);
-  todo.updatePropertyWithValue("created", utcStamp(opts.now ?? new Date()));
+  todo.updatePropertyWithValue("created", utcStamp(created));
   cal.addSubcomponent(todo);
   applyFields(cal, todo, fields, opts);
   return cal.toString();

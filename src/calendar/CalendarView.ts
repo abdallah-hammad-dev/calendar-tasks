@@ -328,7 +328,8 @@ export class CalendarView extends ItemView {
         const kind = occ.kind === "deadline" ? t("key.deadline") : occ.kind === "timeblock" ? t("key.block") : "";
         // In move mode, why this one doesn't move (an invitation is the organizer's to move).
         const fixed = this.moving && !this.host.editable(occ) ? t(occ.invitation ? "view.fixedInvitation" : "view.fixed") : "";
-        setTooltip(arg.el, [occ.title, kind, occ.location, relayText, fixed].filter(Boolean).join("\n"));
+        const meeting = occ.meeting ? (occ.meeting.provider ? t("view.meeting", { provider: occ.meeting.provider }) : t("view.meetingAny")) : "";
+        setTooltip(arg.el, [occ.title, kind, meeting, occ.location, relayText, fixed].filter(Boolean).join("\n"));
         arg.el.addEventListener("contextmenu", (e) => {
           e.preventDefault();
           this.host.menu(occ, e);
@@ -604,6 +605,7 @@ export class CalendarView extends ItemView {
       if (check) this.checkbox(line, occ.taskUid, arg.event.classNames.includes("ct-ev-done"), !arg.isMirror);
       else if (occ.invitation?.partstat === "NEEDS-ACTION") setIcon(line.createSpan({ cls: "ct-ev-icon" }), "mail");
       line.createSpan({ cls: "ct-ev-name", text: occ.title });
+      if (occ.meeting) setIcon(line.createSpan({ cls: "ct-ev-icon ct-ev-meeting" }), "video");
       if (occ.recurring && occ.kind !== "deadline") setIcon(line.createSpan({ cls: "ct-ev-icon ct-ev-repeat" }), "repeat");
       return line;
     };

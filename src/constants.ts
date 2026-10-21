@@ -13,6 +13,8 @@ export const PROP = {
   priority: "priority",
   project: "project",
   parent: "parent",
+  /** When the task was made: the reminder's `CREATED`, local "YYYY-MM-DDTHH:mm". Set once, never overwritten. */
+  created: "created",
   uid: "caldav_uid",
   /** The collection (CalDAV calendar) holding the task, by name: changing it moves the task there. */
   collection: "collection",

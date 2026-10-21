@@ -2,6 +2,7 @@ import ICAL from "ical.js";
 import { formatLocalDate, formatLocalDateTime, fromWall, parseLocal, wallClock } from "../ical/time";
 import { registerZones, ridOf } from "../ical/zones";
 import { readTask } from "../tasks/vtodo";
+import { meetingOf, placeOf, type Meeting } from "./meeting";
 
 export type OccurrenceKind = "event" | "deadline" | "timeblock";
 
@@ -22,7 +23,10 @@ export interface Occurrence {
   start: string;
   /** Exclusive end, same format; null for deadlines. */
   end: string | null;
+  /** The place, as written; null when it's only the meeting's link. */
   location: string | null;
+  /** The video meeting to join (Teams, Zoom, Meet…), wherever the event keeps its link. */
+  meeting: Meeting | null;
   recurring: boolean;
   /** Deadlines: the task is done. */
   done: boolean;
@@ -100,6 +104,7 @@ export function expandItem(itemUrl: string, calendarUrl: string, data: string, o
           start: task.due,
           end: null,
           location: null,
+          meeting: null,
           recurring: !!task.repeat,
           done: task.done,
           taskUid: task.uid,
@@ -199,6 +204,7 @@ function build(
     endLocal = formatLocalDate(d);
   }
   const related = comp.getFirstPropertyValue("related-to");
+  const meeting = meetingOf(comp);
   return {
     id: `${itemUrl}#${recurrenceId ?? ""}`,
     kind: related ? "timeblock" : "event",
@@ -210,7 +216,8 @@ function build(
     allDay: start.isDate,
     start: startLocal,
     end: endLocal,
-    location: (comp.getFirstPropertyValue("location") as string | null) ?? null,
+    location: placeOf((comp.getFirstPropertyValue("location") as string | null) ?? null, meeting),
+    meeting,
     recurring: event.isRecurring(),
     done: false,
     taskUid: related ? String(related) : null,

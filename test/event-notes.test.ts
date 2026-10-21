@@ -14,7 +14,7 @@ const occ = (over: Partial<Occurrence> = {}): Occurrence => ({
   allDay: false,
   start: "2026-10-16T10:00",
   end: "2026-10-16T11:00",
-  location: null,
+  location: null, meeting: null,
   recurring: false,
   done: false,
   taskUid: null,

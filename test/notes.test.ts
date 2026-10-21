@@ -5,7 +5,16 @@ import { taskBaseFile } from "../src/tasks/base-file";
 describe("task note frontmatter", () => {
   it("reads a task note and ignores other notes", () => {
     expect(
-      readNote({ type: "task", done: true, due: "2026-10-15 14:00", repeat: "every week", project: "[[Olera]]", caldav_uid: "u", collection: " Pro " }),
+      readNote({
+        type: "task",
+        done: true,
+        due: "2026-10-15 14:00",
+        repeat: "every week",
+        project: "[[Olera]]",
+        created: "2026-10-01 09:30",
+        caldav_uid: "u",
+        collection: " Pro ",
+      }),
     ).toEqual({
       done: true,
       due: "2026-10-15T14:00",
@@ -13,11 +22,20 @@ describe("task note frontmatter", () => {
       priority: null,
       project: "Olera",
       parent: null,
+      created: "2026-10-01T09:30",
       uid: "u",
       collection: "Pro",
     });
     expect(readNote({ type: "note" })).toBeNull();
     expect(readNote(null)).toBeNull();
+  });
+
+  it("reads when a task was made; something unreadable is left alone", () => {
+    const created = (v: unknown) => readNote({ type: "task", created: v })!.created;
+    expect(created("2026-10-01")).toBe("2026-10-01");
+    expect(created(undefined)).toBeNull();
+    expect(created("")).toBeNull();
+    expect(created("hier")).toBeUndefined();
   });
 
   it("reads the priority in English or French; anything else is left alone", () => {
@@ -62,13 +80,15 @@ describe("titles", () => {
 });
 
 describe("taskBaseFile", () => {
-  it("filters task notes and has the three views", () => {
+  it("filters task notes and has the four views", () => {
     const yaml = taskBaseFile({
       task: "Tâche",
       due: "Deadline",
       repeat: "Répétition",
       priority: "Priorité",
+      created: "Créée le",
       todo: "À faire",
+      noDue: "Sans deadline",
       byProject: "Par projet",
       done: "Terminées",
     });
@@ -80,5 +100,8 @@ describe("taskBaseFile", () => {
     expect(yaml).toContain(`urgency: 'if(priority == "high" || priority == "haute", 1, if(`);
     expect(yaml).toContain("- property: formula.urgency");
     expect(yaml).toContain("- 'done == true'");
+    // Tasks without a deadline, the newest first.
+    expect(yaml).toContain(`name: "Sans deadline"\n    filters:\n      and:\n        - 'done != true'\n        - 'due.isEmpty()'`);
+    expect(yaml).toContain("- property: created\n        direction: DESC");
   });
 });

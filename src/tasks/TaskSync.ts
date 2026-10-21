@@ -2,7 +2,7 @@ import { itemInfo } from "../caldav/ical";
 import { NOTE_TYPE, PROP } from "../constants";
 import type { CalendarChange, Conflict, SyncEngine } from "../sync/engine";
 import type { CachedCalendar } from "../sync/store";
-import { formatLocalDate, formatLocalDateTime, wallClock } from "../ical/time";
+import { formatLocalDate, formatLocalDateTime, fromWall, parseLocal, wallClock } from "../ical/time";
 import { nextOccurrence, repeatToNote } from "../editor/when";
 import { collectionOf, readNote, sanitizeTitle, titleMatches, uniquePath, type NoteState } from "./notes";
 import { newTask, readTask, sameFields, taskLink, writeTask, type ReadTask, type TaskFields } from "./vtodo";
@@ -294,6 +294,7 @@ export class TaskSync {
       if (project) fm[PROP.project] = `[[${this.d.vault.linkText(project, path)}]]`;
       const parentPath = task.parentUid ? this.notes.get(task.parentUid) : undefined;
       if (parentPath) fm[PROP.parent] = `[[${this.d.vault.linkText(parentPath, path)}]]`;
+      if (task.created) fm[PROP.created] = task.created;
       const collection = this.calendarName(ref.calendarUrl);
       if (collection) {
         fm[PROP.collection] = collection;
@@ -336,6 +337,7 @@ export class TaskSync {
       if (state.collection !== collection) edits[PROP.collection] = collection;
     }
     if (state.done !== task.done) edits[PROP.done] = task.done;
+    if (state.created === null && task.created) edits[PROP.created] = task.created; // set once: the note's own stays
     if (state.due !== task.due) edits[PROP.due] = task.due ?? undefined;
     if (state.repeat === undefined ? task.repeat !== null : state.repeat !== task.repeat) {
       edits[PROP.repeat] = task.repeat ? repeatToNote(task.repeat) : undefined;
@@ -466,7 +468,11 @@ export class TaskSync {
     const uid = this.d.newUid();
     const url = this.d.engine.newItemUrl(calendarUrl, uid);
     const fields = this.fieldsFromNote(note, state, null);
-    await this.d.engine.putItem(calendarUrl, url, newTask(uid, fields, this.writeOpts(uid)));
+    // Made now, unless the note already says when (e.g. a note unlinked from its reminder, then reopened).
+    const tz = this.d.tz();
+    const said = state.created ? parseLocal(state.created) : null;
+    const created = said ? fromWall(said.wall, tz) : new Date();
+    await this.d.engine.putItem(calendarUrl, url, newTask(uid, fields, this.writeOpts(uid), created));
     this.items.set(uid, { url, calendarUrl });
     this.uidOfUrl.set(url, uid);
     this.notes.set(uid, note.path);
@@ -475,6 +481,7 @@ export class TaskSync {
     await this.d.vault.editFrontmatter(note.path, (fm) => {
       fm[PROP.uid] = uid;
       if (collection) fm[PROP.collection] = collection;
+      if (state.created === null) fm[PROP.created] = formatLocalDateTime(wallClock(created, tz));
     });
     this.d.created?.(note.path, uid);
     this.d.requestSync();

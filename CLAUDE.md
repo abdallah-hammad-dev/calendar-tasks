@@ -18,8 +18,8 @@ user at each one.
 - Release: `npm version patch|minor|major` then `git push --follow-tags` (`docs/releasing.md`). Never hand-edit the
   manifest version or hand-create tags.
 
-## Test servers (`~/organisation/calendar/`, see `bench/TESTS.md`)
-- After a reboot: `~/organisation/calendar/start.sh` starts both servers.
+## Test servers (`~/organisation/calendar-backend/`, private repo; see `bench/TESTS.md`)
+- After a reboot: `~/organisation/calendar-backend/start.sh` starts both servers.
 - **Davis** (the chosen server): `davis/run.sh` (rootless Podman), `http://127.0.0.1:9000/dav/`, users `abd` /
   `orga`, password `x`; iPhone over Tailscale Serve on port 8443 (URL in `bench/TESTS.md`).
 - `bench/push-fixtures.sh` / `bench/check.sh` push and read test items over HTTP. Radicale (`radicale/`) is kept
@@ -101,7 +101,15 @@ user at each one.
   a task note deletes its VTODO; a refused push is merged field by field against `baseData` (server wins where
   both sides changed a field, with a notice). Every write is equality-checked, so echoes are no-ops.
 - **Startup order**: load cache → push local note edits (made while closed) → sync → pull every VTODO into notes →
-  write `Tasks.base` once (`taskBaseCreated` flag, never recreated).
+  write `Tasks.base` once (`taskBaseCreated` flag, never recreated). The settings' *Regenerate the task list*
+  (`main.regenerateTaskBase`, 2026-10-21) rewrites it with the default views after a `ConfirmModal`, so new
+  default views (e.g. *No deadline*) reach an existing file.
+- **`created`** (2026-10-21, the user: find the small undated tasks jotted down today): the reminder's `CREATED` as
+  a local date-time, written only into a note that has none (an unreadable value is left alone), never pushed; a
+  note made here gives its reminder `CREATED` (its own `created` if it has one). Bench fixtures and integration
+  items have no `CREATED`, so no `created`. The task header shows it faint before the tools (`createdLabel` in
+  chips.ts); `.ct-task-header-created` has `flex-basis: 0`, one line of height and `overflow: hidden`, with an empty
+  `::before` as first flex item, so a date with no room wraps under it out of sight instead of wrapping the bar.
 - **Before every sync, note edits still in their 800 ms debounce are queued** (`flushNoteChanges`): the engine never
   pulls over a queued change, and a refused push is merged. Without this, ticking a task right before a sync that
   brings a phone edit of the same reminder lost the tick.
@@ -282,6 +290,12 @@ user at each one.
   stretched (`eventDragStart` … `eventDragStop`), then run once let go (after FullCalendar applies the drop):
   FullCalendar hides what's dragged by instance id, and a refetch mid-drag made new instances, so the original
   (even twice) showed beside the one in hand. `calendar-drag` holds an event while the previous drop's redraws come.
+- **Video meetings** (2026-10-22): `meetingOf` (`src/calendar/meeting.ts`, cached per ical.js component in a
+  WeakMap: a series' occurrences share their master) reads the link from `CONFERENCE` / Google / Microsoft properties,
+  else from a known service's link in `URL`, `LOCATION`, `DESCRIPTION` (spec §7.1). `Occurrence.meeting` carries it;
+  `Occurrence.location` is `placeOf` (null when the place is only that link). "Join" opens with `window.open`
+  (Obsidian hands it to the browser). The `calendar-card` preview clicks *Rejoindre Teams* with `window.open`
+  stubbed; `event-note` checks its header button.
 - **Event notes whose event isn't in the calendar** (2026-10-19): `eventOfNote` finds the occurrence with
   `findOccurrence(…, { declined: true })`, so a declined invitation's note still answers it; the header's `missing`
   is `"declined"` or `"deleted"` (no catalog entry once calendars are synced), and then has no reveal (time static,

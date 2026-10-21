@@ -17,6 +17,8 @@ export interface TaskHeaderModel {
   /** Time blocks ahead, soonest first: label and local start. */
   blocks: { label: string; start: string }[];
   sync: "pending" | "local" | null;
+  /** When it was made ("Créée hier"), the whole date in the tooltip. Shown faint: handy, not important. */
+  created: { text: string; tooltip: string } | null;
 }
 
 export interface TaskHeaderActions {
@@ -107,6 +109,8 @@ export function renderTaskHeader(model: TaskHeaderModel, actions: TaskHeaderActi
     setTooltip(icon, model.sync === "pending" ? labels.pending : labels.local);
   }
 
+  // In the room left before the tools, only if it fits (never a line of its own).
+  if (model.created) setTooltip(inner.createDiv({ cls: "ct-task-header-created" }).createSpan({ text: model.created.text }), model.created.tooltip);
   const tools = inner.createDiv({ cls: "ct-task-header-tools" });
   const tool = (icon: string, tooltip: string, onClick: () => void, active = false) => {
     const el = tools.createEl("button", { cls: `clickable-icon${active ? " is-active" : ""}` });

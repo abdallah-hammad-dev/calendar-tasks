@@ -15,6 +15,8 @@ export interface TaskInfo {
   parentPath: string | null;
   /** The collection its note names. */
   collection: string | null;
+  /** When it was made, local "YYYY-MM-DD[THH:mm]". */
+  created: string | null;
 }
 
 /** Every task note's state, kept current from vault events; what the editor decorations read. */
@@ -106,6 +108,7 @@ export class TaskIndex {
       projectPath: resolve(s.project),
       parentPath: resolve(s.parent),
       collection: s.collection,
+      created: s.created ?? null,
     });
     return true;
   }

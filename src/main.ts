@@ -18,7 +18,7 @@ import { claudeWorkspaceApi } from "./claude/workspace-api";
 import { NOTE_TYPE, PROP, PROTOCOL_ACTION, type Priority } from "./constants";
 import { obsidianTransport } from "./caldav/transport";
 import { domParser } from "./caldav/xml";
-import { chipModel, dueLabel, type ChipModel } from "./editor/chips";
+import { chipModel, createdLabel, dueLabel, type ChipModel } from "./editor/chips";
 import { linkLineEdit, parseTaskLine, plannedFrontmatter } from "./editor/convert";
 import { TaskConverter } from "./editor/converter";
 import { blockLabel, DateSuggest, shortDay, slotLabel } from "./editor/date-suggest";
@@ -26,7 +26,7 @@ import { repeatFromNote, repeatLabel, repeatToNote, taskEdit, type Block, type W
 import { refreshTaskDecorations, taskEditorExtension } from "./editor/live-preview";
 import { decorateRendered } from "./editor/reading-view";
 import { renderCheckbox, renderChips, type EditFocus, type RenderLabels } from "./editor/render";
-import { openLabel, whenText } from "./calendar/event-card";
+import { joinText, meetingHost, openLabel, whenText } from "./calendar/event-card";
 import { renderEventHeader } from "./editor/event-header";
 import { renderTaskHeader, type TaskHeaderModel } from "./editor/task-header";
 import { DatePickerModal } from "./editor/date-picker";
@@ -962,6 +962,8 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       void fn().catch((e: unknown) => new Notice(t("error.write", { error: e instanceof Error ? e.message : String(e) })));
     const open = openLabel(occ, this.hasEventNote(occ));
     menu.addItem((i) => i.setTitle(open.text).setIcon(open.icon).onClick(() => void this.openOccurrence(occ)));
+    const meeting = occ.meeting;
+    if (meeting) menu.addItem((i) => i.setTitle(joinText(meeting)).setIcon("video").onClick(() => window.open(meeting.url)));
     const taskPath = occ.kind === "deadline" ? this.taskNotePath(occ.taskUid) : null;
     if (taskPath) {
       menu.addItem((i) => i.setTitle(t("menu.editTask")).setIcon("pencil").onClick(() => this.editTask(taskPath, null)));
@@ -1350,6 +1352,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
         when: whenText(occ ?? { start, end, allDay: start.length === 10 }, getLanguage()),
         calendar: calendar ? { name: calendar.name, color: calendar.color } : null,
         repeats: !!occ?.recurring,
+        meeting: occ?.meeting ? { text: joinText(occ.meeting), host: meetingHost(occ.meeting), url: occ.meeting.url } : null,
         location: occ?.location ?? null,
         invitation: occ?.invitation ? { partstat: answer === "ACCEPTED" || answer === "TENTATIVE" || answer === "DECLINED" ? answer : null } : null,
         // Before the first sync nothing is known yet: not "deleted".
@@ -1414,6 +1417,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       progress: kids.length ? `${kids.filter((k) => k.done).length}/${kids.length}` : null,
       blocks: this.plannedBlocks(task).map((b) => ({ label: b.label, start: b.start })),
       sync: sync === "synced" ? null : sync,
+      created: this.createdText(task.created, ctx),
     };
     return renderTaskHeader(
       model,
@@ -1449,6 +1453,13 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
         local: t("chip.local"),
       },
     );
+  }
+
+  private createdText(created: string | null, ctx: { now: Date; tz: string; lang: string }): { text: string; tooltip: string } | null {
+    const c = created ? createdLabel(created, ctx) : null;
+    if (!c) return null;
+    const text = c.relative === "today" ? t("header.createdToday") : c.relative === "yesterday" ? t("header.createdYesterday") : t("header.createdOn", { date: c.day });
+    return { text, tooltip: t("header.createdOn", { date: c.full }) };
   }
 
   /** A task's time blocks ahead, with those waiting for its reminder (not on the server yet), soonest first. */
@@ -1520,24 +1531,46 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
   private async ensureBaseFile(): Promise<void> {
     if (this.settings.taskBaseCreated) return;
     const path = this.settings.taskBaseFile;
-    if (!this.vaultPort.exists(path)) {
-      const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
-      if (folder) await this.vaultPort.ensureFolder(folder);
-      await this.app.vault.create(
-        path,
-        taskBaseFile({
-          task: t("base.task"),
-          due: t("base.due"),
-          repeat: t("base.repeat"),
-          priority: t("modal.priority"),
-          todo: t("base.todo"),
-          byProject: t("base.byProject"),
-          done: t("base.done"),
-        }),
-      );
-    }
+    if (!this.vaultPort.exists(path)) await this.writeBaseFile(path);
     this.settings.taskBaseCreated = true;
     await this.saveData(this.settings);
+  }
+
+  /** The settings button: the task list base file rewritten with the default views, after asking if it exists. */
+  regenerateTaskBase(): void {
+    const path = this.settings.taskBaseFile;
+    const name = path.split("/").pop()!;
+    const write = () =>
+      void this.writeBaseFile(path)
+        .then(() => new Notice(t("base.regenerated", { name })))
+        .catch((e: unknown) => new Notice(t("base.regenerateFailed", { error: e instanceof Error ? e.message : String(e) })));
+    if (!this.app.vault.getFileByPath(path)) return write();
+    const views = [t("base.todo"), t("base.noDue"), t("base.byProject"), t("base.done")].join(", ");
+    new ConfirmModal(this.app, {
+      title: t("base.regenerateTitle", { name }),
+      lines: [t("base.regenerateViews", { views }), t("base.regenerateLost")],
+      action: t("base.regenerate"),
+      run: write,
+    }).open();
+  }
+
+  private async writeBaseFile(path: string): Promise<void> {
+    const content = taskBaseFile({
+      task: t("base.task"),
+      due: t("base.due"),
+      repeat: t("base.repeat"),
+      priority: t("modal.priority"),
+      created: t("base.created"),
+      todo: t("base.todo"),
+      noDue: t("base.noDue"),
+      byProject: t("base.byProject"),
+      done: t("base.done"),
+    });
+    const existing = this.app.vault.getFileByPath(path);
+    if (existing) return this.app.vault.modify(existing, content);
+    const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+    if (folder) await this.vaultPort.ensureFolder(folder);
+    await this.app.vault.create(path, content);
   }
 
   /**

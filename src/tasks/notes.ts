@@ -13,6 +13,8 @@ export interface NoteState {
   /** Link paths (inside `[[…]]`), not resolved. */
   project: string | null;
   parent: string | null;
+  /** When the task was made, local "YYYY-MM-DD[THH:mm]"; null = none; undefined = unreadable (left alone). */
+  created: string | null | undefined;
   uid: string | null;
   /** The collection named in the note, as written (not resolved). */
   collection: string | null;
@@ -32,6 +34,7 @@ export function readNote(fm: Record<string, unknown> | null | undefined): NoteSt
     priority: priorityOf(fm[PROP.priority]),
     project: linkpathOf(fm[PROP.project]),
     parent: linkpathOf(fm[PROP.parent]),
+    created: fm[PROP.created] === undefined || fm[PROP.created] === null || fm[PROP.created] === "" ? null : (normalizeDue(fm[PROP.created]) ?? undefined),
     uid: typeof uid === "string" && uid.trim() ? uid.trim() : null,
     collection: collectionOf(fm),
   };
@@ -52,7 +55,10 @@ export function collectionOf(fm: Record<string, unknown> | null | undefined): st
   return typeof v === "string" && v.trim() ? v.trim() : null;
 }
 
-/** "2026-10-15", "2026-10-15T14:00", "2026-10-15 14:00" (or a Date) → canonical local value; else null. */
+/**
+ * A local date or date-time (`due`, `created`): "2026-10-15", "2026-10-15T14:00", "2026-10-15 14:00" (or a Date) →
+ * canonical local value; else null.
+ */
 export function normalizeDue(v: unknown): string | null {
   if (v instanceof Date && !isNaN(v.getTime())) {
     // A YAML timestamp: js-yaml reads zone-less values as UTC, so the UTC fields are what was written.

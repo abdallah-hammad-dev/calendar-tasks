@@ -15,6 +15,7 @@ describe("readTask", () => {
       summary: "Test 6",
       done: false,
       due: "2026-10-19T15:00",
+      created: "2026-10-15T05:10", // CREATED:20261015T031024Z
       categories: [],
       parentUid: null,
       repeat: null,

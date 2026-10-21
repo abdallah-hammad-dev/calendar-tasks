@@ -73,6 +73,7 @@ const SCENARIOS = [
   ["date-picker", 520, 640],
   ["slot-picker", 520, 640],
   ["task-note", 900, 600],
+  ["task-note-short", 900, 300],
   // An event note's header; a click on its time shows the event in the calendar.
   ["event-note", 900, 300],
   // Declined: hidden from the calendar, the answer kept to change it; nothing to show in the calendar.
@@ -577,6 +578,27 @@ for (const [name, width, height, scale = 2] of run) {
       if (saved !== "Réponse enregistrée.") errors.push(`once pushed the card says "${saved}"`);
       if (!(await page.locator(".ct-popover.ct-card .ct-card-rsvp button.is-active:has-text('Peut-être')").count())) errors.push("the answer isn't shown as chosen");
       if (!(await page.locator(".fc-event.is-active").count())) errors.push("the event lost its highlight when drawn again");
+      // A meeting shows its camera on the event, and its card joins it (Teams from Outlook's description; Zoom as the
+      // place, which then isn't shown as a place).
+      await page.keyboard.press("Escape");
+      if (!(await page.locator(".fc-timegrid-event:has-text('Point Olera') .ct-ev-meeting").count())) errors.push("no camera on a Teams meeting");
+      const call = page.locator(".fc-timegrid-event:has-text('Appel Paul')").first();
+      if (!(await call.locator(".ct-ev-meeting").count())) errors.push("no camera on a Zoom meeting");
+      if ((await call.textContent()).includes("zoom.us")) errors.push("a Zoom link shown as a place");
+      await page.evaluate(() => {
+        window.__opened = [];
+        window.open = (url) => (window.__opened.push(url), null);
+      });
+      await page.locator(".fc-timegrid-event:has-text('Point Olera')").first().click();
+      await page.waitForTimeout(200);
+      const joinRow = page.locator(".ct-popover.ct-card .ct-card-row.is-link:has-text('Rejoindre Teams')");
+      if (!(await joinRow.count())) errors.push("no Join Teams in a Teams meeting's card");
+      else {
+        await page.screenshot({ path: join(out, `${name}-meeting-${theme}.png`) });
+        await joinRow.click();
+        const opened = await page.evaluate(() => window.__opened[0] ?? "");
+        if (!opened.startsWith("https://teams.microsoft.com/l/meetup-join/")) errors.push(`Join Teams opened "${opened}"`);
+      }
     }
     if (name === "calendar-edit") {
       await page.locator(".ct-legend-item:has-text('Rappels')").click({ button: "right" });
@@ -703,8 +725,24 @@ for (const [name, width, height, scale = 2] of run) {
       if (!(await fields.nth(5).evaluate((el) => el.classList.contains("mod-warning")))) errors.push("an end before the start should be marked");
       await page.screenshot({ path: join(out, `${name}-wrong-${theme}.png`) });
     }
+    if (name === "task-note" || name === "task-note-short") {
+      // The creation date shows only in the room left on the line: never a line of its own, never cut.
+      const r = await page.evaluate(() => {
+        const box = (el) => el.getBoundingClientRect();
+        const date = document.querySelector(".ct-task-header-created > span");
+        const tools = document.querySelector(".ct-task-header-tools");
+        const state = document.querySelector(".ct-task-header-state");
+        const area = box(date.parentElement);
+        const shown = box(date).top >= area.top - 1 && box(date).bottom <= area.bottom + 1;
+        return { oneLine: Math.abs(box(tools).top - box(state).top) < 8, shown, whole: box(date).left >= area.left - 1 };
+      });
+      if (!r.oneLine) errors.push("the creation date pushed the tools to another line");
+      if (name === "task-note-short" && !(r.shown && r.whole)) errors.push("the creation date should show whole when there's room");
+      if (name === "task-note" && r.shown) errors.push("the creation date should hide when the header is full");
+    }
     if (name === "event-note") {
-      if ((await page.locator(".ct-event-header .ct-task-header-item").count()) < 4) errors.push("the event header should show when, repetition, place and collection");
+      if ((await page.locator(".ct-event-header .ct-task-header-item").count()) < 5) errors.push("the event header should show when, repetition, meeting, place and collection");
+      if (!(await page.locator(".ct-event-header button.ct-task-header-item.is-link:has-text('Rejoindre Teams')").count())) errors.push("no Join Teams in the event note's header");
       await page.locator(".ct-event-when").click();
       if (!(await page.evaluate(() => window.__revealed))) errors.push("a click on the time should show the event in the calendar");
     }

@@ -78,6 +78,7 @@ function describeOcc(o: Occurrence, calendars: Map<string, string>) {
     uid: o.uid,
     ...(o.recurrenceId ? { recurrenceId: o.recurrenceId } : {}),
     ...(o.location ? { location: o.location } : {}),
+    ...(o.meeting ? { meeting: o.meeting.url } : {}),
     ...(o.kind === "deadline" ? { done: o.done } : {}),
     ...(o.taskUid && o.kind === "timeblock" ? { taskUid: o.taskUid } : {}),
     ...(o.invitation ? { invitation: o.invitation.partstat.toLowerCase() } : {}),
@@ -115,7 +116,8 @@ extension. Use the \`calendar_*\` tools; never edit \`caldav_uid\`, \`due\`, \`d
   \`${PROP.project}: "[[Note]]"\`, \`${PROP.parent}: "[[Parent task]]"\` and \`${PROP.repeat}\` ("every monday", "every 2 weeks",
   "every weekday"…; synced to the phone; ticking a repeating task moves it to its next date instead of closing it) and
   \`${PROP.priority}\` (high / medium / low, or none; the phone's !!! / !! / !), and \`${PROP.collection}\` (the name of
-  the calendar collection it's in, e.g. "Général", "Pro"; writing another name moves it there). Its body is free content and is never synced. Small steps inside a task are
+  the calendar collection it's in, e.g. "Général", "Pro"; writing another name moves it there), and \`${PROP.created}\`
+  (when it was made, set by the extension). Its body is free content and is never synced. Small steps inside a task are
   plain \`- [ ]\` lines; a step with its own deadline is a child task (\`calendar_create_task\` with \`parent\`).
 - **A project is any note tagged \`#${f.projectTag}\`.** A task belongs to at most one project.
 - **Mention a task anywhere** with a plain link line \`- [[Task title]]\`: the extension draws the checkbox from
@@ -142,6 +144,7 @@ Views are Obsidian Bases (\`.base\` files, https://obsidian.md/help/bases/syntax
 | \`${PROP.due}\` | date or date-time | "YYYY-MM-DD" or "YYYY-MM-DDTHH:mm"; may be missing |
 | \`${PROP.priority}\` | text | high / medium / low, or missing; as text it sorts wrong: sort on \`formula.urgency\` (below) |
 | \`${PROP.repeat}\` | text | "every monday"… |
+| \`${PROP.created}\` | date-time | "YYYY-MM-DDTHH:mm", when the task was made (the reminder's creation date); sort on it, newest first, to find what was jotted down lately |
 | \`${PROP.project}\` | link | "[[Project note]]"; group by it for a per-project view |
 | \`${PROP.parent}\` | link | the parent task of a sub-task |
 | \`${PROP.collection}\` | text | the collection's name |

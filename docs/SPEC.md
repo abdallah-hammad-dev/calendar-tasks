@@ -72,6 +72,7 @@ done: false               # checkbox property
 due: 2026-10-15           # the deadline: date, or date-time (2026-10-15T14:00). Optional
 project: "[[Olera]]"      # optional, link to a project note (§4.2)
 parent: "[[Parent task]]" # only for a child task
+created: 2026-10-21T14:05 # when it was made (the reminder's CREATED), set once
 collection: Pro           # the collection (CalDAV calendar) holding it, by name; changing it moves the task
 caldav_uid: 8f3c…
 ---
@@ -87,6 +88,7 @@ Free content: context, links to any file, small steps as plain `- [ ]` (never sy
 | `priority` | `PRIORITY` (2026-10-19, asked: none or three levels). The note holds `high` / `medium` / `low` (`haute` / `moyenne` / `basse` read too); written 1 / 5 / 9 as Reminders does, read 1–4 / 5 / 6–9 (RFC 5545); none = no property (0 read as none). A level written elsewhere (2, 7…) is kept while the note says the same level. Shown !!! / !! / ! (red / orange / blue) | both |
 | `project` | `CATEGORIES:<project note name>` | both |
 | `parent` | `RELATED-TO;RELTYPE=PARENT:<parent UID>`; read a `RELATED-TO` without `RELTYPE` as parent (iOS drops the parameter, RFC default) | both |
+| `created` | `CREATED` (UTC), as a local date-time (2026-10-21, asked: find the small undated tasks jotted down today). A note made here gets it when its reminder is created, and the reminder gets the note's own `created` if it already has one | set once: written only into a note that has none, never overwritten, never pushed |
 | `caldav_uid` | `UID` | set once |
 | `collection` | the calendar the `VTODO` is in (its `displayname`) | both: a reminder moved to another list renames it; naming another collection moves the reminder (created there, then deleted here); a collection renamed is renamed in the notes |
 | — | `URL:obsidian://calendar-tasks?vault=<vault>&uid=<UID>` | written by the extension |
@@ -352,6 +354,10 @@ its raw properties ("I don't want to see the id; if I want to, I can open the pr
   calendar picker), the project and parent task (links), child-task progress, the sync icon when not synced.
   Clicking the deadline or repetition opens the task form there. Only what the task has is shown (2026-10-19: the
   dashed "Deadline" / "Time block" placeholders read as data; the pencil adds them). A pencil opens the form.
+- When the task was made (2026-10-21, the user: "subtil, info moins importante mais pratique"): "Créée aujourd'hui"
+  / "Créée hier" / "Créée le 18 oct.", faint, just before the tools, the whole date and time in its tooltip. It
+  only uses room left on the line: when the bar is full it hides rather than wrap (`task-note` / `task-note-short`
+  previews check both).
 - The note's properties are hidden in task notes (Obsidian's `--metadata-display-*` variables, the mechanism of
   its own "hide properties" setting); a button in the bar shows them again (remembered).
 - Kept current on file open, layout changes, task changes, syncs, and every 5 minutes.
@@ -474,6 +480,15 @@ popovers.
   right-click menu says the same), and "…" for the other actions (the right-click menu); while its time is being changed, Save is the only
   main button. The card is drawn again when the data changes (an answer pushed, a sync), and closes only if its
   occurrence is gone. Dragging a deadline edits `due`.
+- **Video meetings** (2026-10-22, asked: "teams zoom… c supporté ?"): "Rejoindre Teams / Zoom / Meet…" (or
+  "Rejoindre la réunion" for a service we don't know) in the card, the event note's header and the right-click menu;
+  a camera after the title in every view (hidden with ↻ when narrow), "Visio : Teams" in the tooltip. The link
+  (`meetingOf`, `src/calendar/meeting.ts`), first found: RFC 7986 `CONFERENCE` (the `FEATURE=VIDEO` one first; never
+  `tel:`), `X-GOOGLE-CONFERENCE`, `X-MICROSOFT-SKYPETEAMSMEETINGURL` / `-ONLINEMEETINGCONFLINK`; else the first link
+  to a known service (Teams, Zoom, Meet, Webex, Whereby, Jitsi, GoTo, Skype, FaceTime) in `URL`, `LOCATION`, then
+  `DESCRIPTION` (where Outlook puts Teams). Links wrapped by Outlook Safe Links or Google's redirect are unwrapped.
+  A place that is only the meeting's link isn't shown as a place; "Réunion Microsoft Teams" still is. Read only:
+  nothing is written, the phone keeps its own join button.
 - **Drag / resize** moves an event (not mirror events or invitations: their tooltip says why), a work session or a
   deadline, **only in Move mode** (2026-10-19, asked: "pas envie de bouger mon calendrier en glissant des trucs sans
   faire exprès"): a "Move" toggle in the toolbar, off whenever the calendar opens (2026-10-20, confirmed: it's a
@@ -496,11 +511,15 @@ popovers.
 
 ### 7.2 Task list — Bases
 
-On first run, the extension writes a `.base` file (default `Tasks.base`; never overwritten afterwards) filtered
-on `type == "task"`, with views:
+On first run, the extension writes a `.base` file (default `Tasks.base`; never overwritten afterwards, except by
+the settings button *Regenerate the task list*, which asks first: 2026-10-21, so new default views reach an existing
+file) filtered on `type == "task"`, with views:
 
 - **To do** — `done` false, sorted by `due`, then the most urgent (`formula.urgency`: `priority` is text, so a
   number 1–4 from it; 2026-10-19);
+- **No deadline** — `done` false and no `due` (`due.isEmpty()`: true for a missing or empty value, false for a
+  date; checked in Obsidian 1.14.4), newest `created` first: the small tasks jotted down without a date
+  (2026-10-21);
 - **By project** — grouped by `project` (a "no project" group), same sort;
 - **Done**.
 

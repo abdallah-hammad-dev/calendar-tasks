@@ -7,6 +7,8 @@ export interface EventHeaderModel {
   when: string;
   calendar: { name: string; color: string } | null;
   repeats: boolean;
+  /** The video meeting: "Rejoindre Teams", its host for the tooltip, the link. */
+  meeting: { text: string; host: string; url: string } | null;
   location: string | null;
   /** My answer, when I'm invited (null: not answered yet). */
   invitation: { partstat: PartStat | null } | null;
@@ -39,7 +41,7 @@ export interface EventHeaderLabels {
 
 /**
  * The bar above an event note, like a task note's (spec §5.4): when (a click shows it in the calendar, where it's
- * moved), repetition, place, collection, the answer to an invitation; the raw properties hidden. An event not in the
+ * moved), repetition, the meeting to join, place, collection, the answer to an invitation; the raw properties hidden. An event not in the
  * calendar says why, and has nothing to show there; a deleted one offers to delete the note.
  */
 export function renderEventHeader(model: EventHeaderModel, actions: EventHeaderActions, labels: EventHeaderLabels): HTMLElement {
@@ -65,6 +67,12 @@ export function renderEventHeader(model: EventHeaderModel, actions: EventHeaderA
     item("trash-2", labels.deleteNote, "ct-event-delete-note").addEventListener("click", () => actions.deleteNote());
   }
   if (model.repeats) item("repeat", labels.repeats);
+  if (model.meeting) {
+    const url = model.meeting.url;
+    const el = item("video", model.meeting.text, "is-link");
+    setTooltip(el, model.meeting.host);
+    el.addEventListener("click", () => window.open(url));
+  }
   if (model.location) item("map-pin", model.location);
   if (model.calendar) {
     const el = inner.createSpan({ cls: "ct-task-header-item is-static" });

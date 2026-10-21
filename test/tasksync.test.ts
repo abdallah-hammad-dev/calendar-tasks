@@ -75,6 +75,7 @@ describe("from the server to notes", () => {
       collection: "tasks",
       done: false,
       due: "2026-10-19T15:00",
+      created: "2026-10-15T05:10", // CREATED:20261015T031024Z, in Paris
       caldav_uid: "9EABE155-4E3A-467A-ACA6-830C40BEAB6B",
     });
     await engine.sync(); // pushes the link
@@ -82,6 +83,18 @@ describe("from the server to notes", () => {
     expect(back.url).toBe(taskLink("Vault", "9EABE155-4E3A-467A-ACA6-830C40BEAB6B"));
     expect(back.hasLinkLine).toBe(true);
     expect(server.stored(url)!.data).toContain("BEGIN:VALARM"); // iOS's alarm survives
+  });
+
+  it("gives the note the reminder's creation date once, and never overwrites it", async () => {
+    server.externalPut(`${calendar}a.ics`, vtodo("a", "SUMMARY:Timbres\r\nCREATED:20261020T163000Z\r\n"));
+    server.externalPut(`${calendar}b.ics`, vtodo("b", "SUMMARY:Sans CREATED\r\n"));
+    await start();
+    expect(vault.fm("Tâches/Timbres.md")!.created).toBe("2026-10-20T18:30");
+    expect(vault.fm("Tâches/Sans CREATED.md")!.created).toBeUndefined();
+    await vault.editFrontmatter("Tâches/Timbres.md", (fm) => (fm.created = "2026-10-01"));
+    server.externalPut(`${calendar}a.ics`, vtodo("a", "SUMMARY:Timbres\r\nCREATED:20261020T163000Z\r\nSTATUS:COMPLETED\r\n"));
+    await cycle();
+    expect(vault.fm("Tâches/Timbres.md")).toMatchObject({ done: true, created: "2026-10-01" });
   });
 
   it("skips tasks already done when first seen", async () => {
@@ -187,6 +200,20 @@ describe("from notes to the server", () => {
     expect(vault.fm("Tâches/Préparer slides.md")!.caldav_uid).toBe("new-1");
     await cycle();
     expect(onServer("new-1")).toMatchObject({ summary: "Préparer slides", due: "2026-10-20T14:00", done: false });
+  });
+
+  it("dates a new task note, here and on the server; a note that says when it was made keeps it", async () => {
+    await start();
+    vault.add("Tâches/Rapport.md", { type: "task", done: false });
+    vault.add("Tâches/Ancienne.md", { type: "task", done: false, created: "2026-10-01T09:30" });
+    await tasks.noteChanged("Tâches/Rapport.md");
+    await tasks.noteChanged("Tâches/Ancienne.md");
+    await cycle();
+    const made = vault.fm("Tâches/Rapport.md")!.created;
+    expect(made).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+    expect(onServer("new-1")!.created).toBe(made);
+    expect(vault.fm("Tâches/Ancienne.md")!.created).toBe("2026-10-01T09:30");
+    expect(onServer("new-2")!.created).toBe("2026-10-01T09:30");
   });
 
   it("says when a new task note gets its UID (time blocks link to it)", async () => {

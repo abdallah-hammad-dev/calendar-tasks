@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { chipModel, dueLabel } from "../src/editor/chips";
+import { chipModel, createdLabel, dueLabel } from "../src/editor/chips";
 import { cutSpans, hasTaskMarker, linkLineEdit, parseTaskLine, planTask, plannedFrontmatter } from "../src/editor/convert";
 import { TaskIndex } from "../src/tasks/task-index";
 import { FakeVault } from "./support/fake-vault";
@@ -149,6 +149,14 @@ describe("chips", () => {
     expect(dueLabel("2026-10-14", true, ctx).overdue).toBe(false);
     expect(dueLabel("2026-10-15T11:00", false, ctx).overdue).toBe(true); // 11:00 Paris = 09:00 UTC, past
     expect(dueLabel("2027-01-05", false, ctx).text).toBe("5 janv. 2027");
+  });
+
+  it("says when a task was made: today, yesterday, else its day; the whole date for the tooltip", () => {
+    expect(createdLabel("2026-10-15T09:05", ctx)).toEqual({ relative: "today", day: "15 oct.", full: "jeudi 15 octobre 2026 à 09:05" });
+    expect(createdLabel("2026-10-14T23:30", ctx)!.relative).toBe("yesterday");
+    expect(createdLabel("2026-10-13", ctx)).toEqual({ relative: null, day: "13 oct.", full: "mardi 13 octobre 2026" });
+    expect(createdLabel("2025-12-31T08:00", ctx)!.day).toBe("31 déc. 2025");
+    expect(createdLabel("hier", ctx)).toBeNull();
   });
 
   it("shows the deadline and the repetition", () => {

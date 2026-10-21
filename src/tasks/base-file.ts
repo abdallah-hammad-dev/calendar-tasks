@@ -5,7 +5,9 @@ export interface BaseFileLabels {
   due: string;
   repeat: string;
   priority: string;
+  created: string;
   todo: string;
+  noDue: string;
   byProject: string;
   done: string;
 }
@@ -20,13 +22,14 @@ export const PRIORITY_RANK_FORMULA = (() => {
 })();
 
 /**
- * The task list as a Bases file (spec §7.2): all task notes, three table views. Written once; the user owns it
+ * The task list as a Bases file (spec §7.2): all task notes, four table views. Written once; the user owns it
  * afterwards. Syntax: https://obsidian.md/help/bases/syntax
  */
 export function taskBaseFile(l: BaseFileLabels): string {
   const notDone = `${PROP.done} != true`;
   const columns = (...extra: string[]) => ["    order:", `      - ${PROP.done}`, "      - file.name", ...extra.map((c) => `      - ${c}`)];
   const sortBy = (...props: string[]) => ["    sort:", ...props.flatMap((p) => [`      - property: ${p}`, "        direction: ASC"])];
+  const newestFirst = (prop: string) => ["    sort:", `      - property: ${prop}`, "        direction: DESC"];
   return [
     "filters:",
     "  and:",
@@ -42,6 +45,8 @@ export function taskBaseFile(l: BaseFileLabels): string {
     `    displayName: ${JSON.stringify(l.repeat)}`,
     `  ${PROP.priority}:`,
     `    displayName: ${JSON.stringify(l.priority)}`,
+    `  ${PROP.created}:`,
+    `    displayName: ${JSON.stringify(l.created)}`,
     "views:",
     "  - type: table",
     `    name: ${JSON.stringify(l.todo)}`,
@@ -50,6 +55,15 @@ export function taskBaseFile(l: BaseFileLabels): string {
     `        - '${notDone}'`,
     ...columns(PROP.due, PROP.priority, PROP.repeat, PROP.project, PROP.collection),
     ...sortBy(PROP.due, "formula.urgency"),
+    // Small tasks jotted down without a deadline, newest first (`isEmpty()` is true for a missing or empty value).
+    "  - type: table",
+    `    name: ${JSON.stringify(l.noDue)}`,
+    "    filters:",
+    "      and:",
+    `        - '${notDone}'`,
+    `        - '${PROP.due}.isEmpty()'`,
+    ...columns(PROP.created, PROP.priority, PROP.project),
+    ...newestFirst(PROP.created),
     "  - type: table",
     `    name: ${JSON.stringify(l.byProject)}`,
     "    filters:",

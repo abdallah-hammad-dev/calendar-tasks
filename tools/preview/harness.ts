@@ -40,7 +40,9 @@ const CALS = [
   { url: "https://c/ecole/", name: "École (mirror)", color: mono ? "#007AFF" : "#e2725b", hidden: false, readOnly: true },
 ];
 const ITEMS: [string, string][] = [
-  ["https://c/perso/", ev("w", "Point Olera", "20261012T100000", "20261012T110000", "RRULE:FREQ=WEEKLY;COUNT=8\r\n")],
+  // A Teams meeting as Outlook writes it (the link in the description), and a Zoom link as the place.
+  ["https://c/perso/", ev("w", "Point Olera", "20261012T100000", "20261012T110000",
+    "RRULE:FREQ=WEEKLY;COUNT=8\r\nDESCRIPTION:Réunion Microsoft Teams\\nCliquez ici pour participer à la réunion<https://teams.microsoft.com/l/meetup-join/19%3ameeting_x%40thread.v2/0>\r\n")],
   ["https://c/perso/", ev("s", "Séminaire", "20261014T090000", "20261014T123000", "LOCATION:Salle 3\r\n")],
   ["https://c/perso/", ics("BEGIN:VEVENT\r\nUID:trip\r\nSUMMARY:Lyon\r\nDTSTART;VALUE=DATE:20261016\r\nDTEND;VALUE=DATE:20261018\r\nEND:VEVENT\r\n")],
   ["https://c/ecole/", ev("c1", "Cours réseau", "20261013T083000", "20261013T103000", "RRULE:FREQ=WEEKLY;COUNT=10\r\n")],
@@ -61,7 +63,7 @@ const ITEMS: [string, string][] = [
   // Minutes that aren't on the half hour.
   ["https://c/taches/", todo("t7", "Réserver la salle", "20261016T143500")],
   ["https://c/perso/", ev("cafe", "Café avec Léa", "20261016T154500", "20261016T163000")],
-  ["https://c/perso/", ev("call", "Appel Paul", "20261015T103500", "20261015T105000")],
+  ["https://c/perso/", ev("call", "Appel Paul", "20261015T103500", "20261015T105000", "LOCATION:https://us02web.zoom.us/j/81234567890\r\n")],
   // A work session under an invitation, and all-day deadlines.
   ["https://c/perso/", ev("blk2", "Rédiger le mémoire", "20261016T090000", "20261016T120000", "RELATED-TO:t8\r\n")],
   ["https://c/perso/", ev("blk3", "Relire le plan", "20261013T143500", "20261013T150500", "RELATED-TO:t8\r\n")],
@@ -203,7 +205,7 @@ function calendar(view: "timeGridWeek" | "dayGridMonth" | "listWeek", inTab = fa
 function taskLinks(): void {
   const now = new Date("2026-10-15T10:00:00Z");
   const t = (o: Partial<TaskInfo>): TaskInfo => ({
-    path: "", basename: "", done: false, due: null, repeat: null, priority: null, uid: "u", projectPath: null, parentPath: null, collection: null, ...o,
+    path: "", basename: "", done: false, due: null, repeat: null, priority: null, uid: "u", projectPath: null, parentPath: null, collection: null, created: null, ...o,
   });
   const words = { today: "Aujourd'hui", tomorrow: "Demain" };
   const model = (task: TaskInfo, extra: Partial<Parameters<typeof chipModel>[1]> = {}): ChipModel =>
@@ -251,6 +253,7 @@ function settings(): void {
     settings: { ...DEFAULT_SETTINGS, serverUrl: "https://dav.example.com/dav/", username: "abd", tasksFolder: "Tâches", eventsFolder: "Calendrier", projectTag: "projet" },
     saveSettings: async () => undefined,
     testConnection: async () => undefined,
+    regenerateTaskBase: () => undefined,
     collections: () => ({ "https://c/general/": "Général", "https://c/pro/": "Pro", "https://c/ecole/": "École" }),
   } as unknown as SettingsHost;
   const tab = new SettingsTab({} as never, host);
@@ -390,8 +393,11 @@ function datePicker(): void {
   done();
 }
 
-/** A task note open in reading view: the header above the page, properties hidden. */
-function taskNote(): void {
+/**
+ * A task note open in reading view: the header above the page, properties hidden. `short`: a deadline and a project
+ * only, so the creation date has room (the full header has none: it must hide, not wrap).
+ */
+function taskNote(short = false): void {
   const leaf = document.body.createDiv({ cls: "workspace-leaf-content", attr: { "data-type": "markdown" } });
   Object.assign(leaf.style, { height: "100vh", display: "flex", flexDirection: "column" });
   leaf.createDiv({ cls: "view-header", text: "" }).style.height = "40px";
@@ -400,17 +406,20 @@ function taskNote(): void {
   const header = renderTaskHeader(
     {
       done: false,
-      priority: { level: "high", label: "Priorité haute" },
+      priority: short ? null : { level: "high", label: "Priorité haute" },
       due: { text: "Demain 18:00", overdue: false },
       repeat: null,
       project: { name: "Olera", path: "Projets/Olera.md" },
       parent: null,
-      progress: "1/3",
-      blocks: [
-        { label: "mar. 20 oct. 14:00–16:00", start: "2026-10-20T14:00" },
-        { label: "jeu. 22 oct. 10:00–12:00", start: "2026-10-22T10:00" },
-      ],
+      progress: short ? null : "1/3",
+      blocks: short
+        ? []
+        : [
+            { label: "mar. 20 oct. 14:00–16:00", start: "2026-10-20T14:00" },
+            { label: "jeu. 22 oct. 10:00–12:00", start: "2026-10-22T10:00" },
+          ],
       sync: null,
+      created: { text: "Créée hier", tooltip: "Créée le mardi 20 octobre 2026 à 21:40" },
     },
     { toggle: () => undefined, edit: () => undefined, open: () => undefined, block: () => undefined, showBlock: () => undefined, properties: { shown: false, toggle: () => undefined } },
     {
@@ -456,6 +465,7 @@ function eventNote(missing: "declined" | "deleted" | null = null): void {
         when: there ? "mardi 13 octobre · 07:00 – 10:30" : "lundi 19 octobre · 10:00 – 11:00",
         calendar: there ? { name: "École", color: "#E5484D" } : null,
         repeats: there && !missing,
+        meeting: there && !missing ? { text: "Rejoindre Teams", host: "teams.microsoft.com", url: "https://teams.microsoft.com/l/meetup-join/x" } : null,
         location: there ? "Salle B204" : null,
         invitation: there ? { partstat: missing === "declined" ? "DECLINED" : null } : null,
         missing,
@@ -539,6 +549,7 @@ else if (scenario === "confirm-delete") confirmDelete();
 else if (scenario === "date-picker") datePicker();
 else if (scenario === "slot-picker") slotPicker();
 else if (scenario === "task-note") taskNote();
+else if (scenario === "task-note-short") taskNote(true);
 else if (scenario === "event-note") eventNote();
 else if (scenario === "event-note-declined") eventNote("declined");
 else if (scenario === "event-note-deleted") eventNote("deleted");

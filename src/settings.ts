@@ -113,6 +113,7 @@ export interface SettingsHost extends Plugin {
   settings: CalendarTasksSettings;
   saveSettings(): Promise<void>;
   testConnection(): Promise<void>;
+  regenerateTaskBase(): void;
   /** Writable collections, URL → name, by name. */
   collections(): Record<string, string>;
 }
@@ -176,6 +177,11 @@ export class SettingsTab extends PluginSettingTab {
             name: t("settings.taskBaseFile"),
             desc: t("settings.taskBaseFile.desc"),
             control: { type: "text", key: "taskBaseFile", placeholder: DEFAULT_SETTINGS.taskBaseFile },
+          },
+          {
+            name: t("settings.regenerateBase"),
+            desc: t("settings.regenerateBase.desc"),
+            action: () => this.host.regenerateTaskBase(),
           },
           {
             name: t("settings.projectTag"),

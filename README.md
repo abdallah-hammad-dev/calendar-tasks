@@ -54,6 +54,7 @@ due: 2026-10-15           # the deadline, or 2026-10-15T14:00 (your local time).
 repeat: every monday      # optional: every day, every 2 weeks, every weekday, every month…
 project: "[[My project]]" # optional
 parent: "[[Parent task]]" # only for a sub-task with its own deadline
+created: 2026-10-21T14:05 # when the task was made, set by the extension
 caldav_uid: …             # managed by the extension, don't edit
 ```
 
@@ -117,7 +118,8 @@ link to a project on the line, the project note you're writing in, the `project`
 **Sub-tasks**: a task written inside a task note becomes its child (`parent`). The iPhone shows them flat.
 
 **The task list** is the Bases file written on first run (default `Tasks.base`), with *To do*,
-*By project* and *Done* views. To list the tasks of a project inside its note, embed a base:
+*No deadline* (newest first), *By project* and *Done* views. It's yours afterwards; *Regenerate the task list* in
+the settings rewrites it with the default views (it asks first). To list the tasks of a project inside its note, embed a base:
 
 ````markdown
 ```base
@@ -146,6 +148,9 @@ shown or hidden from the legend.
   deadline changes the task's due date.
 - **Select a range** to create an event, or a work session for a task.
 - **Right-click** an event to rename or delete it, or to answer an invitation.
+- **Video meetings** (Teams, Zoom, Google Meet, Webex…) show a camera; their card, their note and the right-click
+  menu have *Join Teams* (or Zoom, Meet…), found in the event wherever its link is (Outlook puts Teams' in the
+  description).
 
 Invitations you haven't answered are striped. Events copied from other accounts by a backend (they carry
 `X-SOURCE-ACCOUNT`) can only be answered, not edited.

@@ -65,6 +65,23 @@ export function dueLabel(due: string, done: boolean, ctx: Pick<ChipContext, "now
   return { text, overdue };
 }
 
+/**
+ * When a task was made, for its note's header: today or yesterday, else its day ("18 oct.", with the year when it
+ * isn't this one); `full` is the whole date (and time) for the tooltip.
+ */
+export function createdLabel(created: string, ctx: Pick<ChipContext, "now" | "tz" | "lang">): { relative: "today" | "yesterday" | null; day: string; full: string } | null {
+  const p = parseLocal(created);
+  if (!p) return null;
+  const today = wallClock(ctx.now, ctx.tz);
+  const yesterday = wallClock(new Date(fromWall({ ...today, hour: 12, minute: 0, second: 0 }, ctx.tz).getTime() - 86_400_000), ctx.tz);
+  const dateStr = formatLocalDate(p.wall);
+  const relative = dateStr === formatLocalDate(today) ? "today" : dateStr === formatLocalDate(yesterday) ? "yesterday" : null;
+  const at = new Date(Date.UTC(p.wall.year, p.wall.month - 1, p.wall.day, p.wall.hour, p.wall.minute));
+  const day = new Intl.DateTimeFormat(ctx.lang, { day: "numeric", month: "short", timeZone: "UTC", ...(p.wall.year !== today.year ? { year: "numeric" } : {}) }).format(at);
+  const full = new Intl.DateTimeFormat(ctx.lang, { dateStyle: "full", ...(p.allDay ? {} : { timeStyle: "short" }), timeZone: "UTC" }).format(at);
+  return { relative, day, full };
+}
+
 function basename(path: string): string {
   return path.split("/").pop()!.replace(/\.md$/, "");
 }

@@ -62,6 +62,7 @@ export class TaskConverter {
       projectPath: plan.project,
       parentPath: plan.parent,
       collection: null, // TaskSync picks it (parent's, project's or the default) and writes it
+      created: null, // TaskSync writes it with the reminder
     });
     const release = () => {
       this.inFlight.delete(key);

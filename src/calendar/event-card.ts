@@ -2,6 +2,7 @@ import { Modal, setIcon, setTooltip, type App } from "obsidian";
 import { t } from "../i18n";
 import { CALENDAR_COLORS } from "./calendars";
 import type { Occurrence } from "./expand";
+import type { Meeting } from "./meeting";
 import type { NewCalendar } from "../caldav/client";
 import type { PartStat } from "./vevent";
 import { localDate, localValue, renderWhenFields, shiftDays, type When } from "./when-fields";
@@ -21,6 +22,16 @@ export interface EventCardInfo {
 }
 
 export type SyncState = "synced" | "queued" | "offline";
+
+/** "Rejoindre Teams", or "Rejoindre la réunion" for a service we don't know. */
+export function joinText(m: Meeting): string {
+  return m.provider ? t("card.join", { provider: m.provider }) : t("card.joinMeeting");
+}
+
+/** Where a meeting link goes, for its tooltip: the host ("teams.microsoft.com"), not the long link. */
+export function meetingHost(m: Meeting): string {
+  return new URL(m.url).host;
+}
 
 /**
  * The line under the answer buttons (spec §7.1): nothing before an answer; after one, where it stands — still
@@ -118,6 +129,13 @@ export function renderEventCard(el: HTMLElement, info: EventCardInfo, actions: E
     when.addEventListener("click", () => editWhen(when, occ, actions));
   }
   if (occ.recurring) row("repeat", t("card.repeats"));
+  if (occ.meeting) {
+    const url = occ.meeting.url;
+    const r = row("video", joinText(occ.meeting));
+    r.addClass("is-link");
+    setTooltip(r, meetingHost(occ.meeting));
+    r.addEventListener("click", () => window.open(url));
+  }
   if (occ.location) row("map-pin", occ.location);
   if (info.calendar) row("calendar", info.calendar.name);
   if (occ.kind === "timeblock" && info.task) {
