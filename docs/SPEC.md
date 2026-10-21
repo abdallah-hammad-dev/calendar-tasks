@@ -182,6 +182,9 @@ past sessions kept; a series that hasn't started is deleted.
 - **Limitation:** a recurring series has one `URL` for all occurrences, so a tap on the iPhone carries no `rid`.
   The handler then opens today's occurrence, else the next one.
 - Mirror events are written by the backend: it must add the same `URL` itself, or they won't link back.
+- Likewise the meeting link (§7.1): the backend writes it as `CONFERENCE;VALUE=URI;FEATURE=VIDEO`. The APIs keep it
+  apart from the description (Google: `conferenceData` / `hangoutLink`; Microsoft Graph: `onlineMeeting.joinUrl`),
+  so copying the description alone can miss it and the join button wouldn't show.
 
 ### 4.6 Invitations (mirror collections)
 
