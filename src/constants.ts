@@ -38,11 +38,11 @@ export const NOTE_TYPE = { task: "task", event: "event" } as const;
  */
 export const BACKEND_PROP = {
   /** Which account (`<kind>:<address>`): makes an event mirrored, read-only except my answer. */
-  sourceAccount: "x-source-account",
+  sourceAccount: "x-caltasks-source-account",
   /** The address that was invited (`mailto:…`); my `ATTENDEE` is the server's address for me. */
-  sourceAttendee: "x-source-attendee",
+  sourceAttendee: "x-caltasks-source-attendee",
   /** Where my answer stands with the organizer: `pending`, `confirmed`, `failed:<reason>`. */
-  rsvpState: "x-rsvp-state",
+  rsvpState: "x-caltasks-rsvp-state",
 } as const;
 
 /**

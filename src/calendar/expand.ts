@@ -33,7 +33,7 @@ export interface Occurrence {
   done: boolean;
   /** Deadlines: the task itself; time blocks: the task they serve. */
   taskUid: string | null;
-  /** Set when I'm an attendee (not the organizer). `relay`: the backend's X-RSVP-STATE (pending / confirmed /
+  /** Set when I'm an attendee (not the organizer). `relay`: the backend's X-CALTASKS-RSVP-STATE (pending / confirmed /
    * failed:<reason>), if it wrote one. */
   invitation: { partstat: string; relay?: string } | null;
 }

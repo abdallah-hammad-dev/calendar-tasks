@@ -122,12 +122,12 @@ describe("invitations", () => {
   });
 
   it("reads the backend's relay state", () => {
-    const data = invite("ACCEPTED").replace("END:VEVENT", "X-RSVP-STATE:failed:token expired\r\nEND:VEVENT");
+    const data = invite("ACCEPTED").replace("END:VEVENT", "X-CALTASKS-RSVP-STATE:failed:token expired\r\nEND:VEVENT");
     expect(expand(data)[0]!.invitation).toEqual({ partstat: "ACCEPTED", relay: "failed:token expired" });
   });
 
-  it("trusts X-SOURCE-ATTENDEE written by the backend", () => {
-    const data = invite("NEEDS-ACTION", "school@uni.edu").replace("END:VEVENT", "X-SOURCE-ATTENDEE:mailto:school@uni.edu\r\nEND:VEVENT");
+  it("trusts X-CALTASKS-SOURCE-ATTENDEE written by the backend", () => {
+    const data = invite("NEEDS-ACTION", "school@uni.edu").replace("END:VEVENT", "X-CALTASKS-SOURCE-ATTENDEE:mailto:school@uni.edu\r\nEND:VEVENT");
     expect(expand(data, undefined, undefined, [])[0]!.invitation).toEqual({ partstat: "NEEDS-ACTION" });
   });
 });

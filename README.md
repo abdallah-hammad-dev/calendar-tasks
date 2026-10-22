@@ -153,7 +153,7 @@ shown or hidden from the legend.
   description).
 
 Invitations you haven't answered are striped. Events copied from other accounts by a backend (they carry
-`X-SOURCE-ACCOUNT`) can only be answered, not edited.
+`X-CALTASKS-SOURCE-ACCOUNT`) can only be answered, not edited.
 
 ## Claude
 

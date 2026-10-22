@@ -198,7 +198,7 @@ past sessions kept; a series that hasn't started is deleted.
 
 ### 4.6 Invitations (mirrored events)
 
-Events the backend copies from another account (`X-SOURCE-ACCOUNT`) are **read-only except my `PARTSTAT`**,
+Events the backend copies from another account (`X-CALTASKS-SOURCE-ACCOUNT`) are **read-only except my `PARTSTAT`**,
 whatever collection they are in: the backend writes each account into a collection I choose, which can also hold
 my own events and tasks (2026-10-22). The extension tells them by that property, never by their collection.
 
@@ -208,7 +208,7 @@ my own events and tasks (2026-10-22). The extension tells them by that property,
   - Davis: Accept / Maybe / Decline **and a notification**, even for an invitation the backend writes with a plain
     `PUT`, as long as my `ATTENDEE` address is the Davis user's email (its `calendar-user-address-set`).
   - Davis holds **one email per user**, while invitations reach several of my addresses. So the backend writes my
-    `ATTENDEE` with the Davis address and keeps the invited one in `X-SOURCE-ATTENDEE`.
+    `ATTENDEE` with the Davis address and keeps the invited one in `X-CALTASKS-SOURCE-ATTENDEE`.
   - Davis tries to send the reply to an external organizer itself and fails cleanly when no mail sender is set
     (`SCHEDULE-STATUS=3.7`, nothing sent). Keep `INVITE_FROM_ADDRESS` empty: the backend relays through the APIs, so
     there is no double reply.
@@ -220,34 +220,37 @@ my own events and tasks (2026-10-22). The extension tells them by that property,
 - **Where my answer stands** (2026-10-19, asked: "le bouton accepter refuse marche ?"): sent at the first click, as in
   Apple Calendar and Google (no Validate step: an answer can be changed any time). The card stays open and a line under
   the buttons says where it is: "Sending your answer to the server…", "Not sent yet: the server can't be reached…",
-  "Answer saved.", then from the backend's `X-RSVP-STATE`: on its way to the organizer, "Sent to the organizer.", or
-  why it failed (in red). A new answer removes `X-RSVP-STATE` (it told how the previous one went); the backend writes
-  it again. Declining hides the invitation, so a notice says so.
-- Properties the backend writes and the extension reads (names to fix together with the backend):
-  `X-SOURCE-ACCOUNT` (which account), `X-SOURCE-ATTENDEE` (which `ATTENDEE` is me), `X-RSVP-STATE`
-  (`pending` / `confirmed` / `failed:<reason>`). "Me" = the server's `calendar-user-address-set` for my principal
-  (standard); my addresses in settings are only a fallback for servers that don't advertise it.
+  "Answer saved.", then from the backend's `X-CALTASKS-RSVP-STATE`: on its way to the organizer, "Sent to the
+  organizer.", or why it failed (in red). A new answer removes `X-CALTASKS-RSVP-STATE` (it told how the previous one
+  went); the backend writes it again. Declining hides the invitation, so a notice says so.
+- Properties the backend writes and the extension reads (the contract, §4.7):
+  `X-CALTASKS-SOURCE-ACCOUNT` (which account), `X-CALTASKS-SOURCE-ATTENDEE` (which `ATTENDEE` is me),
+  `X-CALTASKS-RSVP-STATE` (`pending` / `confirmed` / `failed:<reason>`). "Me" = the server's `calendar-user-address-set`
+  for my principal (standard); my addresses in settings are only a fallback for servers that don't advertise it.
 - Declined invitations are hidden.
 
 ### 4.7 The contract with the backend
 
 Everything the backend and the extension say to each other, as CalDAV data (principle 3). Names are in
-`src/constants.ts` (`BACKEND_PROP`); the backend's side is its spec §5.2, §6, §9.
+`src/constants.ts` (`BACKEND_PROP`); the backend's side is its spec §5.2, §6, §9. Every invented property starts
+with **`X-CALTASKS-`** (2026-10-22, the user: "ça évite des problèmes plus tard et ça respecte les bonnes
+pratiques"): RFC 5545's vendor prefix, so another app's `X-SOURCE-ACCOUNT` can't turn its events read-only here. If
+the extension is renamed, the prefix follows.
 
 | Property | Written by | Meaning |
 |---|---|---|
-| `X-SOURCE-ACCOUNT` | backend | The account it was copied from (`<kind>:<address>`). Makes an event mirrored: read-only except my answer (§4.6) |
-| `X-SOURCE-ATTENDEE` | backend | The address that was invited (`mailto:…`); my `ATTENDEE` is the server's address for me |
-| `X-RSVP-STATE` | backend; removed by the extension when I answer again | Where my answer stands: `pending`, `confirmed`, `failed:<reason>` |
+| `X-CALTASKS-SOURCE-ACCOUNT` | backend | The account it was copied from (`<kind>:<address>`). Makes an event mirrored: read-only except my answer (§4.6) |
+| `X-CALTASKS-SOURCE-ATTENDEE` | backend | The address that was invited (`mailto:…`); my `ATTENDEE` is the server's address for me |
+| `X-CALTASKS-RSVP-STATE` | backend; removed by the extension when I answer again | Where my answer stands: `pending`, `confirmed`, `failed:<reason>` |
 | `ATTENDEE;PARTSTAT` | the extension or the iPhone (my answer), the backend (from the provider) | Standard (RFC 5545) |
 | `CONFERENCE;VALUE=URI;FEATURE=VIDEO` | backend | The meeting link (RFC 7986), "Join" (§7.1) |
 | `URL` | backend, the extension | The `obsidian://` link back to the note (§4.5) |
 
-Part 2 (organizing meetings, backend spec §9.3), proposals: `X-SEND-ACCOUNT` (the account it's sent from) and
-`X-MEETING-TOOL` (`google-meet`, `teams`, `zoom`, `none`), written by the extension with
-`ATTENDEE;SCHEDULE-AGENT=CLIENT` (RFC 6638) so the CalDAV server doesn't send the invitations too; `X-SEND-STATE`
-(`pending`, `sent`, `failed:<reason>`), written by the backend; my accounts and their tools as a property of my
-calendar home.
+Part 2 (organizing meetings, backend spec §9.3), proposals: `X-CALTASKS-SEND-ACCOUNT` (the account it's sent from) and
+`X-CALTASKS-MEETING-TOOL` (`google-meet`, `teams`, `none`: the account's own tool or none), written by the extension
+with `ATTENDEE;SCHEDULE-AGENT=CLIENT` (RFC 6638) so the CalDAV server doesn't send the invitations too;
+`X-CALTASKS-SEND-STATE` (`pending`, `sent`, `failed:<reason>`), written by the backend; my accounts and their tools as a
+property of my calendar home.
 
 ## 5. Editor
 
@@ -632,13 +635,13 @@ certificate (see the bench's `TESTS.md`).
 ## 11. Out of scope for now
 
 Organizing meetings (a slot, the account it's sent from, guests, a Meet / Teams link): part 2, backend spec §9. A
-public booking page: dropped (2026-10-22, not needed). `X-SOURCE-MAIL` link to the original email. Recurring
+public booking page: dropped (2026-10-22, not needed). `X-CALTASKS-SOURCE-MAIL` link to the original email. Recurring
 tasks, priorities, kanban. The backend's own MCP endpoint (Claude outside Obsidian).
 
 ## 12. Open questions
 
 - Extension id and name (`calendar-tasks` is a placeholder; Obsidian ids can't contain "obsidian").
-- `X-` property names shared with the backend (§4.7), part 2's included.
+- Part 2's `X-CALTASKS-` property names (§4.7). The prefix itself is decided (2026-10-22).
 - Deletion rules (§6.4).
 - Protocol action name: it is the label of the link card in Apple Calendar and the start of the line in Reminders
   notes, so short **and** readable (e.g. `obsidian://note?uid=…`), without clashing with other plugins' actions.

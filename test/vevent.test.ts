@@ -94,7 +94,7 @@ describe("renameEvent and cancelOccurrence", () => {
 
 describe("invitations", () => {
   const invite = cal(
-    "BEGIN:VEVENT\r\nUID:inv\r\nSUMMARY:Jury\r\nDTSTART:20261017T090000Z\r\nDTEND:20261017T100000Z\r\nX-SOURCE-ACCOUNT:school\r\n" +
+    "BEGIN:VEVENT\r\nUID:inv\r\nSUMMARY:Jury\r\nDTSTART:20261017T090000Z\r\nDTEND:20261017T100000Z\r\nX-CALTASKS-SOURCE-ACCOUNT:school\r\n" +
       "ORGANIZER:mailto:prof@uni.edu\r\nATTENDEE;PARTSTAT=ACCEPTED:mailto:prof@uni.edu\r\n" +
       "ATTENDEE;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:abd@bench.test\r\nEND:VEVENT\r\n",
   );
@@ -109,13 +109,13 @@ describe("invitations", () => {
   });
 
   it("drops the backend's relay state when the answer changes, not when it's the same", () => {
-    const relayed = invite.replace("X-SOURCE-ACCOUNT:school\r\n", "X-SOURCE-ACCOUNT:school\r\nX-RSVP-STATE:confirmed\r\n");
+    const relayed = invite.replace("X-CALTASKS-SOURCE-ACCOUNT:school\r\n", "X-CALTASKS-SOURCE-ACCOUNT:school\r\nX-CALTASKS-RSVP-STATE:confirmed\r\n");
     expect(occ(relayed)[0]!.invitation).toEqual({ partstat: "NEEDS-ACTION", relay: "confirmed" });
     const answered = setPartstat(relayed, ["abd@bench.test"], "ACCEPTED", NOW)!;
-    expect(lines(answered).some((l) => l.startsWith("X-RSVP-STATE"))).toBe(false);
-    expect(lines(answered)).toContain("X-SOURCE-ACCOUNT:school");
-    const again = answered.replace("X-SOURCE-ACCOUNT:school\r\n", "X-SOURCE-ACCOUNT:school\r\nX-RSVP-STATE:pending\r\n");
-    expect(lines(setPartstat(again, ["abd@bench.test"], "ACCEPTED", NOW)!)).toContain("X-RSVP-STATE:pending");
+    expect(lines(answered).some((l) => l.startsWith("X-CALTASKS-RSVP-STATE"))).toBe(false);
+    expect(lines(answered)).toContain("X-CALTASKS-SOURCE-ACCOUNT:school");
+    const again = answered.replace("X-CALTASKS-SOURCE-ACCOUNT:school\r\n", "X-CALTASKS-SOURCE-ACCOUNT:school\r\nX-CALTASKS-RSVP-STATE:pending\r\n");
+    expect(lines(setPartstat(again, ["abd@bench.test"], "ACCEPTED", NOW)!)).toContain("X-CALTASKS-RSVP-STATE:pending");
   });
 
   it("knows mirrored events", () => {

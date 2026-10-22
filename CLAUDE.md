@@ -246,13 +246,13 @@ user at each one.
 - **Compact forms** (2026-10-19): the new event form and an event's times are one `.ct-form-grid` (`formRow` in
   `src/ui/form-row.ts`: icon, name, field); `renderWhenFields` writes day + time fields (`readFields`) into it, not
   `datetime-local`. Inputs that show their name carry no `aria-label`: Obsidian shows it as a tooltip on hover.
-- **Event cards stay open across a refresh** (2026-10-19): `CalendarView.card` (popover or phone modal) is drawn
-  again by `refresh()` from the occurrence found by id (`redrawCard`; closed if gone, left alone while
-  `.ct-card-when` is being typed); the event is marked active again in `eventDidMount`. Needed so the RSVP line
-  (`answerStatus`: host `syncState` = queued / offline from `syncFailed` / synced, then `X-RSVP-STATE`) shows after a
-  click. `syncNow` also redraws when the sync starts or stops failing with changes queued. `setPartstat` drops
-  `X-RSVP-STATE` when the answer changes. Event notes are lazy: the card and menu say "Create the note" until one
-  exists (`openLabel`, host `hasNote`).
+- **Event cards stay open across a refresh** (2026-10-19): `CalendarView.card` (popover or phone modal) is drawn again
+  by `refresh()` from the occurrence found by id (`redrawCard`; closed if gone, left alone while `.ct-card-when` is
+  being typed); the event is marked active again in `eventDidMount`. Needed so the RSVP line (`answerStatus`: host
+  `syncState` = queued / offline from `syncFailed` / synced, then `X-CALTASKS-RSVP-STATE`) shows after a click.
+  `syncNow` also redraws when the sync starts or stops failing with changes queued. `setPartstat` drops
+  `X-CALTASKS-RSVP-STATE` when the answer changes. Event notes are lazy: the card and menu say "Create the note" until
+  one exists (`openLabel`, host `hasNote`).
 - **Dragging in the calendar** (2026-10-19): FullCalendar aims a dragged event from the middle of the slot row
   it was grabbed in (`useEventCenter`), but reads the start under the pointer to `snapDuration` (5 min): with
   30-minute rows the event jumped up to 15 minutes as soon as it moved, even sideways. `tools/fullcalendar-patch.mjs`
@@ -342,8 +342,8 @@ user at each one.
 - **FullCalendar v6** (MIT plugins only): v7 moved the vanilla build to the `fullcalendar` package with a new API;
   v6 is the known, stable one. It injects its CSS itself; `styles.css` maps its variables to Obsidian's.
 - **What can be edited in the calendar**: events and work sessions in writable calendars, except invitations and
-  mirrored events (`X-SOURCE-ACCOUNT`), which only get Accept / Maybe / Decline (right-click). Deadlines move by
-  editing the task note's `due` (TaskSync pushes). Moving one occurrence of a series writes an exception
+  mirrored events (`X-CALTASKS-SOURCE-ACCOUNT`), which only get Accept / Maybe / Decline (right-click). Deadlines move
+  by editing the task note's `due` (TaskSync pushes). Moving one occurrence of a series writes an exception
   (RECURRENCE-ID in the series' DTSTART zone); the whole series is moved on the phone. Answers apply to the whole
   invitation (series and exceptions).
 - **Recurrence ids** are RECURRENCE-ID instants in UTC (`20261019T080000Z`) or dates (`20261019`), never local

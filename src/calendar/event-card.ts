@@ -35,7 +35,7 @@ export function meetingHost(m: Meeting): string {
 
 /**
  * The line under the answer buttons (spec §7.1): nothing before an answer; after one, where it stands — still
- * here, on the server, then (when a backend relays it, X-RSVP-STATE) on its way to the organizer, sent or failed.
+ * here, on the server, then (when a backend relays it, X-CALTASKS-RSVP-STATE) on its way to the organizer, sent or failed.
  */
 export function answerStatus(
   invitation: Occurrence["invitation"],
