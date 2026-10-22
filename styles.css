@@ -1750,7 +1750,8 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-select {
   }
 }
 
-/* Under two: the start time on the title's line. */
+/* Under two: the times on the title's line, start – end (2026-10-23, asked: a short session showed its start
+   alone); not the place. */
 @container (max-height: 2.9em) {
   .ct-calendar .fc .fc-timegrid-event:not(.ct-ev-deadline) .ct-ev-content {
     flex-direction: row;
@@ -1767,6 +1768,13 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-select {
     flex: none;
   }
 
+  .ct-calendar .fc .fc-timegrid-event:not(.ct-ev-deadline) .ct-ev-place {
+    display: none;
+  }
+}
+
+/* Too narrow for the end beside a few letters of the title (a week column in a small window): the start alone. */
+@container (max-height: 2.9em) and (max-width: 12em) {
   .ct-calendar .fc .fc-timegrid-event:not(.ct-ev-deadline) .ct-ev-time > span:not(:first-child) {
     display: none;
   }

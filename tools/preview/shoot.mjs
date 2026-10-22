@@ -629,6 +629,23 @@ for (const [name, width, height, scale = 2] of run) {
       await page.locator("a.fc-timegrid-axis-cushion").first().click();
       await page.waitForTimeout(200);
       if (!(await page.locator(".fc-timeGridWeek-view").count())) errors.push("the week's tab should open its week");
+      // An event too short for two lines says its start and end on the title's line; in a week column, too narrow
+      // for both beside its title, its start alone.
+      const short = () =>
+        page.evaluate(() => {
+          const call = [...document.querySelectorAll(".fc-timegrid-event")].find((e) => e.textContent.includes("Appel Paul"));
+          const content = call?.querySelector(".ct-ev-content");
+          return content ? `${getComputedStyle(content).flexDirection} ${content.querySelector(".ct-ev-time").innerText}` : "missing";
+        });
+      const inWeek = await short();
+      if (inWeek !== "row 10:35") errors.push(`a short event in a week column should show its start on its title's line, got "${inWeek}"`);
+      await page.locator(".fc-col-header-cell[data-date='2026-10-15'] .fc-col-header-cell-cushion").click();
+      await page.waitForTimeout(200);
+      const inDay = await short();
+      if (inDay !== "row 10:35 – 10:50") errors.push(`a short event with room should show its start and end on its title's line, got "${inDay}"`);
+      await page.screenshot({ path: join(out, `${name}-short-${theme}.png`) });
+      await page.locator("a.fc-timegrid-axis-cushion").first().click();
+      await page.waitForTimeout(200);
       // Shown from its note: the event blinks.
       const target = page.locator(".fc-timegrid-event[data-occ]").first();
       const id = await target.getAttribute("data-occ");

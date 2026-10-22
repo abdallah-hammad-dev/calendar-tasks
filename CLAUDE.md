@@ -177,8 +177,10 @@ user at each one.
   wide as their text: a size container collapsed them).
   What an event shows follows its box's real height, not its length (2026-10-18: a 30-minute session zoomed in a
   little had its time line cut; FullCalendar's `fc-timegrid-event-short` only starts under 30px, two lines need
-  ~2.9em): `.fc-event-main` is a size container; under 2.9em the start goes on the title's line, and the title is
-  clamped to the lines left (bands of 1.25em). `ui:preview` fails on any event whose box or line is cut
+  ~2.9em): `.fc-event-main` is a size container; under 2.9em start – end go on the title's line (2026-10-23, the
+  user: a thin session showed its start alone), the start alone under 12em wide (a week column in a small window),
+  and the title is clamped to the lines left (bands of 1.25em). `calendar-week` checks "Appel Paul" (15 minutes) in
+  the week, then in its day. `ui:preview` fails on any event whose box or line is cut
   (`clipped`, each line too: a line with `overflow: hidden` shrinks instead of overflowing the box).
 - **Whole device pixels** (2026-10-20, the user on Windows at 125 %: dots and bars "pas uniformes"): 2px is 2.5
   device pixels there, and Chrome lays out in device pixels, so each dot or bar edge snapped to 2 or 3 depending on
