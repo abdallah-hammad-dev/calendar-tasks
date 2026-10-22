@@ -89,23 +89,54 @@ function occurrence(cal: Comp, master: Comp, events: Comp[], rid: string): Comp 
   return ex;
 }
 
-/** Moves (or resizes) an event, or one occurrence of a series (`rid`), to new local start / end values. */
-export function moveEvent(data: string, rid: string | null, start: string, end: string, tz: string, now = new Date()): string {
+/** What the event form changes; what's left out stays as it is. */
+export interface EventEdit {
+  summary?: string;
+  /** Local values; `end` is exclusive. */
+  start?: string;
+  end?: string;
+  /** The place; null or "": none. */
+  location?: string | null;
+  /** The task it's a work session for; null: none (a plain event). */
+  relatedTo?: string | null;
+}
+
+/**
+ * Changes an event in place, or one occurrence of a series (`rid`: an exception, as dragging does). Only the
+ * fields given are written; alarms, attendees and unknown properties stay.
+ */
+export function editEvent(data: string, rid: string | null, edit: EventEdit, tz: string, now = new Date()): string {
   const { cal, master, events } = parse(data);
   const target = rid && master.hasProperty("rrule") ? occurrence(cal, master, events, rid) : master;
-  setDateProp(cal, target, "dtstart", start, tz);
-  setDateProp(cal, target, "dtend", end, tz);
-  target.removeAllProperties("duration");
+  if (edit.summary !== undefined) target.updatePropertyWithValue("summary", edit.summary);
+  if (edit.start !== undefined) setDateProp(cal, target, "dtstart", edit.start, tz);
+  if (edit.end !== undefined) {
+    setDateProp(cal, target, "dtend", edit.end, tz);
+    target.removeAllProperties("duration");
+  }
+  if (edit.location !== undefined) {
+    if (edit.location) target.updatePropertyWithValue("location", edit.location);
+    else target.removeAllProperties("location");
+  }
+  if (edit.relatedTo !== undefined) {
+    // The calendar reads the first RELATED-TO as the session's task: it takes the new one (its parameters kept).
+    // None: every one goes, or the event would still read as a session.
+    const first = target.getFirstProperty("related-to");
+    if (!edit.relatedTo) target.removeAllProperties("related-to");
+    else if (first) first.setValue(edit.relatedTo);
+    else target.addPropertyWithValue("related-to", edit.relatedTo);
+  }
   bump(target, now);
   return cal.toString();
 }
 
+/** Moves (or resizes) an event, or one occurrence of a series (`rid`), to new local start / end values. */
+export function moveEvent(data: string, rid: string | null, start: string, end: string, tz: string, now = new Date()): string {
+  return editEvent(data, rid, { start, end }, tz, now);
+}
+
 export function renameEvent(data: string, rid: string | null, summary: string, now = new Date()): string {
-  const { cal, master, events } = parse(data);
-  const target = rid && master.hasProperty("rrule") ? occurrence(cal, master, events, rid) : master;
-  target.updatePropertyWithValue("summary", summary);
-  bump(target, now);
-  return cal.toString();
+  return editEvent(data, rid, { summary }, "UTC", now);
 }
 
 /** Removes one occurrence of a series (EXDATE in the series' DTSTART form, and no exception left). */

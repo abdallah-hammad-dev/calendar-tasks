@@ -476,6 +476,52 @@ async function interact(page, errors) {
   if (!(await page.locator(".ct-popover").count())) errors.push("typing a time closed the form");
 }
 
+/**
+ * An event's pencil opens its form filled in, beside it (a series' occurrence stays in its collection), and saving
+ * changes it; a work session's and a deadline's pencil opens their task's form.
+ */
+async function editing(page, errors, theme) {
+  await page.keyboard.press("Escape");
+  const card = async (text, cls) => {
+    await page.keyboard.press("Escape");
+    await page.locator(`.fc-timegrid-event.${cls}:has-text('${text}')`).first().click();
+    await page.waitForTimeout(200);
+    return page.locator(".ct-popover.ct-card .ct-card-tools button:has(.lucide-pencil)");
+  };
+  let pencil = await card("Café avec Léa", "ct-ev-event");
+  if ((await pencil.getAttribute("aria-label").catch(() => "")) !== "Modifier") errors.push("no Modifier pencil in an event's card");
+  else {
+    await pencil.click();
+    await page.waitForTimeout(200);
+    const form = page.locator(".ct-popover-edit");
+    const title = await form.locator(".ct-task-title-input").inputValue().catch(() => "");
+    const times = await form.locator(".ct-when-time").evaluateAll((els) => els.map((e) => e.value).join(" "));
+    if (title !== "Café avec Léa" || times !== "15h45 16h30") errors.push(`the form should be filled in with the event, got "${title}" ${times}`);
+    if (!(await form.locator(".ct-form-name:has-text('Collection')").count())) errors.push("an event's form should offer its collection");
+    if (!(await page.locator(".fc-event.is-active:has-text('Café avec Léa')").count())) errors.push("the event should stay marked while its form is open");
+    await form.locator(".ct-task-title-input").fill("Café avec Léa et Sam");
+    await form.locator(".ct-when-time").nth(1).fill("17h");
+    await form.locator(".ct-form-text").fill("Le Bistrot");
+    await page.screenshot({ path: join(out, `calendar-card-edit-${theme}.png`) });
+    await form.locator(".mod-cta").click();
+    await page.waitForTimeout(200);
+    const saved = (await page.locator(".fc-timegrid-event:has-text('Café avec Léa et Sam')").first().textContent().catch(() => "")) ?? "";
+    if (!saved.includes("15:45 – 17:00 · Le Bistrot")) errors.push(`saving the form should change the event, shows "${saved}"`);
+  }
+  pencil = await card("Point Olera", "ct-ev-event");
+  await pencil.click().catch(() => errors.push("no pencil on an occurrence of a series"));
+  await page.waitForTimeout(200);
+  if (await page.locator(".ct-popover-edit .ct-form-name:has-text('Collection')").count()) errors.push("an occurrence of a series can't change collection alone");
+  for (const [text, cls] of [["Préparer slides", "ct-ev-timeblock"], ["Préparer slides", "ct-ev-deadline"]]) {
+    await page.evaluate(() => (window.__editTask = ""));
+    pencil = await card(text, cls);
+    const label = await pencil.getAttribute("aria-label").catch(() => "");
+    if (label !== "Modifier la tâche") errors.push(`a ${cls}'s pencil should edit its task, says "${label}"`);
+    await pencil.click().catch(() => undefined);
+    if ((await page.evaluate(() => window.__editTask)) !== "t1") errors.push(`a ${cls}'s pencil should open its task's form`);
+  }
+}
+
 /** Events whose box cuts what's in it (a title or a time line hidden by the box's bottom or side). */
 async function clipped(page) {
   return page.evaluate(() =>
@@ -599,6 +645,7 @@ for (const [name, width, height, scale = 2] of run) {
         const opened = await page.evaluate(() => window.__opened[0] ?? "");
         if (!opened.startsWith("https://teams.microsoft.com/l/meetup-join/")) errors.push(`Join Teams opened "${opened}"`);
       }
+      await editing(page, errors, theme);
     }
     if (name === "calendar-edit") {
       await page.locator(".ct-legend-item:has-text('Rappels')").click({ button: "right" });

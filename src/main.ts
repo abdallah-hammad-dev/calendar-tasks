@@ -8,9 +8,9 @@ import { EventNotes, noteDate, type EventDateFormat } from "./calendar/event-not
 import { expandItem, findOccurrence, pickOccurrence, type Occurrence } from "./calendar/expand";
 import { tasksToPlan, weekStart } from "./calendar/plan";
 import type { PreviewSource } from "./calendar/day-preview";
-import { ConfirmModal, TextModal, type NewEventOptions } from "./calendar/modals";
+import { ConfirmModal, type EventChoice, type EventFormOptions } from "./calendar/modals";
 import { TaskModal, type NewTask } from "./tasks/modals";
-import { cancelOccurrence, endSeries, isMirror, moveEvent, newEvent, renameEvent, setPartstat, type PartStat } from "./calendar/vevent";
+import { cancelOccurrence, editEvent, endSeries, isMirror, moveEvent, newEvent, renameEvent, setPartstat, type EventEdit, type PartStat } from "./calendar/vevent";
 import { CalDavClient } from "./caldav/client";
 import { itemInfo } from "./caldav/ical";
 import { createCalendarModule, type CalendarServices } from "./claude/module";
@@ -746,7 +746,12 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       editable: (occ) => this.editable(occ),
       move: (occ, start, end, allDay) => this.moveOccurrence(occ, start, end, allDay),
       newEvent: (start, end, allDay) => this.newEventOptions(start, end, allDay),
-      menu: (occ, evt) => this.occurrenceMenu(occ, evt),
+      editEvent: (occ) => this.editEventOptions(occ),
+      editTask: (uid) => {
+        const path = this.taskNotePath(uid);
+        if (path) this.editTask(path, null);
+      },
+      menu: (occ, evt, edit) => this.occurrenceMenu(occ, evt, edit),
       planTasks: () => {
         const now = new Date();
         const ctx = { now, tz: localZone(), lang: getLanguage(), words: { today: t("chip.today"), tomorrow: t("chip.tomorrow") } };
@@ -927,7 +932,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
   }
 
   /** What the new event form needs for a selected range; null (with a notice) when there's nowhere to write it. */
-  private newEventOptions(start: Date, end: Date, allDay: boolean): NewEventOptions | null {
+  private newEventOptions(start: Date, end: Date, allDay: boolean): EventFormOptions | null {
     const calendars = this.eventCalendars();
     const urls = Object.keys(calendars);
     if (!this.sync || !urls.length) {
@@ -936,27 +941,80 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     }
     const tz = localZone();
     const local = (d: Date) => (allDay ? formatLocalDate(wallClock(d, tz)) : formatLocalDateTime(wallClock(d, tz)));
-    const tasks = this.index
-      .all()
-      .filter((x) => !x.done && x.uid)
-      .sort((a, b) => (a.due ?? "9999").localeCompare(b.due ?? "9999"))
-      .map((x) => ({ uid: x.uid!, title: x.basename }));
     return {
       when: { start: local(start), end: local(end), allDay },
       calendars,
       calendarUrl: this.collectionFor("VEVENT") ?? urls[0]!,
-      tasks,
+      tasks: this.sessionTasks(null),
       submit: (choice) =>
         void (async () => {
           const uid = newUid();
           const { when } = choice;
-          const data = newEvent(uid, { summary: choice.title, start: when.start, end: when.end ?? when.start, relatedTo: choice.taskUid }, tz);
-          await this.saveEvent(choice.calendarUrl, this.sync!.newItemUrl(choice.calendarUrl, uid), data);
+          const fields = { summary: choice.title, start: when.start, end: when.end ?? when.start, location: choice.location || null, relatedTo: choice.taskUid };
+          await this.saveEvent(choice.calendarUrl, this.sync!.newItemUrl(choice.calendarUrl, uid), newEvent(uid, fields, tz));
         })().catch((e: unknown) => new Notice(t("error.write", { error: e instanceof Error ? e.message : String(e) }))),
     };
   }
 
-  private occurrenceMenu(occ: Occurrence, evt: MouseEvent): void {
+  /** The tasks an event can be a work session for: the open ones, soonest deadline first, and the session's own. */
+  private sessionTasks(session: Occurrence | null): { uid: string; title: string }[] {
+    const own = session?.taskUid ?? null;
+    const tasks = this.index
+      .all()
+      .filter((x) => x.uid && (!x.done || x.uid === own))
+      .sort((a, b) => (a.due ?? "9999").localeCompare(b.due ?? "9999"))
+      .map((x) => ({ uid: x.uid!, title: x.basename }));
+    // Its task has no note here: still offered, under the session's title (named after the task).
+    if (own && !tasks.some((x) => x.uid === own)) tasks.unshift({ uid: own, title: session!.title });
+    return tasks;
+  }
+
+  /**
+   * The event form on an event or a work session, filled in (spec §7.1); null when it can't change here (an
+   * invitation, a mirrored event, a read-only collection). One occurrence of a series is changed alone, as dragging
+   * does: the series stays in its collection.
+   */
+  private editEventOptions(occ: Occurrence): EventFormOptions | null {
+    if (!this.sync || occ.kind === "deadline" || !this.editable(occ)) return null;
+    return {
+      when: { start: occ.start, end: occ.end ?? occ.start, allDay: occ.allDay },
+      calendars: this.eventCalendars(),
+      calendarUrl: occ.calendarUrl,
+      tasks: this.sessionTasks(occ),
+      edit: { title: occ.title, location: occ.location ?? "", taskUid: occ.taskUid, series: occ.recurring },
+      submit: (choice) =>
+        void this.saveEventForm(occ, choice).catch((e: unknown) => new Notice(t("error.write", { error: e instanceof Error ? e.message : String(e) }))),
+    };
+  }
+
+  /**
+   * Writes what the event form changed, and only that (the place is a meeting link the form doesn't show: left
+   * alone unless one is typed). Another collection: the event is created there, then deleted here.
+   */
+  private async saveEventForm(occ: Occurrence, choice: EventChoice): Promise<void> {
+    const sync = this.sync;
+    const data = sync?.item(occ.itemUrl)?.data;
+    if (!sync || !data) return;
+    const edit: EventEdit = {};
+    const { when } = choice;
+    if (choice.title !== occ.title) edit.summary = choice.title;
+    if (when.start !== occ.start || when.end !== occ.end || when.allDay !== occ.allDay) {
+      edit.start = when.start;
+      edit.end = when.end ?? when.start;
+    }
+    if (choice.location !== (occ.location ?? "")) edit.location = choice.location || null;
+    if (choice.taskUid !== occ.taskUid) edit.relatedTo = choice.taskUid;
+    const changed = Object.keys(edit).length > 0;
+    const updated = changed ? editEvent(data, occ.recurring ? occ.recurrenceId : null, edit, localZone()) : data;
+    if (choice.calendarUrl === occ.calendarUrl) {
+      if (changed) await this.saveEvent(occ.calendarUrl, occ.itemUrl, updated);
+      return;
+    }
+    await this.saveEvent(choice.calendarUrl, sync.newItemUrl(choice.calendarUrl, occ.uid), updated);
+    await this.deleteEvent(occ.itemUrl);
+  }
+
+  private occurrenceMenu(occ: Occurrence, evt: MouseEvent, edit: () => void): void {
     const menu = new Menu();
     const run = (fn: () => Promise<void>) => () =>
       void fn().catch((e: unknown) => new Notice(t("error.write", { error: e instanceof Error ? e.message : String(e) })));
@@ -964,13 +1022,16 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     menu.addItem((i) => i.setTitle(open.text).setIcon(open.icon).onClick(() => void this.openOccurrence(occ)));
     const meeting = occ.meeting;
     if (meeting) menu.addItem((i) => i.setTitle(joinText(meeting)).setIcon("video").onClick(() => window.open(meeting.url)));
-    const taskPath = occ.kind === "deadline" ? this.taskNotePath(occ.taskUid) : null;
-    if (taskPath) {
-      menu.addItem((i) => i.setTitle(t("menu.editTask")).setIcon("pencil").onClick(() => this.editTask(taskPath, null)));
+    // A deadline's or a work session's task, then the event itself (a work session is one too).
+    const taskPath = occ.kind !== "event" ? this.taskNotePath(occ.taskUid) : null;
+    if (taskPath) menu.addItem((i) => i.setTitle(t("menu.editTask")).setIcon("pencil").onClick(() => this.editTask(taskPath, null)));
+    const data = this.sync?.item(occ.itemUrl)?.data;
+    const changeable = (occ.kind === "event" || occ.kind === "timeblock") && !!data && this.editable(occ);
+    if (changeable) menu.addItem((i) => i.setTitle(t(occ.kind === "timeblock" ? "menu.editSession" : "menu.edit")).setIcon("pencil").onClick(edit));
+    if (taskPath && occ.kind === "deadline") {
       menu.addItem((i) => i.setTitle(t("menu.blockTime")).setIcon("clock").onClick(() => this.pickSlot(taskPath)));
       menu.addItem((i) => i.setTitle(t("menu.deadline")).setIcon("flag").onClick(() => this.pickDeadline(taskPath)));
     }
-    const data = this.sync?.item(occ.itemUrl)?.data;
     if (occ.invitation && data && this.writableCalendar(occ.calendarUrl)) {
       menu.addSeparator();
       for (const [ps, label] of [["ACCEPTED", "menu.accept"], ["TENTATIVE", "menu.maybe"], ["DECLINED", "menu.decline"]] as const) {
@@ -982,21 +1043,8 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
         );
       }
     }
-    if ((occ.kind === "event" || occ.kind === "timeblock") && data && this.editable(occ)) {
+    if (changeable && data) {
       menu.addSeparator();
-      menu.addItem((i) =>
-        i
-          .setTitle(t("menu.rename"))
-          .setIcon("pencil")
-          .onClick(() =>
-            new TextModal(this.app, {
-              title: t("modal.rename"),
-              value: occ.title,
-              submit: (title) =>
-                void run(() => this.saveEvent(occ.calendarUrl, occ.itemUrl, renameEvent(data, occ.recurring ? occ.recurrenceId : null, title)))(),
-            }).open(),
-          ),
-      );
       if (occ.recurring && occ.recurrenceId) {
         const rid = occ.recurrenceId;
         menu.addItem((i) =>

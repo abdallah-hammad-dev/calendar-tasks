@@ -652,6 +652,11 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-select {
   max-width: none;
 }
 
+.ct-form-grid .ct-form-text {
+  width: 100%;
+  min-width: 0;
+}
+
 /* Start and end (src/calendar/when-fields.ts): a day and a time, the time hidden for "All day" (the day stays put). */
 .ct-when-pair {
   display: grid;

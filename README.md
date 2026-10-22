@@ -142,12 +142,14 @@ views:
 shown or hidden from the legend.
 
 - **Deadlines** carry a flag (red once missed, ↻ when the task repeats); **time blocks** are dashed.
-- **Click** an event to open its note (created in `Calendar/` as `YYYY-MM-DD Title.md`); a deadline or a time
-  block opens its task.
+- **Click** an event for its card: open its note (created in `Calendar/` as `YYYY-MM-DD Title.md`), or its pencil
+  to change it in a form (title, times to the minute, place, collection, the task it's a session for; one
+  occurrence of a recurring event changes on its own). On a deadline or a work session, the pencil opens the
+  task's form.
 - **Drag or resize** an event to move it (one occurrence of a recurring event moves on its own). Dragging a
   deadline changes the task's due date.
 - **Select a range** to create an event, or a work session for a task.
-- **Right-click** an event to rename or delete it, or to answer an invitation.
+- **Right-click** an event to change or delete it, or to answer an invitation.
 - **Video meetings** (Teams, Zoom, Google Meet, Webex…) show a camera; their card, their note and the right-click
   menu have *Join Teams* (or Zoom, Meet…), found in the event wherever its link is (Outlook puts Teams' in the
   description).

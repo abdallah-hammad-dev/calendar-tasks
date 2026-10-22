@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { expandItem, findOccurrence } from "../src/calendar/expand";
-import { cancelOccurrence, endSeries, isMirror, moveEvent, newEvent, renameEvent, setPartstat } from "../src/calendar/vevent";
+import { cancelOccurrence, editEvent, endSeries, isMirror, moveEvent, newEvent, renameEvent, setPartstat } from "../src/calendar/vevent";
 
 const TZ = "Europe/Paris";
 const NOW = new Date("2026-10-15T12:00:00Z");
@@ -69,6 +69,36 @@ describe("moveEvent", () => {
     const again = moveEvent(moved, "20261012T080000Z", "2026-10-14T09:00", "2026-10-14T10:00", TZ, NOW);
     expect(lines(again).filter((l) => l.startsWith("RECURRENCE-ID"))).toHaveLength(1);
     expect(findOccurrence("u", "c", again, "20261012T080000Z", { tz: TZ, me: [] })!.start).toBe("2026-10-14T09:00");
+  });
+});
+
+describe("editEvent", () => {
+  const alarm = "BEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER:-PT15M\r\nEND:VALARM\r\n";
+  const single = cal(
+    "BEGIN:VEVENT\r\nUID:e\r\nSUMMARY:Café\r\nDTSTART;TZID=Europe/Paris:20261016T154500\r\nDTEND;TZID=Europe/Paris:20261016T163000\r\n" +
+      `LOCATION:Le Bistrot\r\nX-APPLE-TRAVEL-ADVISORY-BEHAVIOR:AUTOMATIC\r\n${alarm}END:VEVENT\r\n`,
+  );
+
+  it("writes only what the form changed, keeping alarms and unknown properties", () => {
+    const edited = editEvent(single, null, { summary: "Café avec Sam", start: "2026-10-16T16:00", end: "2026-10-16T17:00" }, TZ, NOW);
+    expect(occ(edited)[0]).toMatchObject({ title: "Café avec Sam", start: "2026-10-16T16:00", end: "2026-10-16T17:00", location: "Le Bistrot" });
+    expect(lines(edited)).toEqual(expect.arrayContaining(["X-APPLE-TRAVEL-ADVISORY-BEHAVIOR:AUTOMATIC", "TRIGGER:-PT15M", "SEQUENCE:1"]));
+    expect(occ(editEvent(single, null, { location: null }, TZ, NOW))[0]!.location).toBeNull();
+    expect(occ(editEvent(single, null, { start: "2026-10-17", end: "2026-10-18" }, TZ, NOW))[0]).toMatchObject({ allDay: true, start: "2026-10-17" });
+  });
+
+  it("turns an event into a work session and back", () => {
+    const session = editEvent(single, null, { relatedTo: "t1" }, TZ, NOW);
+    expect(occ(session)[0]).toMatchObject({ kind: "timeblock", taskUid: "t1" });
+    const other = editEvent(session, null, { relatedTo: "t2" }, TZ, NOW);
+    expect(lines(other).filter((l) => l.startsWith("RELATED-TO"))).toEqual(["RELATED-TO:t2"]);
+    expect(occ(editEvent(other, null, { relatedTo: null }, TZ, NOW))[0]).toMatchObject({ kind: "event", taskUid: null });
+  });
+
+  it("changes one occurrence of a series alone", () => {
+    const edited = editEvent(weekly, "20261019T080000Z", { summary: "Point (salle B)", location: "Salle B" }, TZ, NOW);
+    expect(occ(edited).map((o) => o.location)).toEqual([null, null, "Salle B", null]);
+    expect(occ(edited)[2]!.title).toBe("Point (salle B)");
   });
 });
 

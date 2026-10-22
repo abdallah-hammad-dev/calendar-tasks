@@ -19,7 +19,7 @@ import {
   type SyncState,
 } from "./event-card";
 import { closeDeadlines, monthGroup, monthGroupStarts, type Occurrence } from "./expand";
-import { NewEventModal, renderNewEventForm, type NewEventOptions } from "./modals";
+import { EventModal, renderEventForm, type EventFormOptions } from "./modals";
 import type { PartStat } from "./vevent";
 import { localDate, type When } from "./when-fields";
 
@@ -59,9 +59,13 @@ export interface CalendarHost {
   /** Drag or resize; false puts the event back. */
   move(occ: Occurrence, start: Date, end: Date | null, allDay: boolean): Promise<boolean>;
   /** A range was selected: what creating an event there needs, or null (a notice says why). */
-  newEvent(start: Date, end: Date, allDay: boolean): NewEventOptions | null;
-  /** Every action on an occurrence (rename, delete, answer…), as a menu at the mouse. */
-  menu(occ: Occurrence, evt: MouseEvent): void;
+  newEvent(start: Date, end: Date, allDay: boolean): EventFormOptions | null;
+  /** The form to change an event or a work session, filled in; null (a notice says why) when it can't be. */
+  editEvent(occ: Occurrence): EventFormOptions | null;
+  /** The task form, on a deadline's or a work session's task. */
+  editTask(uid: string): void;
+  /** Every action on an occurrence (edit, delete, answer…), as a menu at the mouse; `edit` opens its form here. */
+  menu(occ: Occurrence, evt: MouseEvent, edit: () => void): void;
   /** The task a deadline or time block is for. */
   task(uid: string): { title: string; done: boolean } | null;
   toggleTask(uid: string): void;
@@ -132,6 +136,8 @@ export class CalendarView extends ItemView {
   private card: OpenCard | null = null;
   /** The "To plan" tasks, read once per refresh (the toolbar shows their count, the panel lists them). */
   private toPlan: ReturnType<CalendarHost["planTasks"]> = [];
+  /** The occurrence whose form is open beside it (drawn as active, as with its card). */
+  private editing: string | null = null;
   /** An occurrence to blink once it's drawn (`reveal`). */
   private revealing: string | null = null;
   /** Whether the last fetch grouped close deadlines (week and day views only). */
@@ -236,7 +242,7 @@ export class CalendarView extends ItemView {
         const found = this.host.newEvent(info.start, info.end, info.allDay);
         const opts = found && { ...found, preview: (w: When) => this.reselect(w) };
         if (!opts) this.calendar?.unselect();
-        else if (Platform.isPhone) new NewEventModal(this.app, opts, () => this.calendar?.unselect()).open();
+        else if (Platform.isPhone) new EventModal(this.app, opts, () => this.calendar?.unselect()).open();
         else this.newEventPopover(opts);
       },
       unselect: () => {
@@ -312,7 +318,7 @@ export class CalendarView extends ItemView {
         const occ = arg.event.extendedProps.occ as Occurrence | undefined;
         if (!occ) return;
         arg.el.dataset.occ = occ.id;
-        if (this.card?.occ.id === occ.id && !Platform.isPhone) arg.el.addClass("is-active");
+        if ((this.card?.occ.id === occ.id || this.editing === occ.id) && !Platform.isPhone) arg.el.addClass("is-active");
         if (this.revealing === occ.id) this.blink(arg.el);
         if (color) arg.el.style.setProperty("--ct-ev-color", color);
         // The agenda shows a deadline's moment after a flag, as its marker in the grid says "⚑ 18:00" (not the
@@ -332,7 +338,7 @@ export class CalendarView extends ItemView {
         setTooltip(arg.el, [occ.title, kind, meeting, occ.location, relayText, fixed].filter(Boolean).join("\n"));
         arg.el.addEventListener("contextmenu", (e) => {
           e.preventDefault();
-          this.host.menu(occ, e);
+          this.host.menu(occ, e, () => this.editEvent(occ));
         });
       },
     });
@@ -1004,7 +1010,7 @@ export class CalendarView extends ItemView {
   }
 
   /** The new event form beside the selected range (which stays drawn behind it). */
-  private newEventPopover(opts: NewEventOptions): void {
+  private newEventPopover(opts: EventFormOptions): void {
     const anchor = this.contentEl.querySelector(".fc-event-mirror, .fc-highlight")?.getBoundingClientRect() ?? null;
     const pop = this.openPopover("new", anchor, () => this.calendar?.unselect());
     const head = pop.createDiv({ cls: "ct-popover-head" });
@@ -1012,8 +1018,41 @@ export class CalendarView extends ItemView {
     const x = head.createEl("button", { cls: "clickable-icon", attr: { "aria-label": t("modal.cancel") } });
     setIcon(x, "x");
     x.addEventListener("click", () => this.closePopover());
-    const input = renderNewEventForm(pop, opts, () => this.closePopover());
+    const input = renderEventForm(pop, opts, () => this.closePopover());
     window.setTimeout(() => input.focus(), 0);
+  }
+
+  /**
+   * The event form on an event or a work session, filled in (its card's pencil, or "Edit…" in its menu): beside it
+   * on a computer, the event marked as while its card is open; in a modal on a phone.
+   */
+  private editEvent(occ: Occurrence): void {
+    const opts = this.host.editEvent(occ);
+    if (!opts) return;
+    if (Platform.isPhone) {
+      new EventModal(this.app, opts).open();
+      return;
+    }
+    const drawn = () => Array.from(this.contentEl.querySelectorAll<HTMLElement>(`.fc-event[data-occ="${CSS.escape(occ.id)}"]`));
+    const pop = this.openPopover("edit", drawn()[0]?.getBoundingClientRect() ?? null, () => {
+      this.editing = null;
+      for (const e of drawn()) e.removeClass("is-active");
+    });
+    this.editing = occ.id;
+    for (const e of drawn()) e.addClass("is-active");
+    const head = pop.createDiv({ cls: "ct-popover-head" });
+    head.createDiv({ cls: "ct-popover-title", text: t("modal.editEvent") });
+    const x = head.createEl("button", { cls: "clickable-icon", attr: { "aria-label": t("modal.cancel") } });
+    setIcon(x, "x");
+    x.addEventListener("click", () => this.closePopover());
+    const input = renderEventForm(pop, opts, () => this.closePopover());
+    window.setTimeout(() => input.focus(), 0);
+  }
+
+  /** What an occurrence's pencil opens: its task's form (deadline, work session), else the event's if it can change. */
+  private editKind(occ: Occurrence): EventCardInfo["edit"] {
+    if (occ.kind !== "event" && occ.taskUid && this.host.task(occ.taskUid)) return "task";
+    return occ.kind !== "deadline" && this.host.editable(occ) ? "event" : null;
   }
 
   /** An event's card: beside it on a computer, in a modal on a phone. */
@@ -1025,7 +1064,12 @@ export class CalendarView extends ItemView {
       },
       toggleTask: () => o.taskUid && this.host.toggleTask(o.taskUid),
       rsvp: (ps) => this.host.rsvp(o, ps),
-      more: (e) => this.host.menu(o, e),
+      edit: () => {
+        close();
+        if (this.editKind(o) === "task") this.host.editTask(o.taskUid!);
+        else this.editEvent(o);
+      },
+      more: (e) => this.host.menu(o, e, () => this.editEvent(o)),
       move: (w) => {
         close();
         void this.host.move(o, localDate(w.start), w.end === null ? null : localDate(w.end), w.allDay);
@@ -1086,6 +1130,7 @@ export class CalendarView extends ItemView {
       editable: this.host.editable(occ),
       hasNote: this.host.hasNote(occ),
       sync: this.host.syncState(occ),
+      edit: this.editKind(occ),
     };
   }
 
@@ -1129,8 +1174,11 @@ export class CalendarView extends ItemView {
   }
 }
 
-/** "new": the form beside a selection (closes with it); "card": an event's card; "calendar": a calendar's card. */
-type PopoverKind = "new" | "card" | "calendar";
+/**
+ * "new": the form beside a selection (closes with it); "card": an event's card; "edit": an event's form beside it;
+ * "calendar": a calendar's card.
+ */
+type PopoverKind = "new" | "card" | "edit" | "calendar";
 
 /** An event's card on screen, and how to draw it again for the occurrence as it is now. */
 interface OpenCard {

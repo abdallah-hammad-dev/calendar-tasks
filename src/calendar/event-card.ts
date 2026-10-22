@@ -19,6 +19,8 @@ export interface EventCardInfo {
   hasNote: boolean;
   /** Its last change made here: on the server, waiting to be pushed, or waiting while the server can't be reached. */
   sync: SyncState;
+  /** What its pencil opens: the event's form, or its task's (a deadline, a work session); null: no pencil. */
+  edit: "event" | "task" | null;
 }
 
 export type SyncState = "synced" | "queued" | "offline";
@@ -62,7 +64,9 @@ export interface EventCardActions {
   open(): void;
   toggleTask(): void;
   rsvp(partstat: PartStat): void;
-  /** Every other action (rename, delete…), in the context menu. */
+  /** The form: the event's, or its task's (`EventCardInfo.edit`). */
+  edit(): void;
+  /** Every other action (delete…), in the context menu. */
   more(evt: MouseEvent): void;
   /** New times typed in the card (a deadline has no end). */
   move(when: When): void;
@@ -94,7 +98,8 @@ export function whenText(occ: Pick<Occurrence, "start" | "end" | "allDay">, lang
 
 /**
  * What a click on an event shows (spec §7.1): when, where, which calendar, the task it's for (a deadline can be
- * ticked here), the answer to an invitation, and a button to open its note. Other actions are in "…".
+ * ticked here), the answer to an invitation, and a button to open its note. Its pencil opens the event's form (or
+ * its task's); other actions are in "…".
  */
 export function renderEventCard(el: HTMLElement, info: EventCardInfo, actions: EventCardActions): void {
   const { occ } = info;
@@ -111,6 +116,7 @@ export function renderEventCard(el: HTMLElement, info: EventCardInfo, actions: E
     setIcon(b, icon);
     b.addEventListener("click", run);
   };
+  if (info.edit) tool("pencil", info.edit === "task" ? t("card.editTask") : t("card.edit"), () => actions.edit());
   tool("more-horizontal", t("card.more"), (e) => actions.more(e));
   tool("x", t("modal.cancel"), () => actions.close());
 

@@ -508,15 +508,22 @@ popovers.
   the date-time fields opened the system's calendar), and "All day", which hides the times; moving the start keeps
   the length, what isn't understood or an end not after the start is marked and blocks saving, and the selection on
   the calendar follows what's typed. The form is one grid (icon, name, field on every line: Start, End, All day,
-  Collection, For a task), no description lines, no tooltip on a field that shows its name.
+  Place, Collection, For a task), no description lines, no tooltip on a field that shows its name.
 - **Zoom** (week and day): Ctrl/⌘ + wheel, a trackpad or touch pinch, or the − / + buttons make the hours taller
   (26 to 312 px an hour, 52 by default, kept per device); the time under the pointer stays put. Taller hours get
   quarter-hour lines and their half / quarter hours written, fainter. A deadline stays one line high.
 - **Click** shows the event's card beside it (a modal on phones): when, ↻, place, collection, the task it's a time
   block for, a checkbox for a deadline's task, Accept / Maybe / Decline for an invitation (and where my answer stands, §4.6), "Create the note" while
   the event has none (notes are made on first open, §4.3; 2026-10-19), then "Open the note" (or "Open the task"; the
-  right-click menu says the same), and "…" for the other actions (the right-click menu); while its time is being changed, Save is the only
-  main button. The card is drawn again when the data changes (an answer pushed, a sync), and closes only if its
+  right-click menu says the same), a pencil, and "…" for the other actions (the right-click menu); while its time is being changed, Save is the only
+  main button. **The pencil** (2026-10-23, asked: "rouvrir un événement… un bouton pour l'éditer de manière plus
+  précise", and the task's edit button on deadlines and sessions): on an event, the new event form again, filled in
+  ("Edit the event", Save), beside it in place of the card (a modal on phones), the event marked as with its card;
+  on a deadline or a work session, the task's form (§5.3). A work session's own form is in its menu ("Edit the
+  session…"; "Edit…" for an event; it replaces "Rename…"). Only what the form changed is written, in place (§6.2);
+  one occurrence of a series changes alone (an exception, as dragging does), so its form has no Collection (the
+  series is one item); another collection = the event created there, then deleted here. Invitations, mirrored
+  events and read-only collections get no pencil. The card is drawn again when the data changes (an answer pushed, a sync), and closes only if its
   occurrence is gone. Dragging a deadline edits `due`.
 - **Video meetings** (2026-10-22, asked: "teams zoom… c supporté ?"): "Rejoindre Teams / Zoom / Meet…" (or
   "Rejoindre la réunion" for a service we don't know) in the card, the event note's header and the right-click menu;
@@ -544,8 +551,8 @@ popovers.
   redrew before the note's change reached the reminder). While something is held, the calendar doesn't redraw
   (2026-10-19: a redraw from the move just before showed the old one again beside the one in hand); it does once
   it's dropped. **Selecting a range** creates an event (title, collection, or a task it's a work session for: picking it names the event, unless a title was typed), in a popover beside the selection, which stays drawn until the popover closes (a modal on phones).
-- Editing an event's details (title, place, recurrence) can be done from a small modal; complex edits stay in
-  Apple Calendar.
+- Editing an event's details (title, times, place, collection, task) is its form (the pencil above); the
+  recurrence and complex edits stay in Apple Calendar.
 
 ### 7.2 Task list — Bases
 

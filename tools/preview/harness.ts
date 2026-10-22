@@ -5,12 +5,12 @@
 import { CalendarView, type CalendarHost } from "../../src/calendar/CalendarView";
 import { wholeDevicePixels } from "../../src/calendar/device-pixels";
 import { expandItem } from "../../src/calendar/expand";
-import { moveEvent, setPartstat } from "../../src/calendar/vevent";
+import { editEvent, moveEvent, setPartstat } from "../../src/calendar/vevent";
 import { writeTask } from "../../src/tasks/vtodo";
 import { chipModel, type ChipModel } from "../../src/editor/chips";
 import { DateSuggest } from "../../src/editor/date-suggest";
 import { TaskModal } from "../../src/tasks/modals";
-import { ConfirmModal, NewEventModal } from "../../src/calendar/modals";
+import { ConfirmModal, EventModal } from "../../src/calendar/modals";
 import { t } from "../../src/i18n";
 import { localValue } from "../../src/calendar/when-fields";
 import { renderTaskHeader } from "../../src/editor/task-header";
@@ -149,6 +149,21 @@ function calendar(view: "timeGridWeek" | "dayGridMonth" | "listWeek", inTab = fa
       tasks: [{ uid: "1", title: "Rédiger le mémoire" }],
       submit: () => undefined,
     }),
+    // As the plugin does (`main.editEventOptions`): the form filled in, its changes written in place, drawn at once.
+    editEvent: (o) => ({
+      when: { start: o.start, end: o.end ?? o.start, allDay: o.allDay },
+      calendars: { "https://c/perso/": "Perso", "https://c/taches/": "Rappels" },
+      calendarUrl: o.calendarUrl,
+      tasks: [{ uid: "t8", title: "Rédiger le mémoire" }, { uid: "t1", title: "Préparer slides" }],
+      edit: { title: o.title, location: o.location ?? "", taskUid: o.taskUid, series: o.recurring },
+      submit: (c) => {
+        const i = ITEMS.findIndex(([cal], j) => `${cal}${j}.ics` === o.itemUrl);
+        const when = c.when;
+        ITEMS[i]![1] = editEvent(ITEMS[i]![1], o.recurring ? o.recurrenceId : null, { summary: c.title, start: when.start, end: when.end ?? when.start, location: c.location || null }, TZ);
+        v.refresh();
+      },
+    }),
+    editTask: (uid) => ((window as unknown as { __editTask: string }).__editTask = uid),
     menu: () => undefined,
     planTasks: () => [
       { path: "a", title: "Envoyer le devis", priority: "high", due: { text: "14 oct.", overdue: true }, blocks: 0 },
@@ -305,7 +320,7 @@ function confirmDelete(): void {
 
 /** Creating an event from a selected range in the calendar. */
 function newEvent(): void {
-  new NewEventModal({} as never, {
+  new EventModal({} as never, {
     when: { start: "2026-10-20T14:00", end: "2026-10-20T15:00", allDay: false },
     calendars: { a: "Perso", b: "Travail" },
     calendarUrl: "a",

@@ -67,8 +67,9 @@ user at each one.
   occurrence, follows moves/renames one way), `catalog.ts` (uid → item), `CalendarView.ts` (FullCalendar v6 for
   layout and dragging; our toolbar, `eventContent`, `dayHeaderContent` and popovers; drag/resize/select/right-click
   go to the host), `event-card.ts` (an event's card: popover or phone modal), `vevent.ts` (VEVENT edits in
-  place: new event, move / rename an occurrence as an exception, EXDATE, `setPartstat`, `isMirror`, `endSeries`),
-  `modals.ts` (new event form, rename), `calendars.ts` (the colors offered).
+  place: new event, `editEvent` (what the form changed; move / rename go through it) on an occurrence as an
+  exception, EXDATE, `setPartstat`, `isMirror`, `endSeries`), `modals.ts` (`renderEventForm` / `EventModal`: the
+  event form, new or edit; `ConfirmModal`), `calendars.ts` (the colors offered).
 - `src/ical/write.ts` (`setDateProp`, `ensureVTimezone`, `touch`) and `src/ical/zones.ts` (`registerZones`, `ridOf`),
   shared by tasks and events.
 - `src/ical/time.ts` — zones through Intl (no tz database): wall clock ↔ instant, local value strings,
@@ -248,6 +249,14 @@ user at each one.
 - **Compact forms** (2026-10-19): the new event form and an event's times are one `.ct-form-grid` (`formRow` in
   `src/ui/form-row.ts`: icon, name, field); `renderWhenFields` writes day + time fields (`readFields`) into it, not
   `datetime-local`. Inputs that show their name carry no `aria-label`: Obsidian shows it as a tooltip on hover.
+- **Editing from the calendar** (2026-10-23, the user: reopen an event to edit it precisely, and the task's edit
+  button on deadlines and sessions): the card's pencil (`EventCardInfo.edit`, `CalendarView.editKind`) opens the
+  task's form for a deadline or a work session whose task has a note (`host.editTask`), else the event form filled
+  in (`host.editEvent` → `main.editEventOptions`, popover kind `"edit"` at the event, `editing` keeps it marked).
+  The menu has "Edit…" / "Edit the session…" (it replaced "Rename…" and `TextModal`) and "Edit the task…" on
+  sessions too. `saveEventForm` writes only the fields that changed (a place that was only a meeting link shows
+  empty and stays unless something is typed); a series' occurrence has no Collection row (`edit.series`). The
+  `calendar-card` preview edits "Café avec Léa" and checks the task pencils.
 - **Event cards stay open across a refresh** (2026-10-19): `CalendarView.card` (popover or phone modal) is drawn again
   by `refresh()` from the occurrence found by id (`redrawCard`; closed if gone, left alone while `.ct-card-when` is
   being typed); the event is marked active again in `eventDidMount`. Needed so the RSVP line (`answerStatus`: host
