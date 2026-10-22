@@ -138,6 +138,25 @@ describe("CalDavClient writes", () => {
     expect(items[0]!.data).toContain("UID:test-parent");
     expect(items[0]!.etag).toMatch(/^"/);
   });
+
+  it("reads one item with a multiget on its collection, its ETag from the body (not a GET's header)", async () => {
+    const item = "https://cal.test/dav/calendars/abd/tests/test-parent.ics";
+    const { c, requests } = client([
+      at("REPORT", "/dav/calendars/abd/tests/", { status: 207, text: fixture("davis-multiget.xml") }),
+      at("GET", "/dav/calendars/abd/tests/test-parent.ics", { status: 200, headers: { etag: '"x-gzip"' }, text: "WRONG" }),
+    ]);
+    const read = await c.get(item);
+    expect(read).toMatchObject({ url: item, etag: expect.stringMatching(/^"[0-9a-f]+"$/) });
+    expect(read!.data).toContain("UID:test-parent");
+    expect(requests.map((r) => r.method)).toEqual(["REPORT"]);
+    expect(requests[0]!.body).toContain("<d:href>/dav/calendars/abd/tests/test-parent.ics</d:href>");
+  });
+
+  it("reads a missing item, or one whose collection is gone, as null", async () => {
+    const missing = `<?xml version="1.0"?><d:multistatus xmlns:d="DAV:"><d:response><d:href>/dav/calendars/abd/tests/x.ics</d:href><d:status>HTTP/1.1 404 Not Found</d:status></d:response></d:multistatus>`;
+    expect(await client([at("REPORT", "/dav/calendars/abd/tests/", { status: 207, text: missing })]).c.get(url)).toBeNull();
+    expect(await client([]).c.get(url)).toBeNull();
+  });
 });
 
 describe("CalDavClient.updateCalendar", () => {

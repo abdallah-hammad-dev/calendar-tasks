@@ -268,5 +268,18 @@ for (const srv of SERVERS) {
       expect((await raw("GET", first)).status).toBe(404);
       expect(engine.calendars().find((c) => c.info.url === calendarUrl)?.items).toEqual({});
     });
+
+    it("reads an item back with an ETag that If-Match accepts, even over 512 bytes", async () => {
+      // Davis's Caddy compresses answers over 512 bytes for a client that asks (fetch does, as Obsidian does) and
+      // then appends "-gzip" to the ETag header, which If-Match refuses (412).
+      const url = engine.newItemUrl(calendarUrl, "it-big");
+      const big = vtodo("it-big", `Big ${"x".repeat(800)}`);
+      expect(await client.put(url, big)).toMatchObject({ kind: "ok" });
+      const read = await client.get(url);
+      expect(read?.data).toContain("UID:it-big");
+      expect(await client.put(url, big.replace("Big ", "Bigger "), read!.etag)).toMatchObject({ kind: "ok" });
+      expect(await client.get(engine.newItemUrl(calendarUrl, "it-missing"))).toBeNull();
+      expect(await client.delete(url)).toBe("ok");
+    });
   });
 }

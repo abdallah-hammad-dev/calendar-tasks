@@ -225,11 +225,19 @@ export class CalDavClient implements CalDavApi {
     return out;
   }
 
+  /**
+   * One item, read with a multiget on its collection rather than a GET: the ETag then comes from the answer's body.
+   * A server that compresses its answer may change the ETag *header*, and If-Match refuses that one (Davis's
+   * Caddy appends "-gzip" over 512 bytes; Obsidian asks for gzip). A missing item (or collection) is null.
+   */
   async get(url: string): Promise<RemoteItem | null> {
-    const res = await this.request("GET", url);
-    if (res.status === 404 || res.status === 410) return null;
-    if (res.status !== 200) throw new DavError(`Read failed (HTTP ${res.status})`, res.status);
-    return { url, etag: res.headers.etag ?? "", data: res.text };
+    try {
+      const [item] = await this.multiget(new URL(".", url).href, [url]);
+      return item ? { ...item, url } : null;
+    } catch (e) {
+      if (e instanceof DavError && (e.status === 404 || e.status === 410)) return null;
+      throw e;
+    }
   }
 
   async put(url: string, data: string, baseEtag?: string): Promise<PutResult> {

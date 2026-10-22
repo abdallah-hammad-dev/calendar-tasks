@@ -97,6 +97,10 @@ user at each one.
   a full resync (unit + integration tested).
 - Davis/sabre returns `ETag` on PUT when it stored what we sent; without one, the engine reads the item back.
 - **Task sync rules** (TaskSync): tasks already completed when first seen get no note; a VTODO deleted on the
+  **Reading one item back is a multiget on its collection, never a GET** (`CalDavClient.get`, 2026-10-22): Davis's
+  Caddy compresses answers over 512 bytes for clients that ask (Node's fetch does; Obsidian's Electron and iOS
+  stacks very likely too, not checked) and then appends `-gzip` to the `ETag` header, which If-Match refuses (412).
+  ETags in multistatus bodies are untouched. The integration test "even over 512 bytes" fails with a GET.
   server leaves its note `done: true` without `caldav_uid`; a whole calendar vanishing leaves notes alone; deleting
   a task note deletes its VTODO; a refused push is merged field by field against `baseData` (server wins where
   both sides changed a field, with a notice). Every write is equality-checked, so echoes are no-ops.
