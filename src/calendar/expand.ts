@@ -1,4 +1,5 @@
 import ICAL from "ical.js";
+import { BACKEND_PROP } from "../constants";
 import { formatLocalDate, formatLocalDateTime, fromWall, parseLocal, wallClock } from "../ical/time";
 import { registerZones, ridOf } from "../ical/zones";
 import { readTask } from "../tasks/vtodo";
@@ -63,13 +64,13 @@ const address = (v: unknown) => (typeof v === "string" ? v : "").replace(/^mailt
 function invitationOf(c: Comp, me: string[]): { partstat: string; relay?: string } | null {
   if (!c.hasProperty("organizer")) return null;
   const mine = new Set(me);
-  const declared = c.getFirstPropertyValue("x-source-attendee");
+  const declared = c.getFirstPropertyValue(BACKEND_PROP.sourceAttendee);
   if (declared) mine.add(address(declared));
   if (mine.has(address(c.getFirstPropertyValue("organizer")))) return null;
   const att = c.getAllProperties("attendee").find((a) => mine.has(address(a.getFirstValue())));
   if (!att) return null;
   const partstat = String(att.getParameter("partstat") ?? "NEEDS-ACTION").toUpperCase();
-  const relay = c.getFirstPropertyValue("x-rsvp-state");
+  const relay = c.getFirstPropertyValue(BACKEND_PROP.rsvpState);
   return typeof relay === "string" && relay ? { partstat, relay } : { partstat };
 }
 

@@ -74,7 +74,8 @@ user at each one.
 - `src/ical/time.ts` — zones through Intl (no tz database): wall clock ↔ instant, local value strings,
   generated `VTIMEZONE` (nth/last-weekday rules).
 - `src/i18n.ts` — every UI string, English + French, `t(key)` follows Obsidian's language.
-- `src/constants.ts` — frontmatter property names, note types, protocol action.
+- `src/constants.ts` — frontmatter property names, note types, protocol action, the backend's properties
+  (`BACKEND_PROP`: the whole contract with it, spec §4.7).
 - `test/stubs/obsidian.ts` — runtime stub aliased as `obsidian` in Vitest (copied from claude-workspace).
 - `test/support/` — `FakeServer` (in-memory CalDAV with tokens/etags/preconditions), xmldom parser, fetch
   transport. `test/fixtures/` — real Davis and Radicale responses.
@@ -96,11 +97,11 @@ user at each one.
   instead of a 403. The engine treats "token echoed while the server's current token differs" as invalid and does
   a full resync (unit + integration tested).
 - Davis/sabre returns `ETag` on PUT when it stored what we sent; without one, the engine reads the item back.
-- **Task sync rules** (TaskSync): tasks already completed when first seen get no note; a VTODO deleted on the
   **Reading one item back is a multiget on its collection, never a GET** (`CalDavClient.get`, 2026-10-22): Davis's
   Caddy compresses answers over 512 bytes for clients that ask (Node's fetch does; Obsidian's Electron and iOS
   stacks very likely too, not checked) and then appends `-gzip` to the `ETag` header, which If-Match refuses (412).
   ETags in multistatus bodies are untouched. The integration test "even over 512 bytes" fails with a GET.
+- **Task sync rules** (TaskSync): tasks already completed when first seen get no note; a VTODO deleted on the
   server leaves its note `done: true` without `caldav_uid`; a whole calendar vanishing leaves notes alone; deleting
   a task note deletes its VTODO; a refused push is merged field by field against `baseData` (server wins where
   both sides changed a field, with a notice). Every write is equality-checked, so echoes are no-ops.

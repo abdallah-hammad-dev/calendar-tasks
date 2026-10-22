@@ -1,4 +1,5 @@
 import ICAL from "ical.js";
+import { BACKEND_PROP } from "../constants";
 import { setDateProp, touch } from "../ical/write";
 import { wallClock } from "../ical/time";
 import { registerZones, ridOf } from "../ical/zones";
@@ -36,9 +37,11 @@ function bump(comp: Comp, now: Date): void {
   touch(comp, now);
 }
 
+const MIRROR_LINE = new RegExp(`\\r?\\n${BACKEND_PROP.sourceAccount}[;:]`, "i");
+
 /** Events copied from an external account by the backend: only my answer may change (spec §4.6). */
 export function isMirror(data: string): boolean {
-  return /\r?\nX-SOURCE-ACCOUNT[;:]/i.test(data);
+  return MIRROR_LINE.test(data);
 }
 
 export function newEvent(uid: string, e: NewEvent, tz: string, now = new Date()): string {
@@ -155,7 +158,7 @@ export function setPartstat(data: string, me: string[], partstat: PartStat, now 
   const mine = new Set(me);
   let found = false;
   for (const ev of events) {
-    const declared = ev.getFirstPropertyValue("x-source-attendee");
+    const declared = ev.getFirstPropertyValue(BACKEND_PROP.sourceAttendee);
     const set = declared ? new Set([...mine, address(declared)]) : mine;
     let mineHere = false;
     let changed = false;
@@ -168,7 +171,7 @@ export function setPartstat(data: string, me: string[], partstat: PartStat, now 
     }
     if (!mineHere) continue;
     found = true;
-    if (changed) ev.removeAllProperties("x-rsvp-state");
+    if (changed) ev.removeAllProperties(BACKEND_PROP.rsvpState);
     touch(ev, now);
   }
   return found ? cal.toString() : null;

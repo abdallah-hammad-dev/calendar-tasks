@@ -30,7 +30,17 @@ It's built for me first, but published on GitHub: a friend will use it, others c
    iCloud with an app password), not only mine.
 3. **Pure CalDAV client. The extension never calls the Go backend.** The backend is a separate robot next to
    the CalDAV server (external-account mirrors, RSVP relay). Everything the extension needs from it arrives as CalDAV data.
-   Without the backend, everything works except external accounts and RSVP relaying.
+   Without the backend, everything works except external accounts and RSVP relaying. So that the extension doesn't
+   come to depend on it (2026-10-22, the user: "mon extension elle va devenir de plus en plus dépendante du
+   backend ?"):
+   - **What only the backend makes possible stays invisible until the data shows it.** No mirrored event, no
+     account → the forms and cards are the plain CalDAV ones, with no option greyed out.
+   - **Standards first**, an `X-` property only where none exists, and few of them: all named in
+     `src/constants.ts` (`BACKEND_PROP`) and listed in §4.7, the whole contract. It is public, so another backend
+     could be written against it.
+   - **A feature with a standard stays standard.** Guests (part 2) are a plain `ORGANIZER` + `ATTENDEE`, which a
+     server that schedules sends itself (iCloud and Fastmail, to check; Davis only with a mail sender, which mine
+     doesn't have). The backend adds only the account it's sent from and the video tool.
 4. **The link is the iCalendar `UID`, never a file path.** Renaming or moving a note breaks nothing.
 5. **Settings cover names and connections, not the data model.** Tag, folders, server, collections are
    settings. Property names and behavior are fixed (in one constants file, for forks).
@@ -45,8 +55,8 @@ It's built for me first, but published on GitHub: a friend will use it, others c
                                       │ CalDAV
  Obsidian (desktop + mobile)          ▼
  ┌─ this extension ──────────┐    Davis (source of truth)
- │ CalDAV client + cache     │◄──►  collections: perso, travail, …,
- │ sync engine (UID ↔ note)  │       mirrors "École (mirror)", …
+ │ CalDAV client + cache     │◄──►  collections: Général, Pro, École, …
+ │ sync engine (UID ↔ note)  │       (+ events copied from my other accounts)
  │ calendar view, editor     │            ▲
  │ Claude module (desktop) ──┼─► claude-workspace   │ CalDAV (watch + write mirrors)
  └───────────────────────────┘    (MCP + skills)    │
@@ -186,9 +196,11 @@ past sessions kept; a series that hasn't started is deleted.
   apart from the description (Google: `conferenceData` / `hangoutLink`; Microsoft Graph: `onlineMeeting.joinUrl`),
   so copying the description alone can miss it and the join button wouldn't show.
 
-### 4.6 Invitations (mirror collections)
+### 4.6 Invitations (mirrored events)
 
-Events in mirror collections are **read-only except my `PARTSTAT`**.
+Events the backend copies from another account (`X-SOURCE-ACCOUNT`) are **read-only except my `PARTSTAT`**,
+whatever collection they are in: the backend writes each account into a collection I choose, which can also hold
+my own events and tasks (2026-10-22). The extension tells them by that property, never by their collection.
 
 - **I answer on the iPhone or in Obsidian.** The server must implement CalDAV scheduling (RFC 6638), which is why
   it is **Davis** and not Radicale (tested 2026-10-15, see the bench's `TESTS.md`):
@@ -216,6 +228,26 @@ Events in mirror collections are **read-only except my `PARTSTAT`**.
   (`pending` / `confirmed` / `failed:<reason>`). "Me" = the server's `calendar-user-address-set` for my principal
   (standard); my addresses in settings are only a fallback for servers that don't advertise it.
 - Declined invitations are hidden.
+
+### 4.7 The contract with the backend
+
+Everything the backend and the extension say to each other, as CalDAV data (principle 3). Names are in
+`src/constants.ts` (`BACKEND_PROP`); the backend's side is its spec §5.2, §6, §9.
+
+| Property | Written by | Meaning |
+|---|---|---|
+| `X-SOURCE-ACCOUNT` | backend | The account it was copied from (`<kind>:<address>`). Makes an event mirrored: read-only except my answer (§4.6) |
+| `X-SOURCE-ATTENDEE` | backend | The address that was invited (`mailto:…`); my `ATTENDEE` is the server's address for me |
+| `X-RSVP-STATE` | backend; removed by the extension when I answer again | Where my answer stands: `pending`, `confirmed`, `failed:<reason>` |
+| `ATTENDEE;PARTSTAT` | the extension or the iPhone (my answer), the backend (from the provider) | Standard (RFC 5545) |
+| `CONFERENCE;VALUE=URI;FEATURE=VIDEO` | backend | The meeting link (RFC 7986), "Join" (§7.1) |
+| `URL` | backend, the extension | The `obsidian://` link back to the note (§4.5) |
+
+Part 2 (organizing meetings, backend spec §9.3), proposals: `X-SEND-ACCOUNT` (the account it's sent from) and
+`X-MEETING-TOOL` (`google-meet`, `teams`, `zoom`, `none`), written by the extension with
+`ATTENDEE;SCHEDULE-AGENT=CLIENT` (RFC 6638) so the CalDAV server doesn't send the invitations too; `X-SEND-STATE`
+(`pending`, `sent`, `failed:<reason>`), written by the backend; my accounts and their tools as a property of my
+calendar home.
 
 ## 5. Editor
 
@@ -599,13 +631,14 @@ certificate (see the bench's `TESTS.md`).
 
 ## 11. Out of scope for now
 
-Booking (public page, slots, sent invitations: part 2). `X-SOURCE-MAIL` link to the original email. Recurring
+Organizing meetings (a slot, the account it's sent from, guests, a Meet / Teams link): part 2, backend spec §9. A
+public booking page: dropped (2026-10-22, not needed). `X-SOURCE-MAIL` link to the original email. Recurring
 tasks, priorities, kanban. The backend's own MCP endpoint (Claude outside Obsidian).
 
 ## 12. Open questions
 
 - Extension id and name (`calendar-tasks` is a placeholder; Obsidian ids can't contain "obsidian").
-- `X-` property names shared with the backend (§4.6).
+- `X-` property names shared with the backend (§4.7), part 2's included.
 - Deletion rules (§6.4).
 - Protocol action name: it is the label of the link card in Apple Calendar and the start of the line in Reminders
   notes, so short **and** readable (e.g. `obsidian://note?uid=…`), without clashing with other plugins' actions.
