@@ -308,7 +308,9 @@ user at each one.
   (even twice) showed beside the one in hand. `calendar-drag` holds an event while the previous drop's redraws come.
 - **Video meetings** (2026-10-22): `meetingOf` (`src/calendar/meeting.ts`, cached per ical.js component in a
   WeakMap: a series' occurrences share their master) reads the link from `CONFERENCE` / Google / Microsoft properties,
-  else from a known service's link in `URL`, `LOCATION`, `DESCRIPTION` (spec §7.1). `Occurrence.meeting` carries it;
+  else from a known service's link in `URL`, `LOCATION`, `DESCRIPTION`, else any link in `LOCATION` then
+  `DESCRIPTION` (`anyIn`: maps, documents, files, help pages left out by `NOT_MEETINGS` / `NOT_MEETING_PATH`; in the
+  notes the link on a line with a meeting word first) (spec §7.1). `Occurrence.meeting` carries it;
   `Occurrence.location` is `placeOf` (null when the place is only that link). "Join" opens with `window.open`
   (Obsidian hands it to the browser). The `calendar-card` preview clicks *Rejoindre Teams* with `window.open`
   stubbed; `event-note` checks its header button.

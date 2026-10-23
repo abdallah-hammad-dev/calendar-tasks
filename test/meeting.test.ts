@@ -66,6 +66,37 @@ describe("the meeting to join", () => {
     expect(event(["LOCATION:Salle B"])).toEqual({ meeting: null, location: "Salle B" });
   });
 
+  it("takes a link to a service we don't know from the place, then from the notes", () => {
+    expect(event(["LOCATION:https://visio.ecole.fr/salle-12"])).toEqual({
+      meeting: { url: "https://visio.ecole.fr/salle-12", provider: null },
+      location: null,
+    });
+    expect(event(["DESCRIPTION:Le lien : https://rdv.example.org/abc"]).meeting).toEqual({ url: "https://rdv.example.org/abc", provider: null });
+    // A known service anywhere wins over an unknown link in the place.
+    expect(event(["LOCATION:https://visio.ecole.fr/salle-12", "DESCRIPTION:Ou Zoom : https://zoom.us/j/1"]).meeting).toEqual({ url: "https://zoom.us/j/1", provider: "Zoom" });
+  });
+
+  it("in the notes, prefers the link on a line that speaks of a meeting", () => {
+    const desc = "DESCRIPTION:Ordre du jour : https://intranet.ecole.fr/agenda\\nVisio : https://rdv.example.org/abc";
+    expect(event([desc]).meeting).toEqual({ url: "https://rdv.example.org/abc", provider: null });
+  });
+
+  it("never takes a map, a document, a file or a help page for a meeting", () => {
+    for (const link of [
+      "https://docs.google.com/document/d/1abc/edit",
+      "https://drive.google.com/file/d/1abc/view",
+      "https://ecole.sharepoint.com/sites/x/doc.aspx",
+      "https://www.google.com/maps/place/Paris",
+      "https://maps.apple.com/?q=Paris",
+      "https://example.org/programme.pdf",
+      "https://support.google.com/calendar/answer/37135",
+      "https://lists.example.org/unsubscribe?id=1",
+    ]) {
+      expect(event([`DESCRIPTION:Voir ${link}`]).meeting, link).toBeNull();
+    }
+    expect(event(["URL:https://rdv.example.org/abc"]).meeting).toBeNull();
+  });
+
   it("keeps a place that says more than the link", () => {
     const zoom = { url: "https://zoom.us/j/1", provider: "Zoom" };
     expect(placeOf("Salle B ; https://zoom.us/j/1", zoom)).toBe("Salle B ; https://zoom.us/j/1");

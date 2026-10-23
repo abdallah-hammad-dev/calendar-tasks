@@ -531,7 +531,12 @@ popovers.
   (`meetingOf`, `src/calendar/meeting.ts`), first found: RFC 7986 `CONFERENCE` (the `FEATURE=VIDEO` one first; never
   `tel:`), `X-GOOGLE-CONFERENCE`, `X-MICROSOFT-SKYPETEAMSMEETINGURL` / `-ONLINEMEETINGCONFLINK`; else the first link
   to a known service (Teams, Zoom, Meet, Webex, Whereby, Jitsi, GoTo, Skype, FaceTime) in `URL`, `LOCATION`, then
-  `DESCRIPTION` (where Outlook puts Teams). Links wrapped by Outlook Safe Links or Google's redirect are unwrapped.
+  `DESCRIPTION` (where Outlook puts Teams); else (2026-10-23, the user: "un lien inconnu dans les notes, affiche-le
+  comme rejoindre la visio") any other link in `LOCATION`, then in `DESCRIPTION` (there, the first on a line that
+  speaks of a meeting: visio, réunion, rejoindre, meeting, join…), as "Rejoindre la réunion". Never a map, a
+  document or file (Google Docs / Drive, SharePoint, OneDrive, Dropbox, Notion, `.pdf`…), a help or unsubscribe
+  page, nor an unknown link from `URL` (the event's own page). Links wrapped by Outlook Safe Links or Google's
+  redirect are unwrapped.
   A place that is only the meeting's link isn't shown as a place; "Réunion Microsoft Teams" still is. Read only:
   nothing is written, the phone keeps its own join button.
 - **Drag / resize** moves an event (not mirror events or invitations: their tooltip says why), a work session or a

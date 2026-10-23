@@ -152,7 +152,8 @@ shown or hidden from the legend.
 - **Right-click** an event to change or delete it, or to answer an invitation.
 - **Video meetings** (Teams, Zoom, Google Meet, Webex…) show a camera; their card, their note and the right-click
   menu have *Join Teams* (or Zoom, Meet…), found in the event wherever its link is (Outlook puts Teams' in the
-  description).
+  description). A link to a service it doesn't know, in the place or the notes, gives *Join the meeting* (maps,
+  documents and help pages aside).
 
 Invitations you haven't answered are striped. Events copied from other accounts by a backend (they carry
 `X-CALTASKS-SOURCE-ACCOUNT`) can only be answered, not edited.
