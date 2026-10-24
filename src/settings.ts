@@ -26,7 +26,6 @@ export interface CalendarTasksSettings {
   reminderNoteLink: boolean;
   /** Lowercase. Fallback when the server doesn't advertise `calendar-user-address-set`. */
   myAddresses: string[];
-  accountsPageUrl: string;
   /** The task list base file was written once (never recreated, even if deleted). */
   taskBaseCreated: boolean;
   /** Calendar URLs hidden in the calendar view. */
@@ -55,7 +54,6 @@ export const DEFAULT_SETTINGS: CalendarTasksSettings = {
   syncIntervalMinutes: 5,
   reminderNoteLink: true,
   myAddresses: [],
-  accountsPageUrl: "",
   taskBaseCreated: false,
   hiddenCalendars: [],
   planPanelOpen: false,
@@ -99,7 +97,6 @@ export function mergeSettings(saved: unknown): CalendarTasksSettings {
       .filter((a): a is string => typeof a === "string")
       .map((a) => a.trim().toLowerCase().replace(/^mailto:/, ""))
       .filter((a) => a.includes("@")),
-    accountsPageUrl: str("accountsPageUrl") ?? DEFAULT_SETTINGS.accountsPageUrl,
     taskBaseCreated: s.taskBaseCreated === true,
     hiddenCalendars: Array.isArray(s.hiddenCalendars) ? s.hiddenCalendars.filter((u): u is string => typeof u === "string") : [],
     planPanelOpen: s.planPanelOpen === true,
@@ -229,17 +226,6 @@ export class SettingsTab extends PluginSettingTab {
             name: t("settings.myAddresses"),
             desc: t("settings.myAddresses.desc"),
             control: { type: "text", key: "myAddresses", placeholder: "you@example.com, you@school.edu" },
-          },
-          {
-            name: t("settings.accountsPageUrl"),
-            desc: t("settings.accountsPageUrl.desc"),
-            control: { type: "text", key: "accountsPageUrl", placeholder: "https://api.example.com/accounts" },
-          },
-          {
-            name: t("settings.addAccount"),
-            desc: t("settings.addAccount.desc"),
-            action: () => window.open(this.host.settings.accountsPageUrl),
-            visible: () => !!this.host.settings.accountsPageUrl,
           },
         ],
       },

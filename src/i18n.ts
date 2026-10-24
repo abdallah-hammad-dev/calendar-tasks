@@ -2,8 +2,6 @@ import { getLanguage } from "obsidian";
 
 /** Every UI string, in English. French below; a missing translation falls back to English. */
 const en = {
-  "settings.addAccount": "Add an account",
-  "settings.addAccount.desc": "Opens your backend's accounts page (Google, Microsoft…) in the browser.",
   "view.rsvpPending": "Your answer is being sent to the organizer.",
   "view.meeting": "Video meeting: {provider}",
   "view.meetingAny": "Video meeting",
@@ -251,15 +249,11 @@ const en = {
   "settings.myAddresses": "My email addresses",
   "settings.myAddresses.desc":
     "Comma-separated. Only needed if your server doesn't tell which attendee is you (Davis does).",
-  "settings.accountsPageUrl": "Accounts page",
-  "settings.accountsPageUrl.desc": "Web page of your backend for adding Google or Microsoft accounts. Empty hides the button.",
 } as const;
 
 export type StringKey = keyof typeof en;
 
 const fr: Partial<Record<StringKey, string>> = {
-  "settings.addAccount": "Ajouter un compte",
-  "settings.addAccount.desc": "Ouvre la page des comptes de ton backend (Google, Microsoft…) dans le navigateur.",
   "view.rsvpPending": "Ta réponse est en cours d'envoi à l'organisateur.",
   "view.meeting": "Visio : {provider}",
   "view.meetingAny": "Visio",
@@ -508,9 +502,6 @@ const fr: Partial<Record<StringKey, string>> = {
   "settings.myAddresses": "Mes adresses email",
   "settings.myAddresses.desc":
     "Séparées par des virgules. Utile seulement si ton serveur n'indique pas quel invité est toi (Davis le fait).",
-  "settings.accountsPageUrl": "Page des comptes",
-  "settings.accountsPageUrl.desc":
-    "Page web de ton backend pour ajouter des comptes Google ou Microsoft. Vide : le bouton est masqué.",
 };
 
 export function language(): string {

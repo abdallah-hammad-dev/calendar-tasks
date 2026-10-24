@@ -620,9 +620,9 @@ Registered by this extension through claude-workspace's `plugin.api.registerModu
 | Project tag | `project` (`projet`) |
 | My email addresses (fallback when the server doesn't advertise `calendar-user-address-set`) | — |
 | Sync interval | 5 min |
-| Accounts page URL (backend web page, opened by "Add account") | empty = button hidden |
 
-UI strings in one file, French + English. Code, README and commit messages in English. `minAppVersion` 1.13.2
+No link to a backend's accounts page (2026-10-24, the user: it made the extension depend on the backend; accounts
+are added rarely, on the backend's own page). UI strings in one file, French + English. Code, README and commit messages in English. `minAppVersion` 1.13.2
 (declarative settings tab with Obsidian's settings search, and the keychain `secret` control).
 
 The README must say that **the CalDAV server needs HTTPS for the iPhone**: iOS doesn't send credentials over plain
