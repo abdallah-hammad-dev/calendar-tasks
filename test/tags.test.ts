@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { categoriesFor, findTags, isTag, sameTags, tagOfCategory, tagsFromCategories, tagsOf } from "../src/tasks/tags";
+import { categoriesFor, findTags, isTag, sameTags, tagOfCategory, tagsFromCategories, tagsOf, withTags } from "../src/tasks/tags";
 
 describe("tags", () => {
   it("follows Obsidian's rule: letters, digits, _ - /, not only digits", () => {
@@ -26,6 +26,13 @@ describe("tags", () => {
     expect(tagsFromCategories(["Work stuff", "Famille", "famille", "2026"])).toEqual(["Work-stuff", "Famille"]);
     expect(categoriesFor(["work-stuff", "urgent"], ["Work stuff", "Famille", "2026"])).toEqual(["Work stuff", "2026", "urgent"]);
     expect(categoriesFor([], ["Famille"])).toEqual([]);
+  });
+
+  it("adds tags to the property, keeping what's there as written", () => {
+    expect(withTags(["famille", "#vieux"], ["Urgent", "famille"])).toEqual(["famille", "#vieux", "Urgent"]);
+    expect(withTags("famille", ["urgent"])).toEqual(["famille", "urgent"]);
+    expect(withTags(undefined, ["Eejip"])).toEqual(["Eejip"]);
+    expect(withTags(["Famille"], ["famille"])).toBeNull();
   });
 
   it("compares tags in any order and case", () => {

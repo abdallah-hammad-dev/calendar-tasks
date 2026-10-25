@@ -87,8 +87,8 @@ export interface EditedTask {
 export interface DateSuggestDeps {
   /** The task note a link points to, from a note. */
   task(linkpath: string, sourcePath: string): EditedTask | null;
-  /** Applies a line's `@` tokens to that task. */
-  edit(path: string, found: WhenToken): void;
+  /** Applies a line's `@` tokens and `#tags` to that task. */
+  edit(path: string, found: WhenToken | null, tags: string[]): void;
 }
 
 /**
@@ -208,7 +208,7 @@ export class DateSuggest extends EditorSuggest<Item> {
     if (!res) return;
     editor.replaceRange(res.rest, { line: n, ch: 0 }, { line: n, ch: line.length });
     editor.setCursor({ line: n, ch: res.rest.length });
-    this.deps.edit(task.path, res.found);
+    this.deps.edit(task.path, res.found, res.tags);
   }
 
   /**

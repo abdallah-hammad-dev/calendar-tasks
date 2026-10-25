@@ -45,11 +45,17 @@ describe("linkLineEdit", () => {
   it("reads @ tokens after the link of a converted line, and the line without them", () => {
     const res = linkLineEdit("- [[Rapport]] @ven", today)!;
     expect(res).toMatchObject({ linkpath: "Rapport", rest: "- [[Rapport]]" });
-    expect(res.found.when.due).toBe("2026-10-16");
+    expect(res.found!.when.due).toBe("2026-10-16");
     expect(linkLineEdit("  * [[Projets/Rapport|R]] @session mar 14h-16h voir Paul", today)).toMatchObject({
       linkpath: "Projets/Rapport",
       rest: "  * [[Projets/Rapport|R]] voir Paul",
     });
+  });
+
+  it("takes #tags after the link for the task (else Obsidian gives them to the note the line is in)", () => {
+    expect(linkLineEdit("- [[Untitled task]] #Eejip", today)).toMatchObject({ rest: "- [[Untitled task]]", found: null, tags: ["Eejip"] });
+    expect(linkLineEdit("- [[Rapport]] @ven #famille voir Paul", today)).toMatchObject({ rest: "- [[Rapport]] voir Paul", tags: ["famille"] });
+    expect(linkLineEdit("- [[Rapport]] #2026", today)).toBeNull();
   });
 
   it("ignores lines that don't start with a link, and text with no @ token", () => {

@@ -101,7 +101,8 @@ list icon in the bar shows them.
 
 **Changing a task**: click one of its chips (or the pencil that shows when you hover the line) to open its form,
 or type `@` after its link: `- [[Write the report]] @mon` moves the deadline, `@session thu 10am-12pm` adds a time
-block, `@repeat never` stops the repetition, `@deadline never` removes the deadline. ✓ applies it and cleans the line.
+block, `@repeat never` stops the repetition, `@deadline never` removes the deadline, `#family` adds a tag. ✓ (or
+leaving the line) applies it and cleans the line.
 
 **The New task button** (ribbon, command palette, or the calendar's *+ New task*) opens a form: title, deadline,
 time blocks, repetition, priority, tags (your vault's tags are suggested as you type). Dates are typed the same way (`fri 2pm`, `tue 2pm-4pm`) or picked from a calendar

@@ -50,5 +50,7 @@ describe("leftTaskLines", () => {
     const line = "- [[Rapport]] @ven";
     expect(left(`${line}\nx`, 3, { selection: { anchor: line.length + 1 } })).toEqual([line]);
     expect(left("- [[Rapport]]\nx", 3, { selection: { anchor: 14 } })).toEqual([]);
+    expect(left("- [[Rapport]] #famille\nx", 3, { selection: { anchor: 23 } })).toEqual(["- [[Rapport]] #famille"]);
+    expect(left("- [[Rapport]] C#\nx", 3, { selection: { anchor: 17 } })).toEqual([]);
   });
 });

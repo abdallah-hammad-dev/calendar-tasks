@@ -272,7 +272,9 @@ desktop and mobile:
 
 **Changing a task from its line** (2026-10-17): click a chip (or the pencil shown when the line is hovered, desktop)
 to open the task form (§5.3) at that field; or type `@` after the link (`- [[Rapport]] @ven`), same assistant as
-§5.2, and ✓ (or leaving the line) applies it and takes the `@` words off the line.
+§5.2, and ✓ (or leaving the line) applies it and takes the `@` words off the line. A `#tag` after the link is
+added to the task's tags the same way (2026-10-26: written there, Obsidian gave it to the note the line is in); tags
+are taken off in the form.
 
 Lines hold only the link (`- [[Préparer slides]]`), never `- [ ] [[…]]`: one state, no stale checkboxes. Without the
 extension, it's a plain link. Small steps (plain `- [ ]`, no link) look different on their own.

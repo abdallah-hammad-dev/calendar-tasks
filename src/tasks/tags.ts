@@ -63,6 +63,14 @@ export function categoriesFor(tags: string[], current: string[]): string[] {
   return out;
 }
 
+/** The `tags` property with these added, the new ones last (those there kept as written); null if it has them all. */
+export function withTags(value: unknown, add: string[]): unknown[] | null {
+  const have = tagsOf(value);
+  const missing = tagsOf(add).filter((tag) => !have.some((h) => sameTag(h, tag)));
+  if (!missing.length) return null;
+  return [...(Array.isArray(value) ? (value as unknown[]) : have), ...missing];
+}
+
 /** Same tags, in any order and case. */
 export function sameTags(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((x) => b.some((y) => sameTag(x, y)));

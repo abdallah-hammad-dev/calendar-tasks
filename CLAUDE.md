@@ -152,7 +152,9 @@ user at each one.
   link of a `- [[Task]]` line (`parseLinkLine` / `linkLineEdit`) uses the same grammar; `taskEdit` turns it into
   field changes (a repetition alone keeps the deadline, `startOn` moves it to the rule's day; `@deadline jamais` /
   `@répéter jamais` set `When.clear`). Applied on ✓ or when the line is left (`left-lines.ts` watches such lines).
-  Clicking a chip opens `TaskModal` in edit mode at that field.
+  A `#tag` after the link is added to the task's `tags` the same way (`withTags`; 2026-10-26, the user wrote
+  `- [[Task]] #Eejip` and it tagged the note the line was in). Clicking a chip opens `TaskModal` in edit mode at
+  that field.
 - **No system dropdowns in forms** (the user found the blue Windows list ugly, 2026-10-17): `src/ui/menu-select.ts`
   opens Obsidian's `Menu` from a button; `named()` puts an icon before a setting's name. The settings tab keeps
   Obsidian's standard dropdowns (that's what every settings page uses).

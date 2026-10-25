@@ -38,7 +38,7 @@ import { IdbStore } from "./sync/store";
 import { taskBaseFile } from "./tasks/base-file";
 import { ObsidianVault } from "./tasks/obsidian-vault";
 import { normalizeDue, sanitizeTitle, setDone, uniquePath } from "./tasks/notes";
-import { sameTags, tagsOf } from "./tasks/tags";
+import { sameTag, sameTags, tagsOf, withTags } from "./tasks/tags";
 import { TaskIndex, type TaskInfo } from "./tasks/task-index";
 import { TaskSync } from "./tasks/TaskSync";
 
@@ -243,7 +243,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
           const file = this.app.metadataCache.getFirstLinkpathDest(linkpath, sourcePath);
           return (file && this.index.get(file.path)) ?? null;
         },
-        edit: (path, found) => void this.applyEdit(path, found),
+        edit: (path, found, tags) => void this.applyEdit(path, found, tags),
       }),
     );
     this.registerMarkdownPostProcessor((el, ctx) => decorateRendered(el, ctx, deps));
@@ -441,18 +441,21 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     }
   }
 
-  /** A line's `@` tokens written after a task's link (`- [[Task]] @ven`): what they change on that task. */
-  private async applyEdit(path: string, found: WhenToken): Promise<void> {
+  /** A line's `@` tokens and `#tags` written after a task's link (`- [[Task]] @ven #famille`): they change that task. */
+  private async applyEdit(path: string, found: WhenToken | null, tags: string[]): Promise<void> {
     const task = this.index.get(path);
     const file = this.app.vault.getFileByPath(path);
     if (!task || !file) return;
-    const edit = taskEdit(found, task);
-    if (edit.due !== undefined || edit.repeat !== undefined) {
+    const edit = found ? taskEdit(found, task) : { blocks: [] };
+    const addTags = tags.some((tag) => !task.tags.some((x) => sameTag(x, tag)));
+    if (edit.due !== undefined || edit.repeat !== undefined || addTags) {
       await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
         if (edit.due === null) delete fm[PROP.due];
         else if (edit.due) fm[PROP.due] = edit.due;
         if (edit.repeat === null) delete fm[PROP.repeat];
         else if (edit.repeat) fm[PROP.repeat] = repeatToNote(edit.repeat);
+        const withThem = withTags(fm[PROP.tags], tags);
+        if (withThem) fm[PROP.tags] = withThem;
       });
     }
     if (edit.blocks.length) await this.blockTime(path, edit.blocks);
@@ -547,7 +550,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     const line = findLine(view.state.doc, from, text);
     if (!line) return;
     view.dispatch({ changes: { from: line.from, to: line.to, insert: res.rest } });
-    await this.applyEdit(file.path, res.found);
+    await this.applyEdit(file.path, res.found, res.tags);
   }
 
   /** "Convert to task" on the current line or every selected line, dated or not. */

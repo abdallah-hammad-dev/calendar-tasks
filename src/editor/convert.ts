@@ -27,13 +27,21 @@ export function parseLinkLine(line: string): { linkpath: string; end: number } |
   return m ? { linkpath: m[1]!.trim(), end: m[0].length } : null;
 }
 
-/** `@` tokens written after the link of a `- [[Task]]` line (to change that task), and the line without them. */
-export function linkLineEdit(line: string, today: { year: number; month: number; day: number }): { linkpath: string; rest: string; found: WhenToken } | null {
+/**
+ * `@` tokens and `#tags` written after the link of a `- [[Task]]` line (to change that task: 2026-10-26, a `#tag`
+ * there tagged the note it was in), and the line without them.
+ */
+export function linkLineEdit(
+  line: string,
+  today: { year: number; month: number; day: number },
+): { linkpath: string; rest: string; found: WhenToken | null; tags: string[] } | null {
   const link = parseLinkLine(line);
   if (!link) return null;
   const tail = line.slice(link.end);
   const found = findWhen(tail, today);
-  return found ? { linkpath: link.linkpath, rest: line.slice(0, link.end) + cutSpans(tail, found.spans), found } : null;
+  const tagged = findTags(tail);
+  if (!found && !tagged.tags.length) return null;
+  return { linkpath: link.linkpath, rest: line.slice(0, link.end) + cutSpans(tail, [...(found?.spans ?? []), ...tagged.spans]), found, tags: tagged.tags };
 }
 
 /** `text` without these spans, each with the space before it. */
