@@ -17,6 +17,10 @@ export interface TaskInfo {
   collection: string | null;
   /** When it was made, local "YYYY-MM-DD[THH:mm]". */
   created: string | null;
+  /** When it was ticked (only while done), local "YYYY-MM-DDTHH:mm". */
+  completed: string | null;
+  /** Each time a repeating task was ticked, oldest first. */
+  completions: string[];
 }
 
 /** Every task note's state, kept current from vault events; what the editor decorations read. */
@@ -109,6 +113,8 @@ export class TaskIndex {
       parentPath: resolve(s.parent),
       collection: s.collection,
       created: s.created ?? null,
+      completed: s.completed,
+      completions: s.completions,
     });
     return true;
   }

@@ -259,31 +259,66 @@ a.internal-link.ct-task-done {
 }
 
 /*
- * When the task was made: handy, not important. Faint, in the room left before the tools: it takes none of its own
- * (flex-basis 0) and is one line high; when the date doesn't fit, it wraps under the empty first item, out of sight.
+ * Handy, not important: the times a repeating task was done (newest first), then when the task was made. Faint, in
+ * the room left before the tools: it takes none of its own (flex-basis 0) and is one line high; what doesn't fit
+ * wraps under the empty first item, out of sight, the oldest day first (each takes its "·" along), the creation date
+ * before any day (2026-10-25: the list matters more).
  */
-.ct-task-header-created {
+.ct-task-header-faint {
   flex: 1 1 0;
   min-width: 0;
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
   align-items: center;
   height: 1.5em;
   overflow: hidden;
   font-size: var(--font-ui-smaller);
   line-height: 1.5;
+  color: var(--text-faint);
 }
 
-.ct-task-header-created::before {
+.ct-task-header-faint::before {
   content: "";
   height: 100%;
 }
 
-.ct-task-header-created > span {
-  color: var(--text-faint);
+.ct-task-header-faint > span {
+  display: inline-flex;
+  align-items: center;
   white-space: nowrap;
   cursor: default;
+}
+
+.ct-task-header-done-day {
+  gap: 0.25em;
+}
+
+.ct-task-header-faint > .ct-task-header-done-day {
+  cursor: pointer;
+}
+
+.ct-task-header-done-day:hover {
+  color: var(--text-muted);
+}
+
+.ct-task-header-done-day + .ct-task-header-done-day::before {
+  content: "·";
+  margin-inline: 0.4em;
+  color: var(--text-faint);
+}
+
+.ct-task-header-done-day .ct-chip-icon {
+  display: inline-flex;
+}
+
+.ct-task-header-done-day .ct-chip-icon svg {
+  width: 1em;
+  height: 1em;
+}
+
+.ct-task-header-faint > .ct-task-header-created {
+  margin-inline-start: auto;
+  padding-inline-start: var(--size-4-3);
 }
 
 .ct-task-header-tools .clickable-icon.is-active {

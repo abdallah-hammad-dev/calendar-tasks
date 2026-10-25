@@ -125,6 +125,20 @@ user at each one.
   (`emptySeen`): otherwise one bad server answer marks every task note done and unlinked.
 - **Known limitation**: a brand-new task note reaching a second device through vault sync before its `caldav_uid` was
   written can get a second VTODO there (documented in the README; not handled).
+- **When a task was ticked** (2026-10-25, asked: the last time it was ticked, right after an untick and a tick; for a
+  repeating one, the list, not a count): `completed` ↔ `COMPLETED` (`TaskFields.completed`, local minute; the VTODO
+  gets the note's time in UTC), only while done. Ticks here go through `setDone` (notes.ts: `done` and `completed`
+  in one write); a `done` changed elsewhere (Bases, the properties) gets it in `TaskSync.pushNote`: now if the
+  reminder isn't done yet, else the reminder's time, and never a guess (`pushAll` passes every note at startup:
+  an old done note must not read "done today"). Repeating tasks: `moveOn(…, at)` appends to `completions` (note
+  only; `at` = the phone's `COMPLETED` when it ticked there). `applyItem` skips `ensureLink` after moving on: it
+  put back the ticked copy it was given (only when our link was missing), and the next pull moved on a second time.
+  The header shows "Faite hier" by the checkbox; a repeating task's days done go faint in `.ct-task-header-faint`
+  (with the creation date after them, so the days win the room), each day its own flex item that wraps out of sight
+  when it doesn't fit, taking its "·" along; a click lists every time (`task-note-done`, `task-note-repeat`,
+  `task-note-repeat-narrow` previews). One tick was counted twice in the test vault: a second `pushNote` read the note
+  before Obsidian re-parsed `moveOn`'s write; `moveOn` now sees the note already back at that date and counts nothing
+  (`FakeVault.lag` / `catchUp` reproduce the re-parse delay).
 - **One task date, the deadline** (bench test 6): `due` ↔ `DUE` (Reminders shows only `DUE`; a `DTSTART`-only
   reminder shows no date). Work time is time blocks (events). A note-only "planned day" (`scheduled`) existed
   2026-10-15→16 and was removed at the user's request: it doubled the time blocks.

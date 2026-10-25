@@ -20,6 +20,7 @@ describe("readTask", () => {
       parentUid: null,
       repeat: null,
       priority: null,
+      completed: null,
       notes: "",
       url: null,
       hasLinkLine: false,
@@ -29,6 +30,7 @@ describe("readTask", () => {
   it("reads a reminder ticked on the iPhone, separating our link from the notes", () => {
     const t = readTask(fixture("ios-completed-reminder.ics"), "Europe/Paris")!;
     expect(t).toMatchObject({ done: true, due: "2026-10-16T10:00", hasLinkLine: true });
+    expect(t.completed).toBe("2026-10-15T06:00"); // COMPLETED:20261015T040023Z, in Paris
     expect(t.notes).toBe("Le cocher sur l'iPhone puis lancer ./check.sh");
     expect(t.url).toBe("obsidian://calendar-tasks?uid=test-rappel");
   });
@@ -96,6 +98,15 @@ describe("writeTask", () => {
     expect(lines(writeTask(after, { done: false }, PARIS)).some((x) => x.startsWith("COMPLETED"))).toBe(false);
   });
 
+  it("writes when it was ticked, the note's time in UTC", () => {
+    const ticked = writeTask(fixture("ios-new-reminder.ics"), { done: true, completed: "2026-10-25T14:32" }, PARIS);
+    expect(lines(ticked)).toContain("COMPLETED:20261025T133200Z"); // winter time in Paris from that morning
+    expect(readTask(ticked, "Europe/Paris")!.completed).toBe("2026-10-25T14:32");
+    const changed = writeTask(ticked, { completed: "2026-10-24T09:00" }, PARIS);
+    expect(lines(changed)).toContain("COMPLETED:20261024T070000Z");
+    expect(lines(changed).filter((x) => x.startsWith("COMPLETED:"))).toHaveLength(1);
+  });
+
   it("writes due dates the way iOS does (DTSTART = DUE), with TZID and a VTIMEZONE", () => {
     const timed = writeTask(cal(""), { due: "2026-10-20T14:00" }, PARIS);
     const l = lines(timed);
@@ -161,6 +172,7 @@ describe("newTask", () => {
       parentUid: "p1",
       repeat: "FREQ=WEEKLY;BYDAY=TU",
       priority: "medium",
+      completed: null,
     };
     const data = newTask("new-1", fields, { ...PARIS, link: taskLink("V", "new-1"), linkInNotes: true });
     const t = readTask(data, "Europe/Paris")!;

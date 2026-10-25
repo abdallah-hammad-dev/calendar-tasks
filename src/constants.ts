@@ -15,6 +15,13 @@ export const PROP = {
   parent: "parent",
   /** When the task was made: the reminder's `CREATED`, local "YYYY-MM-DDTHH:mm". Set once, never overwritten. */
   created: "created",
+  /**
+   * When it was ticked, local "YYYY-MM-DDTHH:mm": the reminder's `COMPLETED`. Only while it's done: unticked, it goes;
+   * ticked again, it's the new time.
+   */
+  completed: "completed",
+  /** Each time a repeating task was ticked (it comes back each time), oldest first. In the note only. */
+  completions: "completions",
   uid: "caldav_uid",
   /** The collection (CalDAV calendar) holding the task, by name: changing it moves the task there. */
   collection: "collection",

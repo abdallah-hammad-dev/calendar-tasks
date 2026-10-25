@@ -83,6 +83,8 @@ due: 2026-10-15           # the deadline: date, or date-time (2026-10-15T14:00).
 project: "[[Olera]]"      # optional, link to a project note (§4.2)
 parent: "[[Parent task]]" # only for a child task
 created: 2026-10-21T14:05 # when it was made (the reminder's CREATED), set once
+completed: 2026-10-25T14:32 # when it was ticked (the reminder's COMPLETED), only while done
+completions: [2026-10-19T20:02, 2026-10-26T19:15] # a repeating task: each time it was ticked, in the note only
 collection: Pro           # the collection (CalDAV calendar) holding it, by name; changing it moves the task
 caldav_uid: 8f3c…
 ---
@@ -99,6 +101,8 @@ Free content: context, links to any file, small steps as plain `- [ ]` (never sy
 | `project` | `CATEGORIES:<project note name>` | both |
 | `parent` | `RELATED-TO;RELTYPE=PARENT:<parent UID>`; read a `RELATED-TO` without `RELTYPE` as parent (iOS drops the parameter, RFC default) | both |
 | `created` | `CREATED` (UTC), as a local date-time (2026-10-21, asked: find the small undated tasks jotted down today). A note made here gets it when its reminder is created, and the reminder gets the note's own `created` if it already has one | set once: written only into a note that has none, never overwritten, never pushed |
+| `completed` | `COMPLETED` (UTC), as a local date-time (2026-10-25, the user: keep the last time a task was ticked, the right one after an untick and a tick). Ticked here (the checkbox, Claude): now, in the same write as `done`; ticked from Bases or the properties: now if the reminder isn't done yet, else its time; ticked on the phone: the phone's time. Unticked, it goes on both sides. Never guessed: a note done before, without a ticked reminder, gets none | both |
+| `completions` | — (2026-10-25, asked: "voir la liste", not a count): each time a repeating task was ticked, here or on the phone (its `COMPLETED`), oldest first; the reminder comes back without `COMPLETED` | note only |
 | `caldav_uid` | `UID` | set once |
 | `collection` | the calendar the `VTODO` is in (its `displayname`) | both: a reminder moved to another list renames it; naming another collection moves the reminder (created there, then deleted here); a collection renamed is renamed in the notes |
 | — | `URL:obsidian://calendar-tasks?vault=<vault>&uid=<UID>` | written by the extension |
@@ -392,12 +396,16 @@ Implementation: CodeMirror 6 view plugin (Live Preview) + `registerMarkdownPostP
 Asked 2026-10-17: a task note opens with its checkbox and data cleanly on top, still there when scrolling, and not
 its raw properties ("I don't want to see the id; if I want to, I can open the properties myself").
 
-- A bar above the page (outside its scroller, so it stays): the checkbox with "To do" / "Done", the priority's
+- A bar above the page (outside its scroller, so it stays): the checkbox with "To do", or when it was ticked
+  ("Done yesterday", "Done 18 Oct", the whole date in its tooltip; "Done" if not known), the priority's
   marks (the word in its tooltip; a click opens the form there), the deadline (red
   when overdue), the repetition, the next time block (+N more; click shows it in the calendar; + adds one from the
   calendar picker), the project and parent task (links), child-task progress, the sync icon when not synced.
   Clicking the deadline or repetition opens the task form there. Only what the task has is shown (2026-10-19: the
   dashed "Deadline" / "Time block" placeholders read as data; the pencil adds them). A pencil opens the form.
+  A repeating task done before lists the days it was done, faint, newest first ("✓ 26 Oct · 19 Oct · 13 Oct",
+  2026-10-25, the user: the list, not a count, discreet), before when it was made: only what fits whole on the
+  bar's line, the oldest dropped first; each day's tooltip has its time, and a click lists every time with its time.
 - When the task was made (2026-10-21, the user: "subtil, info moins importante mais pratique"): "Créée aujourd'hui"
   / "Créée hier" / "Créée le 18 oct.", faint, just before the tools, the whole date and time in its tooltip. It
   only uses room left on the line: when the bar is full it hides rather than wrap (`task-note` / `task-note-short`
@@ -584,7 +592,7 @@ file) filtered on `type == "task"`, with views:
   date; checked in Obsidian 1.14.4), newest `created` first: the small tasks jotted down without a date
   (2026-10-21);
 - **By project** — grouped by `project` (a "no project" group), same sort;
-- **Done**.
+- **Done** — `done` true, the last ones done first (`completed`, a column too; 2026-10-25).
 
 Views are Obsidian's own: the user (or Claude, whose skill lists the task properties, their types and the
 `urgency` formula) makes any other view from the properties. Time blocks are events, never properties: no view

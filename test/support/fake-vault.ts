@@ -11,6 +11,8 @@ const basename = (path: string) => path.split("/").pop()!.replace(/\.md$/, "");
 /** In-memory vault: wiki-link resolution by path or name, project tags, and link updates on rename. */
 export class FakeVault implements VaultPort {
   files = new Map<string, FakeFile>();
+  /** Notes whose frontmatter reads as it was (`lag`) until `catchUp`, as Obsidian re-parses a note after writing it. */
+  private parsed = new Map<string, Record<string, unknown> | null>();
   constructor(private readonly projectTag = "project") {}
 
   add(path: string, fm: Record<string, unknown> | null, opts: { body?: string; tags?: string[] } = {}): void {
@@ -28,7 +30,14 @@ export class FakeVault implements VaultPort {
   }
   getNote(path: string): NoteRef | null {
     const f = this.files.get(path);
-    return f ? { path, basename: basename(path), frontmatter: f.fm ? structuredClone(f.fm) : null } : null;
+    const fm = this.parsed.has(path) ? this.parsed.get(path)! : f?.fm;
+    return f ? { path, basename: basename(path), frontmatter: fm ? structuredClone(fm) : null } : null;
+  }
+  lag(path: string): void {
+    this.parsed.set(path, structuredClone(this.files.get(path)?.fm ?? null));
+  }
+  catchUp(path: string): void {
+    this.parsed.delete(path);
   }
   resolve(linkpath: string): NoteRef | null {
     const direct = this.files.has(`${linkpath}.md`) ? `${linkpath}.md` : this.files.has(linkpath) ? linkpath : null;

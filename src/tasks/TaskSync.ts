@@ -4,7 +4,7 @@ import type { CalendarChange, Conflict, SyncEngine } from "../sync/engine";
 import type { CachedCalendar } from "../sync/store";
 import { formatLocalDate, formatLocalDateTime, fromWall, parseLocal, wallClock } from "../ical/time";
 import { nextOccurrence, repeatToNote } from "../editor/when";
-import { collectionOf, readNote, sanitizeTitle, titleMatches, uniquePath, type NoteState } from "./notes";
+import { collectionOf, normalizeDue, readNote, sanitizeTitle, titleMatches, uniquePath, type NoteState } from "./notes";
 import { newTask, readTask, sameFields, taskLink, writeTask, type ReadTask, type TaskFields } from "./vtodo";
 
 /** A markdown note as TaskSync sees it. */
@@ -52,7 +52,7 @@ export interface TaskSyncDeps {
   notify: (message: string, kind: "no-task-calendar" | "clash" | "next" | "no-collection", detail?: string) => void;
 }
 
-const FIELDS = ["summary", "done", "due", "categories", "parentUid", "repeat", "priority"] as const;
+const FIELDS = ["summary", "done", "due", "categories", "parentUid", "repeat", "priority", "completed"] as const;
 
 /**
  * Keeps task notes and VTODOs in step (spec §4.1): every VTODO has a note (except ones already completed when
@@ -277,6 +277,7 @@ export class TaskSync {
     const task = data ? readTask(data, this.d.tz()) : null;
     if (!ref || !data || !task) return;
     let path = this.notes.get(uid);
+    let pushed = false;
     if (path && !this.d.vault.getNote(path)) {
       this.notes.delete(uid);
       path = undefined;
@@ -295,6 +296,7 @@ export class TaskSync {
       const parentPath = task.parentUid ? this.notes.get(task.parentUid) : undefined;
       if (parentPath) fm[PROP.parent] = `[[${this.d.vault.linkText(parentPath, path)}]]`;
       if (task.created) fm[PROP.created] = task.created;
+      if (task.done && task.completed) fm[PROP.completed] = task.completed;
       const collection = this.calendarName(ref.calendarUrl);
       if (collection) {
         fm[PROP.collection] = collection;
@@ -311,11 +313,12 @@ export class TaskSync {
       // Ticked on the phone without moving on to the next date: move on here, and tell the server.
       const moved =
         task.done && task.repeat && !state.done
-          ? await this.moveOn(path, note.basename, { ...state, done: true, due: task.due, repeat: task.repeat })
+          ? await this.moveOn(path, note.basename, { ...state, done: true, due: task.due, repeat: task.repeat }, task.completed ?? this.now())
           : null;
       if (moved) {
         await this.applyFields(path, moved, { ...task, done: false, due: moved.due }, ref.calendarUrl);
         await this.pushState(note, moved);
+        pushed = true; // with our link: `ensureLink` would put back the ticked copy it was given
       } else {
         await this.applyFields(path, state, task, ref.calendarUrl);
       }
@@ -326,7 +329,7 @@ export class TaskSync {
         this.notes.set(uid, newPath);
       }
     }
-    await this.ensureLink(ref, data, task);
+    if (!pushed) await this.ensureLink(ref, data, task);
   }
 
   private async applyFields(path: string, state: NoteState, task: ReadTask, calendarUrl: string): Promise<void> {
@@ -338,6 +341,10 @@ export class TaskSync {
     }
     if (state.done !== task.done) edits[PROP.done] = task.done;
     if (state.created === null && task.created) edits[PROP.created] = task.created; // set once: the note's own stays
+    // When it was ticked there (a time the server doesn't have leaves the note's); unticked, it goes.
+    if (task.done ? task.completed && state.completed !== task.completed : state.completed !== null) {
+      edits[PROP.completed] = task.done ? task.completed : undefined;
+    }
     if (state.due !== task.due) edits[PROP.due] = task.due ?? undefined;
     if (state.repeat === undefined ? task.repeat !== null : state.repeat !== task.repeat) {
       edits[PROP.repeat] = task.repeat ? repeatToNote(task.repeat) : undefined;
@@ -397,7 +404,20 @@ export class TaskSync {
     let state = note && readNote(note.frontmatter);
     if (!note || !state) return;
     // Pushed from the new state, not re-read: Obsidian parses the edited frontmatter later.
-    if (state.done && state.repeat) state = (await this.moveOn(path, note.basename, state)) ?? state;
+    if (state.done && state.repeat) state = (await this.moveOn(path, note.basename, state, this.now())) ?? state;
+    // When it was ticked, if the tick didn't say (Bases, the properties): now when the reminder isn't done yet (a tick
+    // here), else the reminder's time; never a guess (a note done long ago, unlinked). Unticked, it goes.
+    if (state.done !== (state.completed !== null)) {
+      const server = state.done && state.uid ? this.serverTask(state.uid) : null;
+      const completed = server ? (server.done ? server.completed : this.now()) : null;
+      if (completed !== state.completed) {
+        await this.d.vault.editFrontmatter(path, (fm) => {
+          if (completed) fm[PROP.completed] = completed;
+          else delete fm[PROP.completed];
+        });
+        state = { ...state, completed };
+      }
+    }
     await this.pushState(note, state);
   }
 
@@ -443,20 +463,42 @@ export class TaskSync {
   }
 
   /**
-   * A repeating task was ticked: instead of staying done, it comes back at its next date. Returns the note's new
-   * state, or null when there's no deadline to move on from.
+   * A repeating task was ticked (`at`, local): instead of staying done, it comes back at its next date, and `at` joins
+   * the times it was done. Returns the note's new state, or null when there's no deadline to move on from.
    */
-  private async moveOn(path: string, name: string, state: NoteState): Promise<NoteState | null> {
+  private async moveOn(path: string, name: string, state: NoteState, at: string): Promise<NoteState | null> {
     if (!state.due || !state.repeat) return null;
     const wall = wallClock(new Date(), this.d.tz());
     const next = nextOccurrence(state.due, state.repeat, { date: formatLocalDate(wall), dateTime: formatLocalDateTime(wall) });
     if (!next) return null;
+    const completions = [...state.completions, at];
+    let counted = false;
     await this.d.vault.editFrontmatter(path, (fm) => {
+      // Already back at that date: a second push read the note before Obsidian re-parsed it (2026-10-25: one tick
+      // was in `completions` twice). This tick is counted.
+      counted = fm[PROP.done] !== true && normalizeDue(fm[PROP.due]) === next;
+      if (counted) return;
       fm[PROP.done] = false;
       fm[PROP.due] = next;
+      delete fm[PROP.completed];
+      // Values written by hand that can't be read stay too.
+      const kept: unknown = fm[PROP.completions];
+      fm[PROP.completions] = [...(Array.isArray(kept) ? (kept as unknown[]) : kept ? [kept] : []), at];
     });
-    this.d.notify(name, "next", next);
-    return { ...state, done: false, due: next };
+    if (!counted) this.d.notify(name, "next", next);
+    return { ...state, done: false, due: next, completed: null, completions: counted ? state.completions : completions };
+  }
+
+  /** Now, as a local "YYYY-MM-DDTHH:mm" (when a task was ticked here). */
+  private now(): string {
+    return formatLocalDateTime(wallClock(new Date(), this.d.tz()));
+  }
+
+  /** What the server holds for a task, if it's known. */
+  private serverTask(uid: string): ReadTask | null {
+    const ref = this.items.get(uid);
+    const data = ref && this.d.engine.item(ref.url)?.data;
+    return data ? readTask(data, this.d.tz()) : null;
   }
 
   private async createItem(note: NoteRef, state: NoteState): Promise<void> {
@@ -509,6 +551,7 @@ export class TaskSync {
       parentUid,
       repeat: state.repeat === undefined ? (current?.repeat ?? null) : state.repeat,
       priority: state.priority === undefined ? (current?.priority ?? null) : state.priority,
+      completed: state.done ? (state.completed ?? current?.completed ?? null) : null,
     };
   }
 

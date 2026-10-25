@@ -18,7 +18,7 @@ import { claudeWorkspaceApi } from "./claude/workspace-api";
 import { NOTE_TYPE, PROP, PROTOCOL_ACTION, type Priority } from "./constants";
 import { obsidianTransport } from "./caldav/transport";
 import { domParser } from "./caldav/xml";
-import { chipModel, createdLabel, dueLabel, type ChipModel } from "./editor/chips";
+import { chipModel, dueLabel, pastLabel, type ChipModel } from "./editor/chips";
 import { linkLineEdit, parseTaskLine, plannedFrontmatter } from "./editor/convert";
 import { TaskConverter } from "./editor/converter";
 import { blockLabel, DateSuggest, shortDay, slotLabel } from "./editor/date-suggest";
@@ -37,7 +37,7 @@ import { SyncEngine } from "./sync/engine";
 import { IdbStore } from "./sync/store";
 import { taskBaseFile } from "./tasks/base-file";
 import { ObsidianVault } from "./tasks/obsidian-vault";
-import { collectionOf, normalizeDue, sanitizeTitle, uniquePath } from "./tasks/notes";
+import { collectionOf, normalizeDue, sanitizeTitle, setDone, uniquePath } from "./tasks/notes";
 import { TaskIndex, type TaskInfo } from "./tasks/task-index";
 import { TaskSync } from "./tasks/TaskSync";
 
@@ -504,7 +504,8 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
 
   private async toggleTask(path: string): Promise<void> {
     const file = this.app.vault.getFileByPath(path);
-    if (file) await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => (fm.done = fm.done !== true));
+    const now = formatLocalDateTime(wallClock(new Date(), localZone()));
+    if (file) await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => setDone(fm, fm.done !== true, now));
   }
 
   /**
@@ -1270,7 +1271,8 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       setTaskDone: async (ref, done) => {
         const task = this.findTask(ref) ?? fail(`No task "${ref}". List them with calendar_list_tasks.`);
         const file = this.app.vault.getFileByPath(task.path) ?? fail(`No note at ${task.path}.`);
-        await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => (fm.done = done));
+        const now = formatLocalDateTime(wallClock(new Date(), localZone()));
+        await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => setDone(fm, done, now));
         return task.path;
       },
       setTaskDates: async (ref, dates) => {
@@ -1473,7 +1475,9 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       progress: kids.length ? `${kids.filter((k) => k.done).length}/${kids.length}` : null,
       blocks: this.plannedBlocks(task).map((b) => ({ label: b.label, start: b.start })),
       sync: sync === "synced" ? null : sync,
-      created: this.createdText(task.created, ctx),
+      created: this.pastText(task.created, ctx, "created"),
+      completed: task.done ? this.pastText(task.completed, ctx, "done") : null,
+      history: this.history(task, ctx),
     };
     return renderTaskHeader(
       model,
@@ -1502,6 +1506,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
         project: t("header.project"),
         parent: t("header.parent"),
         progress: t("header.progress"),
+        history: t("header.history"),
         edit: t("menu.editTask"),
         showProperties: t("header.showProperties"),
         hideProperties: t("header.hideProperties"),
@@ -1511,11 +1516,21 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     );
   }
 
-  private createdText(created: string | null, ctx: { now: Date; tz: string; lang: string }): { text: string; tooltip: string } | null {
-    const c = created ? createdLabel(created, ctx) : null;
+  /** When a task was made or ticked: "Créée hier", "Faite le 18 oct."…, the whole date in the tooltip. */
+  private pastText(value: string | null, ctx: { now: Date; tz: string; lang: string }, kind: "created" | "done"): { text: string; tooltip: string } | null {
+    const c = value ? pastLabel(value, ctx) : null;
     if (!c) return null;
-    const text = c.relative === "today" ? t("header.createdToday") : c.relative === "yesterday" ? t("header.createdYesterday") : t("header.createdOn", { date: c.day });
-    return { text, tooltip: t("header.createdOn", { date: c.full }) };
+    const text = c.relative === "today" ? t(`header.${kind}Today`) : c.relative === "yesterday" ? t(`header.${kind}Yesterday`) : t(`header.${kind}On`, { date: c.day });
+    return { text, tooltip: t(`header.${kind}On`, { date: c.full }) };
+  }
+
+  /** A repeating task's times done, newest first: the day for the bar, the whole date and time for its tooltip. */
+  private history(task: TaskInfo, ctx: { now: Date; tz: string; lang: string }): TaskHeaderModel["history"] {
+    if (!task.repeat || !task.completions.length) return null;
+    return [...task.completions].reverse().flatMap((c) => {
+      const l = pastLabel(c, ctx);
+      return l ? [{ day: l.day, full: l.full }] : [];
+    });
   }
 
   /** A task's time blocks ahead, with those waiting for its reminder (not on the server yet), soonest first. */
@@ -1617,6 +1632,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       repeat: t("base.repeat"),
       priority: t("modal.priority"),
       created: t("base.created"),
+      completed: t("base.completed"),
       todo: t("base.todo"),
       noDue: t("base.noDue"),
       byProject: t("base.byProject"),

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SyncEngine } from "../src/sync/engine";
 import { MemoryStore } from "../src/sync/store";
 import { TaskSync } from "../src/tasks/TaskSync";
@@ -438,9 +438,95 @@ describe("repeating tasks", () => {
       vtodo("a", "SUMMARY:Sport\r\nDTSTART;VALUE=DATE:20270104\r\nDUE;VALUE=DATE:20270104\r\nRRULE:FREQ=WEEKLY\r\nSTATUS:COMPLETED\r\n"),
     );
     await cycle();
-    await cycle();
     expect(vault.fm("Tâches/Sport.md")).toMatchObject({ done: false, due: "2027-01-11" });
+    await engine.sync();
     expect(onServer("a")).toMatchObject({ done: false, due: "2027-01-11" });
+    // Once: the ticked copy isn't put back (it was, to add our link, and the next pull moved it on again).
+    expect(notices).toEqual(["next:Sport:2027-01-11"]);
+  });
+});
+
+describe("when a task was ticked", () => {
+  /** The clock, in Paris (winter time from 2026-10-25 03:00). */
+  const at = (local: string) => vi.setSystemTime(new Date(`${local}:00+01:00`));
+  const tick = async (path: string, done: boolean) => {
+    await vault.editFrontmatter(path, (fm) => (fm.done = done)); // as Bases or the properties do: no time said
+    await tasks.noteChanged(path);
+    await cycle();
+  };
+  beforeEach(() => vi.useFakeTimers({ toFake: ["Date"] }));
+  afterEach(() => vi.useRealTimers());
+
+  it("keeps when it was ticked here, in the note and as COMPLETED; unticked it goes, ticked again it's the new time", async () => {
+    server.externalPut(`${calendar}a.ics`, vtodo("a", "SUMMARY:A\r\n"));
+    await start();
+    at("2026-10-25T14:32");
+    await tick("Tâches/A.md", true);
+    expect(vault.fm("Tâches/A.md")).toMatchObject({ done: true, completed: "2026-10-25T14:32" });
+    expect(onServer("a")!.completed).toBe("2026-10-25T14:32");
+    await tick("Tâches/A.md", false);
+    expect(vault.fm("Tâches/A.md")!.completed).toBeUndefined();
+    expect(onServer("a")!.completed).toBeNull();
+    at("2026-10-26T09:00");
+    await tick("Tâches/A.md", true);
+    expect(vault.fm("Tâches/A.md")!.completed).toBe("2026-10-26T09:00");
+    expect(onServer("a")!.completed).toBe("2026-10-26T09:00");
+  });
+
+  it("takes the phone's time when it's ticked there, and drops it when it's unticked there", async () => {
+    server.externalPut(`${calendar}a.ics`, vtodo("a", "SUMMARY:A\r\n"));
+    await start();
+    at("2026-10-25T18:00");
+    server.externalPut(`${calendar}a.ics`, vtodo("a", "SUMMARY:A\r\nSTATUS:COMPLETED\r\nCOMPLETED:20261025T080000Z\r\n"));
+    await cycle();
+    expect(vault.fm("Tâches/A.md")).toMatchObject({ done: true, completed: "2026-10-25T09:00" });
+    server.externalPut(`${calendar}a.ics`, vtodo("a", "SUMMARY:A\r\nSTATUS:NEEDS-ACTION\r\n"));
+    await cycle();
+    expect(vault.fm("Tâches/A.md")!.done).toBe(false);
+    expect(vault.fm("Tâches/A.md")!.completed).toBeUndefined();
+  });
+
+  it("never guesses: a note done before, without a reminder, gets no time; one with a ticked reminder gets its time", async () => {
+    vault.add("Tâches/Vieille.md", { type: "task", done: true });
+    server.externalPut(`${calendar}b.ics`, vtodo("b", "SUMMARY:B\r\nSTATUS:COMPLETED\r\nCOMPLETED:20261001T070000Z\r\n"));
+    vault.add("Tâches/B.md", { type: "task", done: true, caldav_uid: "b" });
+    at("2026-10-25T14:32");
+    await start();
+    expect(vault.fm("Tâches/Vieille.md")!.completed).toBeUndefined();
+    expect(vault.fm("Tâches/B.md")!.completed).toBe("2026-10-01T09:00");
+  });
+
+  it("counts a tick once when it's pushed again before Obsidian re-read the note", async () => {
+    server.externalPut(`${calendar}a.ics`, vtodo("a", "SUMMARY:Sport\r\nDTSTART;VALUE=DATE:20261101\r\nDUE;VALUE=DATE:20261101\r\nRRULE:FREQ=DAILY\r\n"));
+    await start();
+    at("2026-10-25T22:59");
+    await vault.editFrontmatter("Tâches/Sport.md", (fm) => (fm.done = true));
+    vault.lag("Tâches/Sport.md"); // reads "done" until Obsidian parses what's written next
+    await tasks.noteChanged("Tâches/Sport.md");
+    await tasks.noteChanged("Tâches/Sport.md");
+    vault.catchUp("Tâches/Sport.md");
+    await cycle();
+    expect(vault.fm("Tâches/Sport.md")).toMatchObject({ done: false, due: "2026-11-02", completions: ["2026-10-25T22:59"] });
+    expect(notices).toEqual(["next:Sport:2026-11-02"]);
+    expect(onServer("a")).toMatchObject({ done: false, due: "2026-11-02" });
+  });
+
+  it("a repeating task keeps each time it was done, here or on the phone", async () => {
+    server.externalPut(`${calendar}a.ics`, vtodo("a", "SUMMARY:Sport\r\nDTSTART;VALUE=DATE:20261026\r\nDUE;VALUE=DATE:20261026\r\nRRULE:FREQ=WEEKLY\r\n"));
+    await start();
+    at("2026-10-26T19:15");
+    await tick("Tâches/Sport.md", true);
+    expect(vault.fm("Tâches/Sport.md")).toMatchObject({ done: false, due: "2026-11-02", completions: ["2026-10-26T19:15"] });
+    expect(vault.fm("Tâches/Sport.md")!.completed).toBeUndefined();
+    expect(onServer("a")!.completed).toBeNull();
+    at("2026-11-02T20:00");
+    server.externalPut(
+      `${calendar}a.ics`,
+      vtodo("a", "SUMMARY:Sport\r\nDTSTART;VALUE=DATE:20261102\r\nDUE;VALUE=DATE:20261102\r\nRRULE:FREQ=WEEKLY\r\nSTATUS:COMPLETED\r\nCOMPLETED:20261102T180500Z\r\n"),
+    );
+    await cycle();
+    expect(notices.filter((n) => n.startsWith("next:"))).toEqual(["next:Sport:2026-11-02", "next:Sport:2026-11-09"]); // once each
+    expect(vault.fm("Tâches/Sport.md")).toMatchObject({ done: false, due: "2026-11-09", completions: ["2026-10-26T19:15", "2026-11-02T19:05"] });
   });
 });
 

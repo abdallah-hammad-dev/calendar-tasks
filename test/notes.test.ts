@@ -23,6 +23,8 @@ describe("task note frontmatter", () => {
       project: "Olera",
       parent: null,
       created: "2026-10-01T09:30",
+      completed: null,
+      completions: [],
       uid: "u",
       collection: "Pro",
     });
@@ -36,6 +38,15 @@ describe("task note frontmatter", () => {
     expect(created(undefined)).toBeNull();
     expect(created("")).toBeNull();
     expect(created("hier")).toBeUndefined();
+  });
+
+  it("reads when a task was ticked, and each time a repeating one was", () => {
+    const note = (fm: Record<string, unknown>) => readNote({ type: "task", ...fm })!;
+    expect(note({ completed: "2026-10-25 14:32" }).completed).toBe("2026-10-25T14:32");
+    expect(note({ completed: "hier" }).completed).toBeNull();
+    expect(note({ completions: ["2026-10-18T09:10", "n'importe quoi", "2026-10-25T14:32"] }).completions).toEqual(["2026-10-18T09:10", "2026-10-25T14:32"]);
+    expect(note({ completions: "2026-10-18T09:10" }).completions).toEqual(["2026-10-18T09:10"]);
+    expect(note({}).completions).toEqual([]);
   });
 
   it("reads the priority in English or French; anything else is left alone", () => {
@@ -87,6 +98,7 @@ describe("taskBaseFile", () => {
       repeat: "Répétition",
       priority: "Priorité",
       created: "Créée le",
+      completed: "Faite le",
       todo: "À faire",
       noDue: "Sans deadline",
       byProject: "Par projet",
@@ -103,5 +115,8 @@ describe("taskBaseFile", () => {
     // Tasks without a deadline, the newest first.
     expect(yaml).toContain(`name: "Sans deadline"\n    filters:\n      and:\n        - 'done != true'\n        - 'due.isEmpty()'`);
     expect(yaml).toContain("- property: created\n        direction: DESC");
+    // Done, the last ones done first.
+    expect(yaml).toContain(`- 'done == true'\n    order:\n      - done\n      - file.name\n      - completed`);
+    expect(yaml).toContain("- property: completed\n        direction: DESC");
   });
 });

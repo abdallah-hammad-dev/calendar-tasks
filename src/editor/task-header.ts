@@ -1,4 +1,4 @@
-import { setIcon, setTooltip } from "obsidian";
+import { Menu, setIcon, setTooltip } from "obsidian";
 import { PRIORITY_MARK, type Priority } from "../constants";
 import type { EditFocus } from "./render";
 
@@ -19,6 +19,13 @@ export interface TaskHeaderModel {
   sync: "pending" | "local" | null;
   /** When it was made ("Créée hier"), the whole date in the tooltip. Shown faint: handy, not important. */
   created: { text: string; tooltip: string } | null;
+  /** When it was ticked ("Faite hier", the whole date in the tooltip), said by its checkbox; null if not done or not known. */
+  completed: { text: string; tooltip: string } | null;
+  /**
+   * A repeating task: each time it was done, newest first ("26 oct.", the whole date and time in the tooltip),
+   * faint on the bar as far as there's room; a click lists them all.
+   */
+  history: { day: string; full: string }[] | null;
 }
 
 export interface TaskHeaderActions {
@@ -42,6 +49,7 @@ export interface TaskHeaderLabels {
   project: string;
   parent: string;
   progress: string;
+  history: string;
   edit: string;
   showProperties: string;
   hideProperties: string;
@@ -64,7 +72,8 @@ export function renderTaskHeader(model: TaskHeaderModel, actions: TaskHeaderActi
     e.preventDefault();
     actions.toggle();
   });
-  state.createSpan({ text: model.done ? labels.done : labels.todo });
+  const word = state.createSpan({ text: model.done ? (model.completed?.text ?? labels.done) : labels.todo });
+  if (model.done && model.completed) setTooltip(word, model.completed.tooltip);
 
   const item = (icon: string, text: string, tooltip: string, onClick: () => void, cls = "") => {
     const el = inner.createEl("button", { cls: `ct-task-header-item ${cls}`.trim() });
@@ -109,8 +118,24 @@ export function renderTaskHeader(model: TaskHeaderModel, actions: TaskHeaderActi
     setTooltip(icon, model.sync === "pending" ? labels.pending : labels.local);
   }
 
-  // In the room left before the tools, only if it fits (never a line of its own).
-  if (model.created) setTooltip(inner.createDiv({ cls: "ct-task-header-created" }).createSpan({ text: model.created.text }), model.created.tooltip);
+  // Faint, in the room left before the tools, only what fits whole (never a line of its own): the times a repeating
+  // task was done, newest first, then when it was made.
+  const faint = inner.createDiv({ cls: "ct-task-header-faint" });
+  const history = model.history ?? [];
+  const showHistory = (at: HTMLElement) => {
+    const menu = new Menu();
+    for (const d of history) menu.addItem((i) => i.setTitle(d.full).setIcon("check"));
+    const r = at.getBoundingClientRect();
+    menu.showAtPosition({ x: r.left, y: r.bottom + 4 });
+  };
+  history.forEach((d, i) => {
+    const el = faint.createSpan({ cls: "ct-task-header-done-day" });
+    if (i === 0) setIcon(el.createSpan({ cls: "ct-chip-icon" }), "check");
+    el.createSpan({ text: d.day });
+    setTooltip(el, d.full);
+    el.addEventListener("click", () => showHistory(el));
+  });
+  if (model.created) setTooltip(faint.createSpan({ cls: "ct-task-header-created", text: model.created.text }), model.created.tooltip);
   const tools = inner.createDiv({ cls: "ct-task-header-tools" });
   const tool = (icon: string, tooltip: string, onClick: () => void, active = false) => {
     const el = tools.createEl("button", { cls: `clickable-icon${active ? " is-active" : ""}` });

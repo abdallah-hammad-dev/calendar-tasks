@@ -6,6 +6,7 @@ export interface BaseFileLabels {
   repeat: string;
   priority: string;
   created: string;
+  completed: string;
   todo: string;
   noDue: string;
   byProject: string;
@@ -47,6 +48,8 @@ export function taskBaseFile(l: BaseFileLabels): string {
     `    displayName: ${JSON.stringify(l.priority)}`,
     `  ${PROP.created}:`,
     `    displayName: ${JSON.stringify(l.created)}`,
+    `  ${PROP.completed}:`,
+    `    displayName: ${JSON.stringify(l.completed)}`,
     "views:",
     "  - type: table",
     `    name: ${JSON.stringify(l.todo)}`,
@@ -79,7 +82,9 @@ export function taskBaseFile(l: BaseFileLabels): string {
     "    filters:",
     "      and:",
     `        - '${PROP.done} == true'`,
-    ...columns(PROP.due, PROP.project),
+    // The last ones done first (2026-10-25: when a task was ticked is kept).
+    ...columns(PROP.completed, PROP.due, PROP.project),
+    ...newestFirst(PROP.completed),
     "",
   ].join("\n");
 }

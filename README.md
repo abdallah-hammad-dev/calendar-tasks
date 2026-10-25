@@ -55,6 +55,7 @@ repeat: every monday      # optional: every day, every 2 weeks, every weekday, e
 project: "[[My project]]" # optional
 parent: "[[Parent task]]" # only for a sub-task with its own deadline
 created: 2026-10-21T14:05 # when the task was made, set by the extension
+completed: 2026-10-25T14:32 # when it was ticked (here or on the phone); goes if it's unticked
 caldav_uid: …             # managed by the extension, don't edit
 ```
 
@@ -87,7 +88,8 @@ and creates the task; *Something else* adds another `@`.
   phone too. A task can have several. `every tuesday 2pm-4pm` makes a session that comes back (a recurring event);
   it stops when the task is done.
 - **Repeat**: `every week`, `every 2 days`, `every monday and thursday`, `every weekday`, `monthly`… The task
-  syncs as a repeating reminder; ticking it brings it back at its next date instead of closing it.
+  syncs as a repeating reminder; ticking it brings it back at its next date instead of closing it. Each time
+  you tick it is kept in `completions`; the note's bar lists the last days faintly, and a click lists them all.
 
 A pasted task line is converted at once (except the one the cursor ends on). **Only lines with an `@` become
 tasks**: a tracked task shows as a link with a checkbox and chips (dates, repetition, project, sync state); a
@@ -118,7 +120,7 @@ link to a project on the line, the project note you're writing in, the `project`
 **Sub-tasks**: a task written inside a task note becomes its child (`parent`). The iPhone shows them flat.
 
 **The task list** is the Bases file written on first run (default `Tasks.base`), with *To do*,
-*No deadline* (newest first), *By project* and *Done* views. It's yours afterwards; *Regenerate the task list* in
+*No deadline* (newest first), *By project* and *Done* (the last ones done first) views. It's yours afterwards; *Regenerate the task list* in
 the settings rewrites it with the default views (it asks first). To list the tasks of a project inside its note, embed a base:
 
 ````markdown

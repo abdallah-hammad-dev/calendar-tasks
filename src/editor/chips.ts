@@ -66,10 +66,10 @@ export function dueLabel(due: string, done: boolean, ctx: Pick<ChipContext, "now
 }
 
 /**
- * When a task was made, for its note's header: today or yesterday, else its day ("18 oct.", with the year when it
- * isn't this one); `full` is the whole date (and time) for the tooltip.
+ * When a task was made or ticked, for its note's header: today or yesterday, else its day ("18 oct.", with the year
+ * when it isn't this one); `full` is the whole date (and time) for the tooltip.
  */
-export function createdLabel(created: string, ctx: Pick<ChipContext, "now" | "tz" | "lang">): { relative: "today" | "yesterday" | null; day: string; full: string } | null {
+export function pastLabel(created: string, ctx: Pick<ChipContext, "now" | "tz" | "lang">): { relative: "today" | "yesterday" | null; day: string; full: string } | null {
   const p = parseLocal(created);
   if (!p) return null;
   const today = wallClock(ctx.now, ctx.tz);

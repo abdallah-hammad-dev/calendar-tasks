@@ -224,7 +224,7 @@ function calendar(view: "timeGridWeek" | "dayGridMonth" | "listWeek", inTab = fa
 function taskLinks(): void {
   const now = new Date("2026-10-15T10:00:00Z");
   const t = (o: Partial<TaskInfo>): TaskInfo => ({
-    path: "", basename: "", done: false, due: null, repeat: null, priority: null, uid: "u", projectPath: null, parentPath: null, collection: null, created: null, ...o,
+    path: "", basename: "", done: false, due: null, repeat: null, priority: null, uid: "u", projectPath: null, parentPath: null, collection: null, created: null, completed: null, completions: [], ...o,
   });
   const words = { today: "Aujourd'hui", tomorrow: "Demain" };
   const model = (task: TaskInfo, extra: Partial<Parameters<typeof chipModel>[1]> = {}): ChipModel =>
@@ -416,7 +416,12 @@ function datePicker(): void {
  * A task note open in reading view: the header above the page, properties hidden. `short`: a deadline and a project
  * only, so the creation date has room (the full header has none: it must hide, not wrap).
  */
-function taskNote(short = false): void {
+/**
+ * A task note's header: full, short, done ("Faite hier" by its checkbox), or repeating (the last time it was done,
+ * every time in a menu).
+ */
+function taskNote(kind: "full" | "short" | "done" | "repeat" = "full"): void {
+  const short = kind !== "full";
   const leaf = document.body.createDiv({ cls: "workspace-leaf-content", attr: { "data-type": "markdown" } });
   Object.assign(leaf.style, { height: "100vh", display: "flex", flexDirection: "column" });
   leaf.createDiv({ cls: "view-header", text: "" }).style.height = "40px";
@@ -424,10 +429,10 @@ function taskNote(short = false): void {
   content.style.flex = "1";
   const header = renderTaskHeader(
     {
-      done: false,
+      done: kind === "done",
       priority: short ? null : { level: "high", label: "Priorité haute" },
-      due: { text: "Demain 18:00", overdue: false },
-      repeat: null,
+      due: kind === "repeat" ? { text: "Lun. 2 nov.", overdue: false } : { text: "Demain 18:00", overdue: false },
+      repeat: kind === "repeat" ? "chaque lundi" : null,
       project: { name: "Olera", path: "Projets/Olera.md" },
       parent: null,
       progress: short ? null : "1/3",
@@ -439,11 +444,23 @@ function taskNote(short = false): void {
           ],
       sync: null,
       created: { text: "Créée hier", tooltip: "Créée le mardi 20 octobre 2026 à 21:40" },
+      completed: kind === "done" ? { text: "Faite hier", tooltip: "Faite le samedi 24 octobre 2026 à 14:32" } : null,
+      history:
+        kind === "repeat"
+          ? [
+              ["26 oct.", "lundi 26 octobre 2026 à 19:15"],
+              ["19 oct.", "lundi 19 octobre 2026 à 20:02"],
+              ["13 oct.", "mardi 13 octobre 2026 à 08:40"],
+              ["5 oct.", "lundi 5 octobre 2026 à 18:30"],
+              ["28 sept.", "lundi 28 septembre 2026 à 19:00"],
+              ["21 sept.", "lundi 21 septembre 2026 à 21:10"],
+            ].map(([day, full]) => ({ day: day!, full: full! }))
+          : null,
     },
     { toggle: () => undefined, edit: () => undefined, open: () => undefined, block: () => undefined, showBlock: () => undefined, properties: { shown: false, toggle: () => undefined } },
     {
       todo: "À faire", done: "Terminée", deadline: "Deadline", addBlock: "Ajouter une session", repeat: "Répétition",
-      project: "Projet", parent: "Tâche parente", progress: "Sous-tâches faites", edit: "Modifier la tâche…",
+      project: "Projet", parent: "Tâche parente", progress: "Sous-tâches faites", history: "Les fois où elle a été faite", edit: "Modifier la tâche…",
       showProperties: "Afficher les propriétés", hideProperties: "Masquer les propriétés", pending: "", local: "",
     },
   );
@@ -568,7 +585,9 @@ else if (scenario === "confirm-delete") confirmDelete();
 else if (scenario === "date-picker") datePicker();
 else if (scenario === "slot-picker") slotPicker();
 else if (scenario === "task-note") taskNote();
-else if (scenario === "task-note-short") taskNote(true);
+else if (scenario === "task-note-short") taskNote("short");
+else if (scenario === "task-note-done") taskNote("done");
+else if (scenario === "task-note-repeat" || scenario === "task-note-repeat-narrow") taskNote("repeat");
 else if (scenario === "event-note") eventNote();
 else if (scenario === "event-note-declined") eventNote("declined");
 else if (scenario === "event-note-deleted") eventNote("deleted");

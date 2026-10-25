@@ -15,6 +15,10 @@ export interface NoteState {
   parent: string | null;
   /** When the task was made, local "YYYY-MM-DD[THH:mm]"; null = none; undefined = unreadable (left alone). */
   created: string | null | undefined;
+  /** When it was ticked, local "YYYY-MM-DDTHH:mm"; null = none (or unreadable). */
+  completed: string | null;
+  /** Each time a repeating task was ticked, oldest first (values that can't be read are left out). */
+  completions: string[];
   uid: string | null;
   /** The collection named in the note, as written (not resolved). */
   collection: string | null;
@@ -35,9 +39,18 @@ export function readNote(fm: Record<string, unknown> | null | undefined): NoteSt
     project: linkpathOf(fm[PROP.project]),
     parent: linkpathOf(fm[PROP.parent]),
     created: fm[PROP.created] === undefined || fm[PROP.created] === null || fm[PROP.created] === "" ? null : (normalizeDue(fm[PROP.created]) ?? undefined),
+    completed: normalizeDue(fm[PROP.completed]),
+    completions: (Array.isArray(fm[PROP.completions]) ? (fm[PROP.completions] as unknown[]) : [fm[PROP.completions]]).flatMap((v) => normalizeDue(v) ?? []),
     uid: typeof uid === "string" && uid.trim() ? uid.trim() : null,
     collection: collectionOf(fm),
   };
+}
+
+/** Ticks or unticks a task note (its frontmatter): ticked, it says when (`now`, local); unticked, that goes. */
+export function setDone(fm: Record<string, unknown>, done: boolean, now: string): void {
+  if (done && fm[PROP.done] !== true) fm[PROP.completed] = now;
+  if (!done) delete fm[PROP.completed];
+  fm[PROP.done] = done;
 }
 
 const PRIORITY_WORDS: Record<string, Priority> = { high: "high", haute: "high", medium: "medium", moyenne: "medium", low: "low", basse: "low" };

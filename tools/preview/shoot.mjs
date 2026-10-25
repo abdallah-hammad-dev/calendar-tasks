@@ -74,6 +74,10 @@ const SCENARIOS = [
   ["slot-picker", 520, 640],
   ["task-note", 900, 600],
   ["task-note-short", 900, 300],
+  // Done: when, by its checkbox. Repeating: the last time it was done; a click lists every time.
+  ["task-note-done", 900, 300],
+  ["task-note-repeat", 900, 300],
+  ["task-note-repeat-narrow", 600, 300],
   // An event note's header; a click on its time shows the event in the calendar.
   ["event-note", 900, 300],
   // Declined: hidden from the calendar, the answer kept to change it; nothing to show in the calendar.
@@ -852,7 +856,7 @@ for (const [name, width, height, scale = 2] of run) {
       // The creation date shows only in the room left on the line: never a line of its own, never cut.
       const r = await page.evaluate(() => {
         const box = (el) => el.getBoundingClientRect();
-        const date = document.querySelector(".ct-task-header-created > span");
+        const date = document.querySelector(".ct-task-header-created");
         const tools = document.querySelector(".ct-task-header-tools");
         const state = document.querySelector(".ct-task-header-state");
         const area = box(date.parentElement);
@@ -862,6 +866,34 @@ for (const [name, width, height, scale = 2] of run) {
       if (!r.oneLine) errors.push("the creation date pushed the tools to another line");
       if (name === "task-note-short" && !(r.shown && r.whole)) errors.push("the creation date should show whole when there's room");
       if (name === "task-note" && r.shown) errors.push("the creation date should hide when the header is full");
+    }
+    if (name === "task-note-done") {
+      const word = (await page.locator(".ct-task-header-state").textContent()) ?? "";
+      if (word.trim() !== "Faite hier") errors.push(`a done task should say when it was ticked, says "${word}"`);
+    }
+    if (name === "task-note-repeat" || name === "task-note-repeat-narrow") {
+      // The days done, newest first, as many as fit whole on the bar's line; the oldest go first, then nothing cut.
+      const r = await page.evaluate(() => {
+        const box = (el) => el.getBoundingClientRect();
+        const area = box(document.querySelector(".ct-task-header-faint"));
+        const inside = (el) => box(el).top >= area.top - 1 && box(el).bottom <= area.bottom + 1 && box(el).right <= area.right + 1;
+        const days = [...document.querySelectorAll(".ct-task-header-done-day")].map((el) => ({ text: el.textContent, shown: inside(el) }));
+        const created = document.querySelector(".ct-task-header-created");
+        const tools = document.querySelector(".ct-task-header-tools");
+        const state = document.querySelector(".ct-task-header-state");
+        return { days, created: created ? inside(created) : false, oneLine: Math.abs(box(tools).top - box(state).top) < 8 };
+      });
+      const shown = r.days.filter((d) => d.shown).length;
+      if (!r.oneLine) errors.push("the days done pushed the tools to another line");
+      if (r.days.slice(0, shown).some((d) => !d.shown) || r.days.slice(shown).some((d) => d.shown)) errors.push("the days shown should be the newest ones, in order");
+      if (name === "task-note-repeat" && shown < 3) errors.push(`only ${shown} days done shown with room for more`);
+      if (name === "task-note-repeat-narrow" && (shown === 0 || shown === r.days.length)) errors.push(`a narrow bar should show some days, not all: ${shown}`);
+      if (r.created && shown < r.days.length) errors.push("the creation date shows while days done are hidden");
+      await page.locator(".ct-task-header-done-day").first().click().catch(() => errors.push("no days done in a repeating task's header"));
+      await page.waitForTimeout(100);
+      const listed = await page.locator(".menu .menu-item-title").evaluateAll((els) => els.map((e) => e.textContent).join(" | "));
+      if (!listed.startsWith("lundi 26 octobre") || listed.split(" | ").length !== 6) errors.push(`the history menu shows "${listed}"`);
+      await page.screenshot({ path: join(out, `${name}-menu-${theme}.png`) });
     }
     if (name === "event-note") {
       if ((await page.locator(".ct-event-header .ct-task-header-item").count()) < 5) errors.push("the event header should show when, repetition, meeting, place and collection");

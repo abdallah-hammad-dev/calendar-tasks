@@ -1,6 +1,6 @@
 import ICAL from "ical.js";
 import { PROTOCOL_ACTION, type Priority } from "../constants";
-import { formatLocalDate, formatLocalDateTime, fromWall, isKnownZone, wallClock, type Wall } from "../ical/time";
+import { formatLocalDate, formatLocalDateTime, fromWall, isKnownZone, parseLocal, wallClock, type Wall } from "../ical/time";
 import { setDateProp, touch } from "../ical/write";
 import { normalizeRule } from "../editor/when";
 
@@ -16,6 +16,8 @@ export interface TaskFields {
   repeat: string | null;
   /** `PRIORITY` in three levels, as Reminders shows it; null = none. */
   priority: Priority | null;
+  /** `COMPLETED` (when it was ticked) as a local "YYYY-MM-DDTHH:mm"; null = none. Only while done. */
+  completed: string | null;
 }
 
 export interface ReadTask extends TaskFields {
@@ -102,6 +104,7 @@ export function readTask(data: string, tz: string): ReadTask | null {
     done: status === "COMPLETED" || percent >= 100 || todo.hasProperty("completed"),
     due: readLocal(todo.getFirstProperty("due"), cal, tz),
     created: readLocal(todo.getFirstProperty("created"), cal, tz),
+    completed: readLocal(todo.getFirstProperty("completed"), cal, tz),
     categories: todo.getAllProperties("categories").flatMap((p) => p.getValues().map((c) => String(c).trim())).filter(Boolean),
     parentUid: parent ? String(parent.getFirstValue()) : null,
     repeat: readRule(todo),
@@ -152,8 +155,13 @@ function applyFields(cal: Comp, todo: Comp, changes: Partial<TaskFields>, opts: 
     } else {
       todo.updatePropertyWithValue("status", "NEEDS-ACTION");
       todo.removeAllProperties("percent-complete");
-      todo.removeAllProperties("completed");
     }
+  }
+  // When it was ticked: the note's time (UTC, as RFC 5545 wants), gone while it isn't done.
+  if (changes.done === false) todo.removeAllProperties("completed");
+  else if (changes.completed) {
+    const p = parseLocal(changes.completed);
+    if (p) todo.updatePropertyWithValue("completed", utcStamp(fromWall(p.wall, opts.tz)));
   }
   if (changes.due !== undefined) setDue(cal, todo, changes.due, opts.tz);
   if (changes.repeat !== undefined && changes.repeat !== readRule(todo)) {
@@ -236,6 +244,7 @@ export function sameFields(a: TaskFields, b: TaskFields): boolean {
     a.parentUid === b.parentUid &&
     a.repeat === b.repeat &&
     a.priority === b.priority &&
+    a.completed === b.completed &&
     a.categories.length === b.categories.length &&
     a.categories.every((c, i) => c === b.categories[i])
   );
