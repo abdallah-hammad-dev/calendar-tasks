@@ -89,6 +89,8 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
   private restartTimer: number | null = null;
   private eventNotes!: EventNotes;
   private catalog!: ItemCatalog;
+  /** `knownTags`, until a note changes. */
+  private tagsCache: string[] | null = null;
 
   override async onload(): Promise<void> {
     this.settings = mergeSettings(await this.loadData());
@@ -168,6 +170,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     });
     this.registerEvent(
       this.app.metadataCache.on("changed", (file) => {
+        this.tagsCache = null;
         const was = this.index.get(file.path);
         this.index.refresh(file.path);
         const task = this.index.get(file.path);
@@ -193,6 +196,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     );
     this.registerEvent(
       this.app.metadataCache.on("deleted", (file, prev) => {
+        this.tagsCache = null;
         this.index.remove(file.path);
         this.eventNotes.forget(file.path);
         void this.tasks?.noteDeleted(file.path, prev?.frontmatter ?? null);
@@ -243,7 +247,8 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
           const file = this.app.metadataCache.getFirstLinkpathDest(linkpath, sourcePath);
           return (file && this.index.get(file.path)) ?? null;
         },
-        edit: (path, found, tags) => void this.applyEdit(path, found, tags),
+        edit: (path, found) => void this.applyEdit(path, found),
+        knownTags: () => this.knownTags(),
       }),
     );
     this.registerMarkdownPostProcessor((el, ctx) => decorateRendered(el, ctx, deps));
@@ -299,6 +304,8 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
 
   /** The vault's tags, most used first: what the task form suggests. */
   private knownTags(): string[] {
+    // Read on every key typed after `@tag`: counted once, again after a note changes.
+    if (this.tagsCache) return this.tagsCache;
     const count = new Map<string, { tag: string; n: number }>();
     for (const f of this.app.vault.getMarkdownFiles()) {
       const cache = this.app.metadataCache.getFileCache(f);
@@ -308,7 +315,8 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
         else count.set(tag.toLowerCase(), { tag, n: 1 });
       }
     }
-    return [...count.values()].sort((a, b) => b.n - a.n || a.tag.localeCompare(b.tag)).map((c) => c.tag);
+    this.tagsCache = [...count.values()].sort((a, b) => b.n - a.n || a.tag.localeCompare(b.tag)).map((c) => c.tag);
+    return this.tagsCache;
   }
 
   /** Writes a new task note; TaskSync gives it its reminder. `parent` is a note path. */
@@ -331,6 +339,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       due: task.due ?? null,
       repeat: task.repeat ?? null,
       tags: task.tags ?? [],
+      noteTags: [],
       parent: task.parent ?? null,
       blocks: [],
       body: "",
@@ -441,12 +450,13 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     }
   }
 
-  /** A line's `@` tokens and `#tags` written after a task's link (`- [[Task]] @ven #famille`): they change that task. */
-  private async applyEdit(path: string, found: WhenToken | null, tags: string[]): Promise<void> {
+  /** A line's `@` tokens written after a task's link (`- [[Task]] @ven @tag famille`): what they change on that task. */
+  private async applyEdit(path: string, found: WhenToken): Promise<void> {
     const task = this.index.get(path);
     const file = this.app.vault.getFileByPath(path);
     if (!task || !file) return;
-    const edit = found ? taskEdit(found, task) : { blocks: [] };
+    const edit = taskEdit(found, task);
+    const tags = edit.tags ?? [];
     const addTags = tags.some((tag) => !task.tags.some((x) => sameTag(x, tag)));
     if (edit.due !== undefined || edit.repeat !== undefined || addTags) {
       await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
@@ -550,7 +560,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     const line = findLine(view.state.doc, from, text);
     if (!line) return;
     view.dispatch({ changes: { from: line.from, to: line.to, insert: res.rest } });
-    await this.applyEdit(file.path, res.found, res.tags);
+    await this.applyEdit(file.path, res.found);
   }
 
   /** "Convert to task" on the current line or every selected line, dated or not. */

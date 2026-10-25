@@ -62,7 +62,7 @@ const SCENARIOS = [
   ["calendar-marks-list-150", 1200, 820, 1.5],
   ["task-links", 760, 520],
   ["settings", 760, 2000],
-  ["date-suggest", 1700, 560],
+  ["date-suggest", 2120, 560],
   ["new-task", 760, 760],
   // A tag being typed in the form: the vault's tags that match, under the field.
   ["new-task-tags", 760, 760],

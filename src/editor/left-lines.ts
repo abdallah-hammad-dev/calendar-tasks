@@ -1,14 +1,11 @@
 import type { ChangeSet, EditorState } from "@codemirror/state";
-import { findTags } from "../tasks/tags";
 import { parseLinkLine, parseTaskLine } from "./convert";
 
-/** A line to look at once left: `- [ ] …` (to convert), or `- [[Task]] …` with an `@` or a `#tag` after the link (to apply). */
+/** A line to look at once left: `- [ ] …` (to convert), or `- [[Task]] …` with an `@` after the link (to apply). */
 function watched(text: string): boolean {
   if (parseTaskLine(text)) return true;
   const link = parseLinkLine(text);
-  if (!link) return false;
-  const tail = text.slice(link.end);
-  return /(^|\s)@/.test(tail) || findTags(tail).tags.length > 0;
+  return !!link && /(^|\s)@/.test(text.slice(link.end));
 }
 
 /**

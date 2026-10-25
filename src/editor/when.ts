@@ -1,10 +1,11 @@
 import ICAL from "ical.js";
 import { formatLocalDate, formatLocalDateTime, parseLocal } from "../ical/time";
 import { addDays, fold, resolveDate, suggestDates, WEEKDAYS, weekdayOf, type Ymd } from "./date-token";
+import { isTag, sameTag } from "../tasks/tags";
 
 /**
  * The `@` grammar (spec §5.2). Each `@` adds one thing to the task, named by a keyword, then its value:
- * `@deadline ven 14h`, `@session mar 14h-16h`, `@répéter chaque lundi`, `@tâche` (the task alone). Shortcuts: a
+ * `@deadline ven 14h`, `@session mar 14h-16h`, `@répéter chaque lundi`, `@tag famille`, `@tâche` (the task alone). Shortcuts: a
  * day straight after `@` is a deadline (`@demain`), a repetition is a repetition (`@chaque lundi`), and `@` alone
  * is `@tâche`. On a task already made, the same `@` changes it (`@deadline jamais`, `@répéter jamais` take things
  * off). French and English.
@@ -18,6 +19,8 @@ export interface When {
   blocks: Block[];
   /** What to take off a task (`@deadline jamais`: deadline and repetition; `@répéter jamais`: the repetition). */
   clear?: Cleared[];
+  /** Tags to give it (`@tag famille`), as written, without "#". */
+  tags?: string[];
 }
 
 export type Cleared = "due" | "repeat";
@@ -30,13 +33,14 @@ export interface Block {
   repeat?: string;
 }
 
-export type Feature = "due" | "block" | "repeat";
+export type Feature = "due" | "block" | "repeat" | "tag";
 
 /** Keywords naming what an `@` adds (folded). */
 const FEATURE_WORDS: Record<string, Feature> = {
   deadline: "due", due: "due", echeance: "due",
   session: "block",
   repeter: "repeat", repete: "repeat", repetition: "repeat", repeat: "repeat",
+  tag: "tag", tags: "tag",
 };
 
 export const NO_WHEN: When = { due: null, repeat: null, blocks: [] };
@@ -328,11 +332,13 @@ interface Token {
   moment: { day: Ymd | null; time: Hm | null } | null;
   block: Block | null;
   repeat: string | null;
+  /** `@tag famille`: one tag (folded here; `findWhen` puts back its spelling). */
+  tag: string | null;
 }
 
 /** One `@`'s words (folded), read as far as they make sense. */
 export function parseToken(f: string[], today: Ymd): Token {
-  const none: Token = { feature: null, clear: [], used: 0, valueUsed: 0, moment: null, block: null, repeat: null };
+  const none: Token = { feature: null, clear: [], used: 0, valueUsed: 0, moment: null, block: null, repeat: null, tag: null };
   if (TASK_WORDS.has(f[0] ?? "")) return { ...none, used: 1 };
   let feature: Feature | undefined = FEATURE_WORDS[f[0] ?? ""];
   const i = feature ? 1 : 0;
@@ -360,6 +366,10 @@ export function parseToken(f: string[], today: Ymd): Token {
       const m = momentAt(f, i + r.used, today); // "chaque lundi 7h": when the first one is due
       if (m) [tok.moment, tok.valueUsed] = [m, r.used + m.used];
     }
+  } else if (feature === "tag") {
+    // One tag per `@tag`: any word could be one, so a second would eat the title.
+    const tag = (f[i] ?? "").replace(/^#+/, "");
+    if (i && isTag(tag)) [tok.tag, tok.valueUsed] = [tag, 1];
   } else if (i && NEVER.has(f[i] ?? "")) {
     [tok.clear, tok.valueUsed] = [["due", "repeat"], 1];
   } else {
@@ -390,11 +400,15 @@ function words(text: string, offset: number): { f: string; start: number; end: n
 function readTokens(tokens: Token[], today: Ymd): { when: When; dueGiven: boolean } {
   const when: When = { due: null, repeat: null, blocks: [] };
   const clear = new Set<Cleared>();
+  const tags: string[] = [];
   let repeatTime: Hm | null = null;
   let dueGiven = false;
   for (const t of tokens) {
     for (const c of t.clear) clear.add(c);
     if (t.feature === "block" && t.block) when.blocks.push(t.block);
+    else if (t.feature === "tag" && t.tag) {
+      if (!tags.some((x) => sameTag(x, t.tag!))) tags.push(t.tag);
+    }
     else if (t.feature === "repeat" && t.repeat && !when.repeat) {
       when.repeat = t.repeat;
       if (t.moment?.day && !when.due) when.due = at(t.moment.day, t.moment.time);
@@ -407,6 +421,7 @@ function readTokens(tokens: Token[], today: Ymd): { when: When; dueGiven: boolea
   }
   if (when.repeat && !when.due) when.due = at(firstDay(when.repeat, today), repeatTime);
   if (clear.size) when.clear = [...clear];
+  if (tags.length) when.tags = tags;
   return { when, dueGiven };
 }
 
@@ -436,6 +451,7 @@ export function findWhen(line: string, today: Ymd): WhenToken | null {
       today,
     );
     if (tok.used > 0) {
+      if (tok.tag) tok.tag = line.slice(ws[1]!.start, ws[1]!.end).replace(/^#+/, ""); // as written: "Été", not "ete"
       spans.push({ start: atPos, end: ws[tok.used - 1]!.end });
       tokens.push(tok);
     } else if (!rest || /^\s/.test(rest)) {
@@ -452,6 +468,8 @@ export interface TaskEdit {
   repeat?: string | null;
   /** Time blocks to add. */
   blocks: Block[];
+  /** Tags to add (those it has stay). */
+  tags?: string[];
 }
 
 /**
@@ -461,6 +479,7 @@ export interface TaskEdit {
 export function taskEdit(found: Pick<WhenToken, "when" | "dueGiven">, current: { due: string | null }): TaskEdit {
   const { when, dueGiven } = found;
   const edit: TaskEdit = { blocks: when.blocks };
+  if (when.tags) edit.tags = when.tags;
   const clearsDue = !!when.clear?.includes("due");
   if (clearsDue) edit.due = null;
   if (when.clear?.includes("repeat")) edit.repeat = null;
@@ -721,12 +740,13 @@ const L: Record<"fr" | "en", Words> = {
       ["due", "deadline", "Deadline", "flag", "ven 14h"],
       ["block", "session", "Session", "clock", "mar 14h-16h"],
       ["repeat", "répéter", "Répéter", "repeat", "chaque lundi"],
+      ["tag", "tag", "Tag", "tag", "famille"],
     ],
     task: ["tâche", "Créer la tâche"],
     clearDue: ["Retirer la deadline", "Retirer la deadline et la répétition"],
     clearRepeat: "Ne plus répéter",
     never: "jamais",
-    more: "Autre chose (session, répétition…)",
+    more: "Autre chose (session, tag…)",
     days: ["aujourd'hui", "demain", "après-demain", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"],
     times: ["matin", "midi", "14h", "18h"],
     slots: ["matin", "aprem", "9h-10h", "10h-12h", "14h-16h", "16h-18h"],
@@ -741,12 +761,13 @@ const L: Record<"fr" | "en", Words> = {
       ["due", "deadline", "Deadline", "flag", "fri 2pm"],
       ["block", "session", "Session", "clock", "tue 2pm-4pm"],
       ["repeat", "repeat", "Repeat", "repeat", "every monday"],
+      ["tag", "tag", "Tag", "tag", "family"],
     ],
     task: ["task", "Create the task"],
     clearDue: ["Remove the deadline", "Remove the deadline and the repeat"],
     clearRepeat: "Stop repeating",
     never: "never",
-    more: "Something else (session, repeat…)",
+    more: "Something else (session, tag…)",
     days: ["today", "tomorrow", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"],
     times: ["morning", "noon", "2pm", "6pm"],
     slots: ["morning", "afternoon", "9am-10am", "10am-12pm", "2pm-4pm", "4pm-6pm"],
@@ -764,13 +785,15 @@ const L: Record<"fr" | "en", Words> = {
  * (from `from`) is what an item replaces. `wantsDay`: the value still needs a day (a calendar picker helps; with a
  * time when `feature` is the deadline). Null
  * when the typing has left the grammar: the title goes on. `editing`: the `@` is on a task already made, with or
- * without a deadline and a repetition (taking them off is offered instead of "Create the task").
+ * without a deadline and a repetition (taking them off is offered instead of "Create the task"). `knownTags`: the
+ * vault's tags, most used first, offered after `@tag`.
  */
 export function suggestAt(
   typed: string,
   today: Ymd,
   lang: "fr" | "en",
   editing?: { due: boolean; repeat: boolean },
+  knownTags: string[] = [],
 ): { from: number; items: AtItem[]; wantsDay: boolean; feature?: Feature } | null {
   const v = L[lang];
   const ws = [...typed.matchAll(/\S+/g)].map((m) => ({ f: fold(m[0]), end: m.index + m[0].length }));
@@ -828,7 +851,8 @@ export function suggestAt(
   const keptCount = Math.max(parsed.used, start); // 0 with no keyword: maybe a date being typed ("15 oct")
   const kept = complete.slice(0, keptCount).map((w) => w.f);
   const from = keptCount ? complete[keptCount - 1]!.end + 1 : 0;
-  const tail = fold(typed.slice(Math.min(from, typed.length))).trim();
+  const typedTail = fold(typed.slice(Math.min(from, typed.length))).trim();
+  const tail = feature === "tag" ? typedTail.replace(/^#+/, "") : typedTail;
   const read = (extra: string): When | null => {
     const f = [...kept, ...fold(extra).split(/\s+/).filter(Boolean)];
     const tok = parseToken(f, today);
@@ -851,6 +875,8 @@ export function suggestAt(
     candidates.push(...v.slots);
     // A slot that comes back: "chaque mardi 14h-16h".
     if (!parsed.block && tail) candidates.push(...everyDay, v.repeats[0]!, v.repeats[1]!, v.repeats[4]!);
+  } else if (feature === "tag") {
+    if (!parsed.tag) candidates.push(...knownTags);
   } else if (feature === "repeat") {
     if (editing?.repeat && !parsed.repeat) candidates.push(v.never);
     candidates.push(...everyDay);
@@ -869,15 +895,16 @@ export function suggestAt(
     const when = read(c);
     if (!when) continue;
     seen.add(fc);
-    items.push({ kind: "insert", text: c, label: c, when });
+    // A tag says it all: no reading beside it.
+    items.push(feature === "tag" ? { kind: "insert", text: c, label: `#${c}`, icon: "tag" } : { kind: "insert", text: c, label: c, when });
   }
   if (asTyped) items.push({ kind: "more", text: " @", label: v.more, icon: "plus" });
-  if (tail && !items.length && typingDate(tail)) items.push(dateHint(lang));
+  if (tail && !items.length && feature !== "tag" && typingDate(tail)) items.push(dateHint(lang));
   if (tail && !items.length) return null;
   if (!keptCount && !items.length) return null;
   const [, , label, icon, hint] = featureLabel(feature);
   if (!items.length) items.push({ kind: "insert", text: "", label, icon, hint }); // the keyword alone: say what it wants
-  return { from: Math.min(from, typed.length), items, wantsDay: feature !== "repeat" && !hasDay && !tail, feature };
+  return { from: Math.min(from, typed.length), items, wantsDay: (feature === "due" || feature === "block") && !hasDay && !tail, feature };
 }
 
 /** The start of a written date: `15/`, `15/10/20`, `2027-1`, `15 oct`. */

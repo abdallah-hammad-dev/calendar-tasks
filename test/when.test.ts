@@ -140,6 +140,15 @@ describe("the @ grammar: one thing per @", () => {
     expect(when("Run @repeat every 2 weeks")).toMatchObject({ repeat: "FREQ=WEEKLY;INTERVAL=2" });
     expect(when("Review @weekly")).toMatchObject({ repeat: "FREQ=WEEKLY" });
   });
+
+  it("reads one tag per @tag, as written, with or without #", () => {
+    expect(when("Appeler mamie @tag Été @demain @tag #urgent")).toMatchObject({ due: "2026-10-16", tags: ["Été", "urgent"] });
+    expect(cut("Appeler @tag famille le soir")).toBe("@tag famille"); // one tag: the title goes on
+    expect(when("Appeler @tag famille @tag Famille")!.tags).toEqual(["famille"]);
+    expect(cut("Payer @tag 2026")).toBe("@tag"); // not a tag: the number stays in the title
+    expect(when("Payer @tag 2026")!.tags).toBeUndefined();
+    expect(taskEdit(findWhen("@tag famille", TODAY)!, { due: "2026-10-20" })).toEqual({ blocks: [], tags: ["famille"] });
+  });
 });
 
 describe("repetition rules", () => {
@@ -178,14 +187,14 @@ describe("suggestions while typing after @", () => {
     suggestAt(typed, TODAY, "fr")?.items.map((i) => (i.kind === "accept" ? `✓${i.label}` : i.kind === "more" ? "+" : i.label)) ?? null;
 
   it("first offers what to add", () => {
-    expect(items("")).toEqual(["Deadline", "Session", "Répéter", "✓Créer la tâche"]);
+    expect(items("")).toEqual(["Deadline", "Session", "Répéter", "Tag", "✓Créer la tâche"]);
     expect(items("se")).toEqual(["Session"]);
-    expect(items("tâ")).toEqual(["✓Créer la tâche"]);
+    expect(items("tâ")).toEqual(["Tag", "✓Créer la tâche"]);
     // Every hint is a short example of what to type, and parses as one.
     for (const lang of ["fr", "en"] as const) {
       for (const i of suggestAt("", TODAY, lang)!.items) if (i.hint) expect(cut(`x @${i.text}${i.hint}`)).toBe(`@${i.text}${i.hint}`);
     }
-    expect(suggestAt("ta", TODAY, "fr")!.items[0]!.text).toBe("tâche");
+    expect(suggestAt("tâ", TODAY, "fr")!.items[1]!.text).toBe("tâche");
     expect(items("tâche ")).toBeNull(); // nothing to add after it: the title goes on
   });
 
@@ -206,6 +215,21 @@ describe("suggestions while typing after @", () => {
     expect(items("session mar 14")).toEqual(["14h-15h", "14h-16h", "14h-17h"]);
     expect(items("répéter ")!.slice(0, 2)).toEqual(["chaque semaine", "chaque jour"]);
     expect(items("répéter chaque l")).toEqual(["chaque lundi"]);
+  });
+
+  it("offers the vault's tags after @tag, and takes a new one", () => {
+    const tags = (typed: string) =>
+      suggestAt(typed, TODAY, "fr", undefined, ["famille", "Été", "urgent", "projets/factures"])?.items.map((i) =>
+        i.kind === "accept" ? `✓${i.label}` : i.kind === "more" ? "+" : i.label,
+      ) ?? null;
+    expect(tags("tag ")).toEqual(["#famille", "#Été", "#urgent", "#projets/factures"]);
+    expect(suggestAt("tag ", TODAY, "fr")!.wantsDay).toBe(false);
+    expect(tags("tag e")).toEqual(["✓@tag e", "#Été", "+"]);
+    expect(tags("tag #fa")).toEqual(["✓@tag #fa", "#famille", "+"]);
+    expect(tags("tag nouveau")).toEqual(["✓@tag nouveau", "+"]);
+    expect(tags("tag famille ")).toEqual(["✓@tag famille", "+"]);
+    expect(tags("tag famille le")).toBeNull(); // the title goes on
+    expect(suggestAt("tag famille", TODAY, "fr", undefined, ["famille"])!.items[0]).toMatchObject({ when: { tags: ["famille"] } });
   });
 
   it("gives up once the title starts again", () => {
@@ -361,9 +385,9 @@ describe("changing a task already made", () => {
   it("offers taking things off instead of \"Create the task\"", () => {
     const items = (typed: string, editing: { due: boolean; repeat: boolean }) =>
       suggestAt(typed, TODAY, "fr", editing)?.items.map((i) => (i.kind === "accept" ? `✓${i.label}` : i.label)) ?? null;
-    expect(items("", { due: true, repeat: true })).toEqual(["Deadline", "Session", "Répéter", "✓Retirer la deadline et la répétition", "✓Ne plus répéter"]);
-    expect(items("", { due: true, repeat: false })).toEqual(["Deadline", "Session", "Répéter", "✓Retirer la deadline"]);
-    expect(items("", { due: false, repeat: false })).toEqual(["Deadline", "Session", "Répéter"]);
+    expect(items("", { due: true, repeat: true })).toEqual(["Deadline", "Session", "Répéter", "Tag", "✓Retirer la deadline et la répétition", "✓Ne plus répéter"]);
+    expect(items("", { due: true, repeat: false })).toEqual(["Deadline", "Session", "Répéter", "Tag", "✓Retirer la deadline"]);
+    expect(items("", { due: false, repeat: false })).toEqual(["Deadline", "Session", "Répéter", "Tag"]);
     expect(items("répéter ", { due: true, repeat: true })![0]).toBe("jamais");
     expect(items("deadline ", { due: true, repeat: false })![0]).toBe("jamais");
     expect(items("deadline ", { due: false, repeat: false })).not.toContain("jamais");

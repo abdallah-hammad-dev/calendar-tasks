@@ -71,7 +71,7 @@ export class TaskConverter {
       this.reserved.delete(path);
     };
     return {
-      replacement: `${parts.indent}${parts.bullet} [[${this.vault.linkText(path, sourcePath)}]]`,
+      replacement: `${parts.indent}${parts.bullet} [[${this.vault.linkText(path, sourcePath)}]]${plan.noteTags.map((tag) => ` #${tag}`).join("")}`,
       create: async () => {
         try {
           await this.vault.ensureFolder(folder);

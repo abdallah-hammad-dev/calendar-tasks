@@ -27,21 +27,13 @@ export function parseLinkLine(line: string): { linkpath: string; end: number } |
   return m ? { linkpath: m[1]!.trim(), end: m[0].length } : null;
 }
 
-/**
- * `@` tokens and `#tags` written after the link of a `- [[Task]]` line (to change that task: 2026-10-26, a `#tag`
- * there tagged the note it was in), and the line without them.
- */
-export function linkLineEdit(
-  line: string,
-  today: { year: number; month: number; day: number },
-): { linkpath: string; rest: string; found: WhenToken | null; tags: string[] } | null {
+/** `@` tokens written after the link of a `- [[Task]]` line (to change that task), and the line without them. */
+export function linkLineEdit(line: string, today: { year: number; month: number; day: number }): { linkpath: string; rest: string; found: WhenToken } | null {
   const link = parseLinkLine(line);
   if (!link) return null;
   const tail = line.slice(link.end);
   const found = findWhen(tail, today);
-  const tagged = findTags(tail);
-  if (!found && !tagged.tags.length) return null;
-  return { linkpath: link.linkpath, rest: line.slice(0, link.end) + cutSpans(tail, [...(found?.spans ?? []), ...tagged.spans]), found, tags: tagged.tags };
+  return found ? { linkpath: link.linkpath, rest: line.slice(0, link.end) + cutSpans(tail, found.spans), found } : null;
 }
 
 /** `text` without these spans, each with the space before it. */
@@ -69,8 +61,13 @@ export interface PlannedTask {
   repeat: string | null;
   /** Time to block for it: events linked to the task once it has its reminder. */
   blocks: Block[];
-  /** Its tags, written `#famille` on the line. */
+  /** Its tags, written `@tag famille` on the line. */
   tags: string[];
+  /**
+   * `#tags` written on the line: Obsidian's, the note's own (2026-10-26, the user: tags go through `@`). Out of the
+   * title (a file name can't hold "#"), they stay on the line after the link.
+   */
+  noteTags: string[];
   /** Parent task note path, when the line is written in a task note. */
   parent: string | null;
   /** The original text, kept as the note's first line when it held links. */
@@ -87,7 +84,7 @@ export interface PlanContext {
 /** What a task line turns into (spec §5.2). Null if nothing is left for a title. */
 export function planTask(text: string, ctx: PlanContext): PlannedTask | null {
   const marker = findWhen(text, ctx.today);
-  // The `@` words and the `#tags` leave the title; the tags go to the note (2026-10-25: the one way to group tasks).
+  // The `@` words leave the title; so do `#tags`, which stay the note's (put back after the link).
   const tagged = findTags(text);
   let rest = cutSpans(text, [...(marker?.spans ?? []), ...tagged.spans]);
 
@@ -106,7 +103,8 @@ export function planTask(text: string, ctx: PlanContext): PlannedTask | null {
     due: marker?.when.due ?? null,
     repeat: marker?.when.repeat ?? null,
     blocks: marker?.when.blocks ?? [],
-    tags: tagged.tags,
+    tags: marker?.when.tags ?? [],
+    noteTags: tagged.tags,
     parent: isTaskNote(source?.frontmatter ?? null) ? ctx.sourcePath : null,
     body: links ? text : "",
   };

@@ -540,9 +540,9 @@ function slotPicker(): void {
  * link of a task already made (changing it).
  */
 function dateSuggest(): void {
-  const popup = new DateSuggest({} as never, { task: () => null, edit: () => undefined });
+  const popup = new DateSuggest({} as never, { task: () => null, edit: () => undefined, knownTags: () => KNOWN_TAGS });
   const editing = { path: "Tâches/Sport.md", due: "2026-10-19T07:00", repeat: "FREQ=WEEKLY;BYDAY=MO,TH" };
-  ["", "deadline ven ", "session chaque mardi ", "edit:"].forEach((col_typed, col) => {
+  ["", "deadline ven ", "session chaque mardi ", "tag ", "edit:"].forEach((col_typed, col) => {
     const edit = col_typed.startsWith("edit:");
     const typed = edit ? col_typed.slice(5) : col_typed;
     (popup as unknown as { editing: unknown }).editing = edit ? editing : null;

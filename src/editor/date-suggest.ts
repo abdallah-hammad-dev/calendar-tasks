@@ -39,7 +39,7 @@ export function shortDay(value: string, relative = true): string {
   return p.allDay ? day : `${day} ${String(p.wall.hour).padStart(2, "0")}:${String(p.wall.minute).padStart(2, "0")}`;
 }
 
-/** What a reading of `@…` means, as small icon + text parts: deadline, time blocks, repetition. */
+/** What a reading of `@…` means, as small icon + text parts: deadline, time blocks, repetition, tags. */
 export function renderWhen(el: HTMLElement, when: When): void {
   const part = (icon: string, text: string) => {
     const span = el.createSpan({ cls: "ct-when-part" });
@@ -51,6 +51,7 @@ export function renderWhen(el: HTMLElement, when: When): void {
   if (when.due) part("flag", shortDay(when.due, false));
   for (const b of when.blocks) part("clock", blockLabel(b));
   if (when.repeat) part("repeat", repeatLabel(when.repeat, lang()) ?? t("suggest.customRepeat"));
+  for (const tag of when.tags ?? []) part("tag", `#${tag}`);
 }
 
 /** A time block, or "chaque mardi 14:00–16:00" for one that comes back. */
@@ -87,8 +88,10 @@ export interface EditedTask {
 export interface DateSuggestDeps {
   /** The task note a link points to, from a note. */
   task(linkpath: string, sourcePath: string): EditedTask | null;
-  /** Applies a line's `@` tokens and `#tags` to that task. */
-  edit(path: string, found: WhenToken | null, tags: string[]): void;
+  /** Applies a line's `@` tokens to that task. */
+  edit(path: string, found: WhenToken): void;
+  /** The vault's tags, most used first (offered after `@tag`). */
+  knownTags(): string[];
 }
 
 /**
@@ -123,13 +126,13 @@ export class DateSuggest extends EditorSuggest<Item> {
       if (!editing) return null;
     }
     const typed = m[2]!;
-    if (!suggestAt(typed, today(), lang(), editing ? fields(editing) : undefined)) return null;
+    if (!suggestAt(typed, today(), lang(), editing ? fields(editing) : undefined, this.deps.knownTags())) return null;
     this.editing = editing;
     return { start: { line: cursor.line, ch: at }, end: cursor, query: typed };
   }
 
   getSuggestions(context: EditorSuggestContext): Item[] {
-    const res = suggestAt(context.query, today(), lang(), this.editing ? fields(this.editing) : undefined);
+    const res = suggestAt(context.query, today(), lang(), this.editing ? fields(this.editing) : undefined, this.deps.knownTags());
     if (!res) return [];
     this.from = res.from;
     this.feature = res.feature;
@@ -208,7 +211,7 @@ export class DateSuggest extends EditorSuggest<Item> {
     if (!res) return;
     editor.replaceRange(res.rest, { line: n, ch: 0 }, { line: n, ch: line.length });
     editor.setCursor({ line: n, ch: res.rest.length });
-    this.deps.edit(task.path, res.found, res.tags);
+    this.deps.edit(task.path, res.found);
   }
 
   /**

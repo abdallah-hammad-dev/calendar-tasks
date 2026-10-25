@@ -47,12 +47,12 @@ user at each one.
 - `src/sync/` — `store.ts` (cache snapshot + pending queue; `IdbStore` in IndexedDB, `MemoryStore` for tests),
   `engine.ts` (`SyncEngine`: push queue with `If-Match`, then pull with sync tokens / ctag / etag listing).
 - `src/tasks/` — `vtodo.ts` (read/write the owned VTODO fields in place with ical.js, `taskLink`), `notes.ts`
-  (frontmatter ↔ state, titles), `tags.ts` (tag rule, `#tags` in a line, tags ↔ categories), `TaskSync.ts` (notes ↔ VTODOs; depends on `VaultPort`, not on Obsidian),
+  (frontmatter ↔ state, titles), `tags.ts` (tag rule, `#tags` in a line, tags ↔ categories, `withTags`), `TaskSync.ts` (notes ↔ VTODOs; depends on `VaultPort`, not on Obsidian),
   `obsidian-vault.ts` (`VaultPort` on documented APIs: `processFrontMatter`, `fileManager.renameFile`…),
   `base-file.ts` (the `Tasks.base` YAML).
 - `src/editor/` — `date-token.ts` (day words: `15/10`, `demain`, `lun`…), `when.ts` (the `@` grammar: one
   keyword + value per `@`, deadline / time block / repeat; suggestions; RRULE helpers),
-  `convert.ts` (pure: task line → planned task: `@` words and `#tags` cut from the title), `converter.ts` (creates the task note,
+  `convert.ts` (pure: task line → planned task: `@` words cut from the title, `#tags` put back after the link), `converter.ts` (creates the task note,
   returns `- [[Task]]`), `chips.ts`
   (pure chip model: due label/overdue, tags, progress, sync state), `render.ts` (DOM), `live-preview.ts`
   (CM6 ViewPlugin decorations + "cursor left a line" listener; `refreshTaskDecorations()`), `left-lines.ts` (pure:
@@ -152,9 +152,10 @@ user at each one.
   link of a `- [[Task]]` line (`parseLinkLine` / `linkLineEdit`) uses the same grammar; `taskEdit` turns it into
   field changes (a repetition alone keeps the deadline, `startOn` moves it to the rule's day; `@deadline jamais` /
   `@répéter jamais` set `When.clear`). Applied on ✓ or when the line is left (`left-lines.ts` watches such lines).
-  A `#tag` after the link is added to the task's `tags` the same way (`withTags`; 2026-10-26, the user wrote
-  `- [[Task]] #Eejip` and it tagged the note the line was in). Clicking a chip opens `TaskModal` in edit mode at
-  that field.
+  `@tag x` adds a tag (`TaskEdit.tags`, `withTags`). A `#tag` after the link (2026-10-26) was dropped the same
+  day: it applied only once the cursor moved to another line of that note (a click elsewhere left it there,
+  tagging the note), and Obsidian's tag menu opened instead of ours; the user asked for `@` instead. Clicking a
+  chip opens `TaskModal` in edit mode at that field.
 - **No system dropdowns in forms** (the user found the blue Windows list ugly, 2026-10-17): `src/ui/menu-select.ts`
   opens Obsidian's `Menu` from a button; `named()` puts an icon before a setting's name. The settings tab keeps
   Obsidian's standard dropdowns (that's what every settings page uses).
@@ -395,8 +396,11 @@ user at each one.
 - **Tags, not projects** (2026-10-25, the user found project notes odd; "oui" to: Obsidian's own tags, projects
   gone): the note's `tags` (list, no "#"; `tagsOf` reads a string or "#" too) ↔ `CATEGORIES` (`categoriesFor` /
   `tagsFromCategories` in `src/tasks/tags.ts`: a category that can't be a tag stays, "Work stuff" ↔ `Work-stuff`
-  keeps its spelling, compared in any case and order so nothing ping-pongs). `#tag` on a task line goes into `tags`
-  and leaves the title; no inheritance (not from the note it's in, nor the parent). Chips show tags in one chip,
+  keeps its spelling, compared in any case and order so nothing ping-pongs). `@tag famille` (one per `@`; spelling
+  kept: `findWhen` reads it back from the line, `parseToken` sees folded words) gives the task a tag; the assistant
+  offers `main.knownTags` (cached until a note changes). A `#tag` on a task line stays Obsidian's: out of the
+  title, put back after the link (`PlannedTask.noteTags`). No inheritance (not from the note it's in, nor the
+  parent). Chips show tags in one chip,
   less the containing note's (`getAllTags` in `main.noteTags`); the header shows them in one item (two pills
   wrapped the full header at 900 px). The form's Tags field is free text with `AbstractInputSuggest` (vault tags
   from `getAllTags` over every note, most used first; `metadataCache.getTags` isn't public); a pick sets the field

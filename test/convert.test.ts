@@ -45,17 +45,18 @@ describe("linkLineEdit", () => {
   it("reads @ tokens after the link of a converted line, and the line without them", () => {
     const res = linkLineEdit("- [[Rapport]] @ven", today)!;
     expect(res).toMatchObject({ linkpath: "Rapport", rest: "- [[Rapport]]" });
-    expect(res.found!.when.due).toBe("2026-10-16");
+    expect(res.found.when.due).toBe("2026-10-16");
     expect(linkLineEdit("  * [[Projets/Rapport|R]] @session mar 14h-16h voir Paul", today)).toMatchObject({
       linkpath: "Projets/Rapport",
       rest: "  * [[Projets/Rapport|R]] voir Paul",
     });
   });
 
-  it("takes #tags after the link for the task (else Obsidian gives them to the note the line is in)", () => {
-    expect(linkLineEdit("- [[Untitled task]] #Eejip", today)).toMatchObject({ rest: "- [[Untitled task]]", found: null, tags: ["Eejip"] });
-    expect(linkLineEdit("- [[Rapport]] @ven #famille voir Paul", today)).toMatchObject({ rest: "- [[Rapport]] voir Paul", tags: ["famille"] });
-    expect(linkLineEdit("- [[Rapport]] #2026", today)).toBeNull();
+  it("takes @tag after the link for the task; a #tag there stays the note's", () => {
+    const res = linkLineEdit("- [[Untitled task]] @tag Eejip #notes", today)!;
+    expect(res).toMatchObject({ rest: "- [[Untitled task]] #notes" });
+    expect(res.found.when.tags).toEqual(["Eejip"]);
+    expect(linkLineEdit("- [[Rapport]] #famille", today)).toBeNull();
   });
 
   it("ignores lines that don't start with a link, and text with no @ token", () => {
@@ -71,12 +72,13 @@ describe("linkLineEdit", () => {
 
 describe("planTask", () => {
   it("takes the date and the tags off the title", () => {
-    expect(plan("Préparer démo @lun 14h #olera")).toEqual({
+    expect(plan("Préparer démo @lun 14h @tag olera")).toEqual({
       title: "Préparer démo",
       due: "2026-10-19T14:00",
       repeat: null,
       blocks: [],
       tags: ["olera"],
+      noteTags: [],
       parent: null,
       body: "",
     });
@@ -107,11 +109,11 @@ describe("planTask", () => {
     expect(plan("Lire [[Docs/Rapport|le rapport]]")).toMatchObject({ title: "Lire le rapport", tags: [] });
   });
 
-  it("takes the #tags out of the title into the note's tags, once each", () => {
-    expect(plan("Appeler mamie #famille @demain #Famille #urgent")).toMatchObject({ title: "Appeler mamie", tags: ["famille", "urgent"], body: "" });
-    expect(plan("Ranger #projets/maison le garage")).toMatchObject({ title: "Ranger le garage", tags: ["projets/maison"] });
-    // Not tags: a number alone, a # inside a word, a heading-like "# ".
-    expect(plan("Payer la facture #2026 de C#")).toMatchObject({ title: "Payer la facture 2026 de C", tags: [] });
+  it("gives the task its @tags; #tags leave the title and stay the note's", () => {
+    expect(plan("Appeler mamie @tag famille @demain @tag urgent")).toMatchObject({ title: "Appeler mamie", tags: ["famille", "urgent"], noteTags: [] });
+    expect(plan("Ranger #maison le garage @demain")).toMatchObject({ title: "Ranger le garage", tags: [], noteTags: ["maison"] });
+    // Not tags: a number alone, a # inside a word.
+    expect(plan("Payer la facture #2026 de C#")).toMatchObject({ title: "Payer la facture 2026 de C", noteTags: [] });
   });
 
   it("takes no tags from where it is written: only the line's", () => {
@@ -123,11 +125,11 @@ describe("planTask", () => {
   });
 
   it("gives up when nothing is left for a title", () => {
-    expect(plan("@demain #famille")).toBeNull();
+    expect(plan("@demain @tag famille #notes")).toBeNull();
   });
 
   it("writes the frontmatter of the new note", () => {
-    const p = plan("Faire le plan @demain #cours", "Tâches/Préparer slides.md")!;
+    const p = plan("Faire le plan @demain @tag cours", "Tâches/Préparer slides.md")!;
     expect(plannedFrontmatter(p, (path) => path.split("/").pop()!.replace(".md", ""))).toEqual({
       type: "task",
       done: false,

@@ -121,8 +121,9 @@ extension. Use the \`calendar_*\` tools; never edit \`caldav_uid\`, \`due\`, \`d
   (when it was made) and \`${PROP.completed}\` (when it was ticked, while done), set by the extension; a repeating task
   keeps each time it was ticked in \`${PROP.completions}\`. Its body is free content and is never synced. Small steps inside a task are
   plain \`- [ ]\` lines; a step with its own deadline is a child task (\`calendar_create_task\` with \`parent\`).
-- **Tasks are grouped by their tags** (\`#famille\`, \`#urgent\`…), synced as the reminder's categories. A tag
-  written on a \`- [ ]\` line goes into the task's \`${PROP.tags}\`. There are no project notes.
+- **Tasks are grouped by their tags** (\`#famille\`, \`#urgent\`…), synced as the reminder's categories. On a
+  task line the user writes \`@tag famille\`; a \`#famille\` on the line tags the note it's in, not the task. There
+  are no project notes.
 - **Mention a task anywhere** with a plain link line \`- [[Task title]]\`: the extension draws the checkbox from
   \`${PROP.done}\`. Don't write \`- [ ] [[Task]]\`.
 - **Deadline ≠ work session.** \`${PROP.due}\` is the deadline, the date synced to the phone (optional; set it with

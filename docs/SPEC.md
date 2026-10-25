@@ -135,7 +135,8 @@ Free content: context, links to any file, small steps as plain `- [ ]` (never sy
 - **Tasks are grouped by Obsidian's own tags** (2026-10-25: project notes were dropped; the user found them odd
   and wanted one way). The note's `tags` property (a list, without "#"): Obsidian's tag pane, search and
   `file.hasTag()` in Bases all see them. Any number per task; none = a general task.
-- `#famille` on a task line goes into `tags` and leaves the title (§5.2). The form has a Tags field (§5.3).
+- On a task line, `@tag famille` (§5.2); the form has a Tags field (§5.3). A `#famille` written on the line stays
+  Obsidian's: the note it's written in is tagged, not the task (2026-10-26, the user: tags go through `@` too).
 - No inheritance: a task written in a note tagged `#famille`, or a sub-task, gets only the tags on its line.
 - A task can be **mentioned anywhere**, whatever its tags; a mention is only a link.
 - Synced as `CATEGORIES` (§4.1), which Reminders keeps but doesn't show.
@@ -272,9 +273,10 @@ desktop and mobile:
 
 **Changing a task from its line** (2026-10-17): click a chip (or the pencil shown when the line is hovered, desktop)
 to open the task form (§5.3) at that field; or type `@` after the link (`- [[Rapport]] @ven`), same assistant as
-§5.2, and ✓ (or leaving the line) applies it and takes the `@` words off the line. A `#tag` after the link is
-added to the task's tags the same way (2026-10-26: written there, Obsidian gave it to the note the line is in); tags
-are taken off in the form.
+§5.2, and ✓ (or leaving the line) applies it and takes the `@` words off the line. `@tag famille` adds a tag (those
+it has stay); tags are taken off in the form. A `#tag` after the link was tried (2026-10-26) and dropped: it only
+applied once the cursor moved to another line of that note (a click elsewhere left it there, tagging the note),
+and Obsidian's own tag menu opened instead of the assistant.
 
 Lines hold only the link (`- [[Préparer slides]]`), never `- [ ] [[…]]`: one state, no stale checkboxes. Without the
 extension, it's a plain link. Small steps (plain `- [ ]`, no link) look different on their own.
@@ -316,9 +318,9 @@ Implementation: CodeMirror 6 view plugin (Live Preview) + `registerMarkdownPostP
   repeat" when it repeats) and **Stop repeating**
   (`@répéter jamais`).
 - **Written in a task note**, it becomes a child task (`parent:` set). Anywhere else, a standalone task.
-- **Tags**: each `#tag` on the line (Obsidian's rule: letters, digits, `_ - /`, not only digits, after a space or at
-  the start) goes into the note's `tags` and leaves the title, once each. Only the line's: none from the note it's
-  written in or from the parent task (2026-10-25, explicit only).
+- **Tags**: `@tag famille` (§4.2). Only the line's: none from the note it's written in or from the parent task
+  (2026-10-25, explicit only). A `#tag` on the line leaves the title (a file name can't hold "#") and is put back
+  after the link: it stays the note's tag, as Obsidian has it.
 - Links on the line stay in the task: the title uses their display text, and the original line is copied
   as the first line of the task body so no link is lost.
 - **The `@` grammar** (`src/editor/when.ts`), French and English. Each `@` is one thing: a keyword, then its value.
@@ -334,6 +336,10 @@ Implementation: CodeMirror 6 view plugin (Live Preview) + `registerMarkdownPostP
   - `@répéter` / `@repeat` + a repetition: `chaque semaine`, `tous les 2 jours`, `chaque lundi et jeudi`,
     `en semaine`, `every month`… optionally + a time (`chaque lundi 7h`). **Shortcut**: a repetition straight after
     `@` (`@chaque lundi`). With no deadline, it starts on its first day from today.
+  - `@tag` + one tag (Obsidian's rule: letters, digits, `_ - /`, not only digits; a `#` before it is fine), kept as
+    written: `@tag famille`, `@tag projets/maison`. One per `@` (any word could be a tag, so a second one would eat
+    the title): `@tag famille @tag urgent`. The assistant offers the vault's tags, most used first; a new one is
+    taken as typed.
   - `@tâche` / `@task`, `@` alone, or a keyword with no value: the task alone, no date (2026-10-25: `@sans date`
     was dropped, asked: a task without a date is a whole task). On a task already made, `@deadline jamais` /
     `@deadline never` removes its deadline and repetition, `@répéter jamais` / `@repeat never` its repetition.
@@ -341,7 +347,8 @@ Implementation: CodeMirror 6 view plugin (Live Preview) + `registerMarkdownPostP
     `1er nov 2027`, `oct 15`, `demain` / `tomorrow`, `lun` / `mon` (next one), `lundi prochain`, `dans 3 jours` /
     `in 2 weeks`. While a date is being typed (`15/10/2`), the list stays open and says how to write one.
     Times: `14h`, `14h30`, `14:30`, `2pm`, `à 9h`, `matin` (9:00), `midi`, `aprem` (14:00), `soir` (18:00).
-  - Several `@` on one line combine: `- [ ] Rapport @ven 18h @session mar 14h-16h @répéter chaque semaine`.
+  - Several `@` on one line combine: `- [ ] Rapport @ven 18h @session mar 14h-16h @répéter chaque semaine @tag
+    cours`.
 
 ### 5.3 New task button, planning
 

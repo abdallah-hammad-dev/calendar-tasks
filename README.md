@@ -3,7 +3,7 @@
 Your CalDAV calendar and tasks inside Obsidian, in sync with Apple Calendar and Reminders (or any CalDAV client):
 
 - **every task is a note**, synced as a reminder, and shows up as a checkbox wherever you mention it;
-- **write a task anywhere**: `- [ ] Prepare slides @friday 2pm #work` becomes a task note;
+- **write a task anywhere**: `- [ ] Prepare slides @friday 2pm @tag work` becomes a task note;
 - **the list of all your tasks** is a native [Bases](https://obsidian.md/help/bases) view;
 - **a calendar view** with your events, task deadlines, work sessions and invitations;
 - **every event can have a note**, created when you open it (one per occurrence for recurring events);
@@ -67,7 +67,7 @@ a *time block*, an event in your calendar linked to the task (see below).
 **Write a task in any note** as a checklist line with an `@`. Each `@` adds one thing:
 
 ```markdown
-- [ ] Prepare slides @friday 2pm #work                 ← deadline (a day right after @), a tag
+- [ ] Prepare slides @friday 2pm @tag work             ← deadline (a day right after @), a tag
 - [ ] Write the report @fri @session tue 2pm-4pm       ← deadline + time blocked on Tuesday
 - [ ] Gym @repeat every monday and thursday 7am        ← repeats
 - [ ] Move house @session mon to wed                   ← whole days blocked
@@ -101,7 +101,7 @@ list icon in the bar shows them.
 
 **Changing a task**: click one of its chips (or the pencil that shows when you hover the line) to open its form,
 or type `@` after its link: `- [[Write the report]] @mon` moves the deadline, `@session thu 10am-12pm` adds a time
-block, `@repeat never` stops the repetition, `@deadline never` removes the deadline, `#family` adds a tag. ✓ (or
+block, `@repeat never` stops the repetition, `@deadline never` removes the deadline, `@tag family` adds a tag. ✓ (or
 leaving the line) applies it and cleans the line.
 
 **The New task button** (ribbon, command palette, or the calendar's *+ New task*) opens a form: title, deadline,
@@ -114,9 +114,10 @@ time blocks, repetition, priority, tags (your vault's tags are suggested as you 
 calendar, the *To plan* panel lists open tasks with no time block ahead: drag one onto a time slot (an hour, then
 resize it) or a day (all day), or click it to type a slot.
 
-**Tags** group tasks: `#family` on a task line goes into the note's `tags` (Obsidian's own, so the tag pane and
-search see them) and leaves the title. Only the line's tags count: a task written in a `#family` note doesn't get
-it. They're sent to the server as the reminder's categories, and categories added elsewhere come back as tags.
+**Tags** group tasks: `@tag family` on a task line (one tag per `@tag`; the assistant offers your vault's tags) goes
+into the task note's `tags` (Obsidian's own, so the tag pane and search see them). Only the line's tags count: a
+task written in a `#family` note doesn't get it. A `#family` written on the line stays Obsidian's: it tags the
+note you're writing in, not the task. They're sent to the server as the reminder's categories, and categories added elsewhere come back as tags.
 
 **Sub-tasks**: a task written inside a task note becomes its child (`parent`). The iPhone shows them flat.
 
