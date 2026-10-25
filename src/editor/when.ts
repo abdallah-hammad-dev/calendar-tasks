@@ -4,10 +4,10 @@ import { addDays, fold, resolveDate, suggestDates, WEEKDAYS, weekdayOf, type Ymd
 
 /**
  * The `@` grammar (spec §5.2). Each `@` adds one thing to the task, named by a keyword, then its value:
- * `@deadline ven 14h`, `@session mar 14h-16h`, `@répéter chaque lundi`, `@sans date`. Shortcuts: a
+ * `@deadline ven 14h`, `@session mar 14h-16h`, `@répéter chaque lundi`, `@tâche` (the task alone). Shortcuts: a
  * day straight after `@` is a deadline (`@demain`), a repetition is a repetition (`@chaque lundi`), and `@` alone
- * makes a task with no date. On a task already made, the same `@` changes it (`@sans date`, `@répéter jamais` take
- * things off). French and English.
+ * is `@tâche`. On a task already made, the same `@` changes it (`@deadline jamais`, `@répéter jamais` take things
+ * off). French and English.
  */
 export interface When {
   /** Deadline: "YYYY-MM-DD" or "YYYY-MM-DDTHH:mm". */
@@ -16,7 +16,7 @@ export interface When {
   repeat: string | null;
   /** Time blocked for the task: events linked to it (RELATED-TO), not task fields. */
   blocks: Block[];
-  /** What to take off a task (`@sans date`: deadline and repetition; `@répéter jamais`: the repetition). */
+  /** What to take off a task (`@deadline jamais`: deadline and repetition; `@répéter jamais`: the repetition). */
   clear?: Cleared[];
 }
 
@@ -71,7 +71,8 @@ const ADVERBS: Record<string, string> = {
 };
 const AT_WORDS = new Set(["a", "at"]);
 const AND_WORDS = new Set(["et", "and"]);
-const NO_DATE: string[][] = [["sans", "date"], ["no", "date"]];
+/** `@tâche`: the line becomes a task, nothing more (2026-10-25: was `@sans date`, asked). */
+const TASK_WORDS = new Set(["tache", "task"]);
 const NEVER = new Set(["jamais", "never"]);
 
 function weekday(w: string | undefined): number | null {
@@ -316,9 +317,9 @@ function slotAt(f: string[], i: number, today: Ymd, defaultDay = today): { block
 }
 
 interface Token {
-  /** What it names; null for a lone `@` or `sans date`. */
+  /** What it names; null for a lone `@` or `tâche`. */
   feature: Feature | null;
-  /** What it takes off (`sans date`, `répéter jamais`). */
+  /** What it takes off (`deadline jamais`, `répéter jamais`). */
   clear: Cleared[];
   /** Words taken, keyword included (0: not a token). */
   used: number;
@@ -332,7 +333,7 @@ interface Token {
 /** One `@`'s words (folded), read as far as they make sense. */
 export function parseToken(f: string[], today: Ymd): Token {
   const none: Token = { feature: null, clear: [], used: 0, valueUsed: 0, moment: null, block: null, repeat: null };
-  if (NO_DATE.some(([x, y]) => f[0] === x && f[1] === y)) return { ...none, used: 2, clear: ["due", "repeat"] };
+  if (TASK_WORDS.has(f[0] ?? "")) return { ...none, used: 1 };
   let feature: Feature | undefined = FEATURE_WORDS[f[0] ?? ""];
   const i = feature ? 1 : 0;
   // Shortcuts without a keyword: a repetition, else a day (a deadline).
@@ -359,6 +360,8 @@ export function parseToken(f: string[], today: Ymd): Token {
       const m = momentAt(f, i + r.used, today); // "chaque lundi 7h": when the first one is due
       if (m) [tok.moment, tok.valueUsed] = [m, r.used + m.used];
     }
+  } else if (i && NEVER.has(f[i] ?? "")) {
+    [tok.clear, tok.valueUsed] = [["due", "repeat"], 1];
   } else {
     const m = momentAt(f, i, today);
     if (m) [tok.moment, tok.valueUsed] = [m, m.used];
@@ -692,13 +695,14 @@ export interface AtItem {
 }
 
 interface Words {
-  /** Feature, keyword, label, icon, hint. */
+  /** Feature, keyword, label, icon, hint: a short example of what to type after it (2026-10-25, the user found
+   *  hints of every kind and length odd). */
   features: [Feature, string, string, string, string][];
-  /** Keyword, label, hint. */
-  noDate: [string, string, string];
-  /** On a task already made: label and hint of `sans date`, then of `répéter jamais`. */
+  /** `@tâche`: keyword, label (no hint: the label says it all). */
+  task: [string, string];
+  /** On a task already made, no hint (nothing to type): `deadline jamais`, without then with a repetition. */
   clearDue: [string, string];
-  clearRepeat: [string, string];
+  clearRepeat: string;
   never: string;
   more: string;
   days: string[];
@@ -714,13 +718,13 @@ interface Words {
 const L: Record<"fr" | "en", Words> = {
   fr: {
     features: [
-      ["due", "deadline", "Deadline", "flag", "à rendre pour…"],
-      ["block", "session", "Session", "clock", "bloquer du temps dans le calendrier"],
-      ["repeat", "répéter", "Répéter", "repeat", "chaque semaine, chaque lundi…"],
+      ["due", "deadline", "Deadline", "flag", "ven 14h"],
+      ["block", "session", "Session", "clock", "mar 14h-16h"],
+      ["repeat", "répéter", "Répéter", "repeat", "chaque lundi"],
     ],
-    noDate: ["sans date", "Transformer en tâche", "sans date pour l'instant"],
-    clearDue: ["Retirer la deadline", "et la répétition"],
-    clearRepeat: ["Ne plus répéter", "garde la deadline"],
+    task: ["tâche", "Créer la tâche"],
+    clearDue: ["Retirer la deadline", "Retirer la deadline et la répétition"],
+    clearRepeat: "Ne plus répéter",
     never: "jamais",
     more: "Autre chose (session, répétition…)",
     days: ["aujourd'hui", "demain", "après-demain", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"],
@@ -734,13 +738,13 @@ const L: Record<"fr" | "en", Words> = {
   },
   en: {
     features: [
-      ["due", "deadline", "Deadline", "flag", "due by…"],
-      ["block", "session", "Session", "clock", "block time in the calendar"],
-      ["repeat", "repeat", "Repeat", "repeat", "every week, every monday…"],
+      ["due", "deadline", "Deadline", "flag", "fri 2pm"],
+      ["block", "session", "Session", "clock", "tue 2pm-4pm"],
+      ["repeat", "repeat", "Repeat", "repeat", "every monday"],
     ],
-    noDate: ["no date", "Make it a task", "no date for now"],
-    clearDue: ["Remove the deadline", "and the repeat"],
-    clearRepeat: ["Stop repeating", "keeps the deadline"],
+    task: ["task", "Create the task"],
+    clearDue: ["Remove the deadline", "Remove the deadline and the repeat"],
+    clearRepeat: "Stop repeating",
     never: "never",
     more: "Something else (session, repeat…)",
     days: ["today", "tomorrow", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"],
@@ -760,7 +764,7 @@ const L: Record<"fr" | "en", Words> = {
  * (from `from`) is what an item replaces. `wantsDay`: the value still needs a day (a calendar picker helps; with a
  * time when `feature` is the deadline). Null
  * when the typing has left the grammar: the title goes on. `editing`: the `@` is on a task already made, with or
- * without a deadline and a repetition (taking them off is offered instead of "no date").
+ * without a deadline and a repetition (taking them off is offered instead of "Create the task").
  */
 export function suggestAt(
   typed: string,
@@ -797,19 +801,17 @@ export function suggestAt(
     }
     if (editing) {
       // Taking things off, ending the edit at once.
+      const dueOff = `${featureLabel("due")[1]} ${v.never}`;
       const repeatOff = `${featureLabel("repeat")[1]} ${v.never}`;
-      if (editing.due && fold(v.noDate[0]).startsWith(tail)) {
-        items.push({ kind: "accept", text: v.noDate[0], label: v.clearDue[0], icon: "circle-slash", hint: editing.repeat ? v.clearDue[1] : undefined });
+      if (editing.due && fold(dueOff).startsWith(tail)) {
+        items.push({ kind: "accept", text: dueOff, label: v.clearDue[editing.repeat ? 1 : 0], icon: "circle-slash" });
       }
       if (editing.repeat && fold(repeatOff).startsWith(tail)) {
-        items.push({ kind: "accept", text: repeatOff, label: v.clearRepeat[0], icon: "circle-slash", hint: v.clearRepeat[1] });
+        items.push({ kind: "accept", text: repeatOff, label: v.clearRepeat, icon: "circle-slash" });
       }
-    } else if (fold(v.noDate[0]).startsWith(tail) || !tail) {
-      items.push(
-        !tail
-          ? { kind: "accept", text: "", label: v.noDate[1], icon: "file-check", hint: v.noDate[2] }
-          : { kind: "insert", text: v.noDate[0], label: v.noDate[1], icon: "file-check", hint: v.noDate[2] },
-      );
+    } else if (fold(v.task[0]).startsWith(tail)) {
+      // Nothing to add after it: the line ends and becomes a task (a lone `@` is the same).
+      items.push({ kind: "accept", text: tail ? v.task[0] : "", label: v.task[1], icon: "file-check" });
     }
     if (tail && !items.length) return typingDate(tail) ? { from: 0, items: [dateHint(lang)], wantsDay: false } : null;
     return { from: 0, items, wantsDay: false };
@@ -821,6 +823,7 @@ export function suggestAt(
     complete.map((w) => w.f),
     today,
   );
+  if (parsed.used && !parsed.feature && !parsed.clear.length) return null; // `@tâche ` and the title goes on
   const feature = parsed.feature ?? "due";
   const keptCount = Math.max(parsed.used, start); // 0 with no keyword: maybe a date being typed ("15 oct")
   const kept = complete.slice(0, keptCount).map((w) => w.f);
@@ -854,6 +857,7 @@ export function suggestAt(
     if (!parsed.repeat) candidates.push(...v.repeats);
     candidates.push(...v.times);
   } else {
+    if (editing?.due && !parsed.moment && !parsed.clear.length) candidates.push(v.never);
     if (num) candidates.push(...v.hour(Number(num[1])));
     if (!parsed.moment?.day) candidates.push(...days());
     candidates.push(...v.times);

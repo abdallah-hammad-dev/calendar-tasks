@@ -93,7 +93,7 @@ export interface DateSuggestDeps {
 
 /**
  * The `@` assistant (spec §5.2): in a `- [ ]` line, `@` first offers what to add (deadline, time block, repeat,
- * no date), then values for it, read as they're typed. The ✓ item takes the text as it is and ends
+ * the task alone), then values for it, read as they're typed. The ✓ item takes the text as it is and ends
  * the line; "something else" starts another `@`. After the link of a task already made (`- [[Task]] @…`), the
  * same `@` changes that task, and ✓ applies it.
  */

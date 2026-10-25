@@ -79,12 +79,14 @@ describe("the @ grammar: days and times", () => {
     expect(findWhen("Rapport @31/02", TODAY)).toBeNull();
   });
 
-  it("takes a lone @, 'sans date' or a keyword without a value as a task without a date", () => {
+  it("takes a lone @, 'tâche' or a keyword without a value as a task without a date", () => {
     const none = { due: null, repeat: null, blocks: [] };
     expect(when("Acheter du lait @")).toEqual(none);
     expect(cut("Acheter @ du lait")).toBe("@");
-    expect(cut("Acheter du lait @sans date")).toBe("@sans date");
-    expect(when("Acheter du lait @no date")).toEqual({ ...none, clear: ["due", "repeat"] }); // on a task made, takes them off
+    expect(cut("Acheter du lait @tâche")).toBe("@tâche");
+    expect(when("Acheter du lait @task")).toEqual(none);
+    expect(findWhen("Acheter du lait @sans date", TODAY)).toBeNull(); // the old keyword is gone
+    expect(when("Acheter du lait @deadline jamais")).toEqual({ ...none, clear: ["due", "repeat"] }); // on a task made, takes them off
     expect(cut("Acheter du lait @deadline")).toBe("@deadline");
     expect(when("Acheter du lait @deadline")).toEqual(none);
   });
@@ -176,8 +178,15 @@ describe("suggestions while typing after @", () => {
     suggestAt(typed, TODAY, "fr")?.items.map((i) => (i.kind === "accept" ? `✓${i.label}` : i.kind === "more" ? "+" : i.label)) ?? null;
 
   it("first offers what to add", () => {
-    expect(items("")).toEqual(["Deadline", "Session", "Répéter", "✓Transformer en tâche"]);
+    expect(items("")).toEqual(["Deadline", "Session", "Répéter", "✓Créer la tâche"]);
     expect(items("se")).toEqual(["Session"]);
+    expect(items("tâ")).toEqual(["✓Créer la tâche"]);
+    // Every hint is a short example of what to type, and parses as one.
+    for (const lang of ["fr", "en"] as const) {
+      for (const i of suggestAt("", TODAY, lang)!.items) if (i.hint) expect(cut(`x @${i.text}${i.hint}`)).toBe(`@${i.text}${i.hint}`);
+    }
+    expect(suggestAt("ta", TODAY, "fr")!.items[0]!.text).toBe("tâche");
+    expect(items("tâche ")).toBeNull(); // nothing to add after it: the title goes on
   });
 
   it("offers shortcuts for a day or a repetition being typed", () => {
@@ -317,7 +326,8 @@ describe("changing a task already made", () => {
   });
 
   it("takes the deadline or the repetition off", () => {
-    expect(edit("@sans date", "2026-10-20")).toEqual({ due: null, repeat: null, blocks: [] });
+    expect(edit("@deadline jamais", "2026-10-20")).toEqual({ due: null, repeat: null, blocks: [] });
+    expect(edit("@due never", "2026-10-20")).toEqual({ due: null, repeat: null, blocks: [] });
     expect(edit("@répéter jamais", "2026-10-20")).toEqual({ repeat: null, blocks: [] });
     expect(edit("@repeat never", null)).toEqual({ repeat: null, blocks: [] });
   });
@@ -348,15 +358,17 @@ describe("changing a task already made", () => {
     expect(dateText("2026-10-20T14:00")).toBe("20/10/2026 14h");
   });
 
-  it("offers taking things off instead of \"no date\"", () => {
+  it("offers taking things off instead of \"Create the task\"", () => {
     const items = (typed: string, editing: { due: boolean; repeat: boolean }) =>
       suggestAt(typed, TODAY, "fr", editing)?.items.map((i) => (i.kind === "accept" ? `✓${i.label}` : i.label)) ?? null;
-    expect(items("", { due: true, repeat: true })).toEqual(["Deadline", "Session", "Répéter", "✓Retirer la deadline", "✓Ne plus répéter"]);
+    expect(items("", { due: true, repeat: true })).toEqual(["Deadline", "Session", "Répéter", "✓Retirer la deadline et la répétition", "✓Ne plus répéter"]);
     expect(items("", { due: true, repeat: false })).toEqual(["Deadline", "Session", "Répéter", "✓Retirer la deadline"]);
     expect(items("", { due: false, repeat: false })).toEqual(["Deadline", "Session", "Répéter"]);
     expect(items("répéter ", { due: true, repeat: true })![0]).toBe("jamais");
+    expect(items("deadline ", { due: true, repeat: false })![0]).toBe("jamais");
+    expect(items("deadline ", { due: false, repeat: false })).not.toContain("jamais");
     const off = suggestAt("", TODAY, "fr", { due: true, repeat: true })!.items.filter((i) => i.kind === "accept");
-    expect(off.map((i) => i.text)).toEqual(["sans date", "répéter jamais"]);
+    expect(off.map((i) => i.text)).toEqual(["deadline jamais", "répéter jamais"]);
   });
 });
 

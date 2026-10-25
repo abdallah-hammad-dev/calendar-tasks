@@ -131,12 +131,12 @@ user at each one.
 - **One trigger, `@`, one thing per `@`** (`src/editor/when.ts`). History: `>date`, then a free-form phrase
   after a single `@` ("@ven prévu mar chaque semaine"); the user found both confusing (2026-10-16) and asked for
   separate features. Now each `@` = keyword + value (`parseToken`): `@deadline`, `@session`, `@répéter`,
-  `@sans date`; shortcuts `@demain` (deadline) and `@chaque lundi` (repeat). `findWhen`
+  `@tâche`; shortcuts `@demain` (deadline) and `@chaque lundi` (repeat). `findWhen`
   combines every `@` of the line. `suggestAt` drives the assistant: features first, then values it keeps only if
   the parser accepts them.
 - **Changing a task already made** (asked 2026-10-17: "réediter en remettant arobase ou cliquant"): `@` after the
   link of a `- [[Task]]` line (`parseLinkLine` / `linkLineEdit`) uses the same grammar; `taskEdit` turns it into
-  field changes (a repetition alone keeps the deadline, `startOn` moves it to the rule's day; `@sans date` /
+  field changes (a repetition alone keeps the deadline, `startOn` moves it to the rule's day; `@deadline jamais` /
   `@répéter jamais` set `When.clear`). Applied on ✓ or when the line is left (`left-lines.ts` watches such lines).
   Clicking a chip opens `TaskModal` in edit mode at that field.
 - **No system dropdowns in forms** (the user found the blue Windows list ugly, 2026-10-17): `src/ui/menu-select.ts`
@@ -232,8 +232,11 @@ user at each one.
   without it, a tick queued while the phone moved the reminder sent it back. A rename anywhere →
   `refreshSettingsIfCalendarsChanged` → `pullAll` renames it in the notes.
 - **Task panel, not "To plan"** (2026-10-18): every open task with its number of time blocks (`tasksToPlan`),
-  "No time block" filter (`planUnplannedOnly`). The `@` menu's lone "Sans date" reads "Transformer en tâche"
-  (what it does: the line becomes a task note); the `@sans date` keyword is unchanged.
+  "No time block" filter (`planUnplannedOnly`). The `@` menu's entry for the task alone reads "Créer la tâche", no
+  hint (2026-10-25; "la suivre dans tes tâches" read oddly; "Transformer en tâche · sans date pour l'instant" made it sound like a lesser
+  task, the user: tracking it is the point). Its keyword is `@tâche` / `@task` (`TASK_WORDS`), which replaced
+  `@sans date` (asked the same day); taking the deadline off a task already made is `@deadline jamais`, like
+  `@répéter jamais`.
 - **Day preview in the task form** (`src/calendar/day-preview.ts`, 2026-10-18): a second FullCalendar
   (`timeGridDay`) wrapped in `.ct-calendar` so the calendar's event styles apply; `TaskModal` feeds it what's being
   placed (`refreshPreview(focus)`: `due`, `block:<i>`, `typed`). A drag adds a row to the slot list

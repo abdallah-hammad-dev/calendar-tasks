@@ -283,11 +283,15 @@ Implementation: CodeMirror 6 view plugin (Live Preview) + `registerMarkdownPostP
 
 - **A `- [ ]` line with a task marker becomes a task automatically** when the cursor leaves the line: the extension
   creates `<tasks folder>/Préparer slides.md` + its `VTODO`, and replaces the line with `- [[Préparer slides]]`.
-  The marker is `@` (the `@` grammar below), or `@` alone (a task with no date).
+  The marker is `@` (the `@` grammar below), or `@` alone (the task, no date).
 - **A line without a marker stays a small step**, unless I run "Convert to task" (command with a hotkey, also in
   the editor context menu; works on several selected lines).
 - **The `@` assistant** (decided 2026-10-16: one thing per `@`, the user found a free-form phrase confusing):
-  typing `@` in a checklist line first offers *what* to add: Deadline, Time block, Repeat, No date.
+  typing `@` in a checklist line first offers *what* to add: Deadline, Time block, Repeat, Create the task
+  (2026-10-25, the user: "Transformer en tâche · sans date pour l'instant" made it sound like a lesser task, when
+  tracking it is the point; it now says "Créer la tâche", with no hint ("la suivre dans tes tâches" read oddly), and writes `@tâche`). Beside each, a short example of what to type
+  after it (`ven 14h`, `mar 14h-16h`, `chaque lundi`); what needs nothing typed has none, its effect is in its name
+  (2026-10-25: hints of every kind and length, examples, descriptions, side effects, read oddly).
   Picking one writes its keyword and the list moves on to values for it (days, then times or time ranges; or
   repetitions), showing what they mean (🚩 / 🕒 / 🔁 / 📅). The ✓ item takes what's typed and ends the line, so the
   task converts at once; "Something else" starts another `@` on the same line; "Pick a date…" opens a month view
@@ -300,8 +304,9 @@ Implementation: CodeMirror 6 view plugin (Live Preview) + `registerMarkdownPostP
   stop making sense (the title goes on), the list closes.
 - **On a task already made** (`- [[Rapport]] @…`, the `@` after the link), the same assistant changes the task:
   a deadline replaces the old one, a time block is added, a repetition replaces the old one and keeps the deadline
-  (moved onto the rule's first day from it: `@chaque lundi` on a task due Tuesday → the Monday after). "No date"
-  is replaced by **Remove the deadline** (`@sans date`: deadline and repetition) and **Stop repeating**
+  (moved onto the rule's first day from it: `@chaque lundi` on a task due Tuesday → the Monday after). "Create
+  the task" is replaced by **Remove the deadline** (`@deadline jamais`: deadline and repetition, "Remove the deadline and the
+  repeat" when it repeats) and **Stop repeating**
   (`@répéter jamais`).
 - **Written in a task note**, it becomes a child task (`parent:` set). Anywhere else, a standalone task.
 - **Project**, first match wins:
@@ -325,8 +330,9 @@ Implementation: CodeMirror 6 view plugin (Live Preview) + `registerMarkdownPostP
   - `@répéter` / `@repeat` + a repetition: `chaque semaine`, `tous les 2 jours`, `chaque lundi et jeudi`,
     `en semaine`, `every month`… optionally + a time (`chaque lundi 7h`). **Shortcut**: a repetition straight after
     `@` (`@chaque lundi`). With no deadline, it starts on its first day from today.
-  - `@sans date` / `@no date`, `@` alone, or a keyword with no value: a task without a date. On a task already
-    made, `@sans date` removes its deadline and repetition, `@répéter jamais` / `@repeat never` its repetition.
+  - `@tâche` / `@task`, `@` alone, or a keyword with no value: the task alone, no date (2026-10-25: `@sans date`
+    was dropped, asked: a task without a date is a whole task). On a task already made, `@deadline jamais` /
+    `@deadline never` removes its deadline and repetition, `@répéter jamais` / `@repeat never` its repetition.
   - Days: `15/10` (day/month, the next one), `15/10/2027` or `15/10/27`, `2026-10-15`, `15 octobre`,
     `1er nov 2027`, `oct 15`, `demain` / `tomorrow`, `lun` / `mon` (next one), `lundi prochain`, `dans 3 jours` /
     `in 2 weeks`. While a date is being typed (`15/10/2`), the list stays open and says how to write one.
