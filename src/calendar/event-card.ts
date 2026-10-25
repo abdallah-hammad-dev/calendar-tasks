@@ -1,4 +1,4 @@
-import { Modal, setIcon, setTooltip, type App } from "obsidian";
+import { Menu, Modal, setIcon, setTooltip, type App } from "obsidian";
 import { t } from "../i18n";
 import { CALENDAR_COLORS } from "./calendars";
 import type { Occurrence } from "./expand";
@@ -19,8 +19,10 @@ export interface EventCardInfo {
   hasNote: boolean;
   /** Its last change made here: on the server, waiting to be pushed, or waiting while the server can't be reached. */
   sync: SyncState;
-  /** What its pencil opens: the event's form, or its task's (a deadline, a work session); null: no pencil. */
+  /** What its pencil opens: the form of an event or a work session, or a deadline's task's; null: no pencil. */
   edit: "event" | "task" | null;
+  /** A trash: an event or a work session that can change. */
+  remove: boolean;
 }
 
 export type SyncState = "synced" | "queued" | "offline";
@@ -66,8 +68,12 @@ export interface EventCardActions {
   rsvp(partstat: PartStat): void;
   /** The form: the event's, or its task's (`EventCardInfo.edit`). */
   edit(): void;
-  /** Every other action (delete…), in the context menu. */
-  more(evt: MouseEvent): void;
+  /** The form of the task a work session is for. */
+  editTask(): void;
+  /** Asks when to work on a deadline's task: a new work session. */
+  blockTime(): void;
+  /** Deletes the event (a series as a whole) when `all`, else only this occurrence. */
+  remove(all: boolean): void;
   /** New times typed in the card (a deadline has no end). */
   move(when: When): void;
   close(): void;
@@ -98,8 +104,9 @@ export function whenText(occ: Pick<Occurrence, "start" | "end" | "allDay">, lang
 
 /**
  * What a click on an event shows (spec §7.1): when, where, which calendar, the task it's for (a deadline can be
- * ticked here), the answer to an invitation, and a button to open its note. Its pencil opens the event's form (or
- * its task's); other actions are in "…".
+ * ticked here), the answer to an invitation, and a button to open its note. Every action is on it once, with no
+ * "…" menu repeating them: its pencil opens the form of what it shows (a deadline's is its task's), a deadline gets
+ * "Plan a session", what can change a trash; a work session's task line opens the task's form.
  */
 export function renderEventCard(el: HTMLElement, info: EventCardInfo, actions: EventCardActions): void {
   const { occ } = info;
@@ -111,13 +118,14 @@ export function renderEventCard(el: HTMLElement, info: EventCardInfo, actions: E
   const title = head.createDiv({ cls: "ct-card-title", text: occ.title });
   if (occ.kind === "deadline" && info.task?.done) title.addClass("is-done");
   const tools = head.createDiv({ cls: "ct-card-tools" });
-  const tool = (icon: string, label: string, run: (e: MouseEvent) => void) => {
+  const tool = (icon: string, label: string, run: (button: HTMLElement) => void) => {
     const b = tools.createEl("button", { cls: "clickable-icon", attr: { "aria-label": label } });
     setIcon(b, icon);
-    b.addEventListener("click", run);
+    b.addEventListener("click", () => run(b));
   };
-  if (info.edit) tool("pencil", info.edit === "task" ? t("card.editTask") : t("card.edit"), () => actions.edit());
-  tool("more-horizontal", t("card.more"), (e) => actions.more(e));
+  if (info.edit) tool("pencil", info.edit === "task" ? t("card.editTask") : occ.kind === "timeblock" ? t("card.editSession") : t("card.edit"), () => actions.edit());
+  if (occ.kind === "deadline" && info.task) tool("calendar-plus", t("card.blockTime"), () => actions.blockTime());
+  if (info.remove) tool("trash-2", t("card.delete"), (b) => deleteMenu(b, occ, actions));
   tool("x", t("modal.cancel"), () => actions.close());
 
   const rows = el.createDiv({ cls: "ct-card-rows" });
@@ -127,13 +135,15 @@ export function renderEventCard(el: HTMLElement, info: EventCardInfo, actions: E
     r.createSpan({ cls: "ct-card-text", text });
     return r;
   };
+  /** A line that changes what it shows on a click, its pencil at the end. */
+  const editable = (r: HTMLElement, label: string, run: () => void) => {
+    r.addClass("is-editable");
+    setIcon(r.createSpan({ cls: "ct-card-edit" }), "pencil");
+    setTooltip(r, label);
+    r.addEventListener("click", run);
+  };
   const when = row(occ.kind === "deadline" ? "flag" : "clock", `${occ.kind === "deadline" ? `${t("card.deadline")} · ` : ""}${whenText(occ, info.lang)}`);
-  if (info.editable) {
-    when.addClass("is-editable");
-    setIcon(when.createSpan({ cls: "ct-card-edit" }), "pencil");
-    setTooltip(when, t("card.editTime"));
-    when.addEventListener("click", () => editWhen(when, occ, actions));
-  }
+  if (info.editable) editable(when, t("card.editTime"), () => editWhen(when, occ, actions));
   if (occ.recurring) row("repeat", t("card.repeats"));
   if (occ.meeting) {
     const url = occ.meeting.url;
@@ -145,9 +155,7 @@ export function renderEventCard(el: HTMLElement, info: EventCardInfo, actions: E
   if (occ.location) row("map-pin", occ.location);
   if (info.calendar) row("calendar", info.calendar.name);
   if (occ.kind === "timeblock" && info.task) {
-    const r = row("check-square", `${t("card.blockFor")} ${info.task.title}`);
-    r.addClass("is-link");
-    r.addEventListener("click", () => actions.open());
+    editable(row("check-square", `${t("card.blockFor")} ${info.task.title}`), t("card.editTask"), () => actions.editTask());
   }
   if (occ.kind === "deadline" && info.task) {
     const r = rows.createEl("label", { cls: "ct-card-row ct-card-check" });
@@ -198,6 +206,23 @@ export function renderEventCard(el: HTMLElement, info: EventCardInfo, actions: E
   setIcon(open.createSpan({ cls: "ct-card-open-icon" }), label.icon);
   open.createSpan({ text: label.text });
   open.addEventListener("click", () => actions.open());
+}
+
+/** The trash's choices under it: a second click, so a slip deletes nothing. A series: this occurrence, or all of it. */
+function deleteMenu(button: HTMLElement, occ: Occurrence, actions: EventCardActions): void {
+  const menu = new Menu();
+  if (occ.recurring && occ.recurrenceId) {
+    menu.addItem((i) => i.setTitle(t("menu.deleteOccurrence")).setIcon("trash").onClick(() => actions.remove(false)));
+  }
+  menu.addItem((i) =>
+    i
+      .setTitle(t(occ.recurring ? "menu.deleteSeries" : "menu.delete"))
+      .setIcon("trash-2")
+      .setWarning(true)
+      .onClick(() => actions.remove(true)),
+  );
+  const at = button.getBoundingClientRect();
+  menu.showAtPosition({ x: at.left, y: at.bottom + 4 });
 }
 
 /** The card's time line becomes start and end fields, to the minute: Save (or Enter) moves the event there. */

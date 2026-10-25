@@ -251,8 +251,13 @@ user at each one.
   `datetime-local`. Inputs that show their name carry no `aria-label`: Obsidian shows it as a tooltip on hover.
 - **Editing from the calendar** (2026-10-23, the user: reopen an event to edit it precisely, and the task's edit
   button on deadlines and sessions): the card's pencil (`EventCardInfo.edit`, `CalendarView.editKind`) opens the
-  task's form for a deadline or a work session whose task has a note (`host.editTask`), else the event form filled
-  in (`host.editEvent` → `main.editEventOptions`, popover kind `"edit"` at the event, `editing` keeps it marked).
+  form of what the card shows: the task's for a deadline whose task has a note (`host.editTask`), else the event
+  form filled in, a work session's too (`host.editEvent` → `main.editEventOptions`, popover kind `"edit"` at the
+  event, `editing` keeps it marked); a work session's task line (`is-editable`, like the time line) opens the
+  task's form. **No "…" on the card** (2026-10-24, the user: it repeated the card "sauf 1"): each action is on it
+  once, so a trash (`EventCardInfo.remove`; `deleteMenu` under it confirms, a series offers one occurrence or all,
+  `host.remove` → `main.removeOccurrence`, shared with the right-click menu) and, on a deadline, "Plan a session"
+  (`host.pickSlotFor`). The right-click menu (`host.menu`) keeps everything as the shortcut.
   The menu has "Edit…" / "Edit the session…" (it replaced "Rename…" and `TextModal`) and "Edit the task…" on
   sessions too. `saveEventForm` writes only the fields that changed (a place that was only a meeting link shows
   empty and stays unless something is typed); a series' occurrence has no Collection row (`edit.series`). The

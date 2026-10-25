@@ -64,6 +64,10 @@ export interface CalendarHost {
   editEvent(occ: Occurrence): EventFormOptions | null;
   /** The task form, on a deadline's or a work session's task. */
   editTask(uid: string): void;
+  /** Ask when to block time for a deadline's task (its card). */
+  pickSlotFor(uid: string): void;
+  /** Deletes an event or a work session (its card's trash): the whole item when `all`, else only this occurrence. */
+  remove(occ: Occurrence, all: boolean): void;
   /** Every action on an occurrence (edit, delete, answer…), as a menu at the mouse; `edit` opens its form here. */
   menu(occ: Occurrence, evt: MouseEvent, edit: () => void): void;
   /** The task a deadline or time block is for. */
@@ -1049,10 +1053,13 @@ export class CalendarView extends ItemView {
     window.setTimeout(() => input.focus(), 0);
   }
 
-  /** What an occurrence's pencil opens: its task's form (deadline, work session), else the event's if it can change. */
+  /**
+   * What an occurrence's pencil opens: the form of what its card shows, an event's or a work session's (whose task
+   * has its own line in the card), a deadline's task's.
+   */
   private editKind(occ: Occurrence): EventCardInfo["edit"] {
-    if (occ.kind !== "event" && occ.taskUid && this.host.task(occ.taskUid)) return "task";
-    return occ.kind !== "deadline" && this.host.editable(occ) ? "event" : null;
+    if (occ.kind === "deadline") return occ.taskUid && this.host.task(occ.taskUid) ? "task" : null;
+    return this.host.editable(occ) ? "event" : null;
   }
 
   /** An event's card: beside it on a computer, in a modal on a phone. */
@@ -1069,7 +1076,18 @@ export class CalendarView extends ItemView {
         if (this.editKind(o) === "task") this.host.editTask(o.taskUid!);
         else this.editEvent(o);
       },
-      more: (e) => this.host.menu(o, e, () => this.editEvent(o)),
+      editTask: () => {
+        close();
+        if (o.taskUid) this.host.editTask(o.taskUid);
+      },
+      blockTime: () => {
+        close();
+        if (o.taskUid) this.host.pickSlotFor(o.taskUid);
+      },
+      remove: (all) => {
+        close();
+        this.host.remove(o, all);
+      },
       move: (w) => {
         close();
         void this.host.move(o, localDate(w.start), w.end === null ? null : localDate(w.end), w.allDay);
@@ -1131,6 +1149,7 @@ export class CalendarView extends ItemView {
       hasNote: this.host.hasNote(occ),
       sync: this.host.syncState(occ),
       edit: this.editKind(occ),
+      remove: occ.kind !== "deadline" && this.host.editable(occ),
     };
   }
 

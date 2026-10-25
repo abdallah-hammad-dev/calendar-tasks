@@ -144,8 +144,9 @@ shown or hidden from the legend.
 - **Deadlines** carry a flag (red once missed, ↻ when the task repeats); **time blocks** are dashed.
 - **Click** an event for its card: open its note (created in `Calendar/` as `YYYY-MM-DD Title.md`), or its pencil
   to change it in a form (title, times to the minute, place, collection, the task it's a session for; one
-  occurrence of a recurring event changes on its own). On a deadline or a work session, the pencil opens the
-  task's form.
+  occurrence of a recurring event changes on its own), or its trash to delete it (one occurrence or the whole
+  series). On a work session, its task's line opens the task's form; on a deadline, the pencil opens the task's
+  form and the calendar button plans a session.
 - **Drag or resize** an event to move it (one occurrence of a recurring event moves on its own). Dragging a
   deadline changes the task's due date.
 - **Select a range** to create an event, or a work session for a task.

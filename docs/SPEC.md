@@ -515,12 +515,17 @@ popovers.
 - **Click** shows the event's card beside it (a modal on phones): when, ↻, place, collection, the task it's a time
   block for, a checkbox for a deadline's task, Accept / Maybe / Decline for an invitation (and where my answer stands, §4.6), "Create the note" while
   the event has none (notes are made on first open, §4.3; 2026-10-19), then "Open the note" (or "Open the task"; the
-  right-click menu says the same), a pencil, and "…" for the other actions (the right-click menu); while its time is being changed, Save is the only
-  main button. **The pencil** (2026-10-23, asked: "rouvrir un événement… un bouton pour l'éditer de manière plus
-  précise", and the task's edit button on deadlines and sessions): on an event, the new event form again, filled in
-  ("Edit the event", Save), beside it in place of the card (a modal on phones), the event marked as with its card;
-  on a deadline or a work session, the task's form (§5.3). A work session's own form is in its menu ("Edit the
-  session…"; "Edit…" for an event; it replaces "Rename…"). Only what the form changed is written, in place (§6.2);
+  right-click menu says the same); while its time is being changed, Save is the only main button. **Every action is
+  on the card once** (2026-10-24, the user: the "…" button "remet des trucs qui sont déjà là sauf 1"; it was the
+  right-click menu, which stays as the shortcut): beside ×, a pencil (below), a trash on what can change (a menu
+  under it confirms: "Delete", or for a series "Delete this occurrence" / "Delete the whole series"), and on a
+  deadline "Plan a session" (the slot picker; its deadline changes from its time line). **The pencil** (2026-10-23,
+  asked: "rouvrir un événement… un bouton pour l'éditer de manière plus précise", and the task's edit button on
+  deadlines and sessions): the form of what the card shows, beside it in place of the card (a modal on phones), the
+  event marked as with its card: an event's or a work session's ("Edit the event", Save; "Edit…" / "Edit the
+  session…" in the menu, which replaced "Rename…"), a deadline's task's (§5.3). A work session's task is changed from
+  its line in the card ("Session pour …", a pencil at its end like the time line; the menu's "Edit the task…" too).
+  Only what the form changed is written, in place (§6.2);
   one occurrence of a series changes alone (an exception, as dragging does), so its form has no Collection (the
   series is one item); another collection = the event created there, then deleted here. Invitations, mirrored
   events and read-only collections get no pencil. The card is drawn again when the data changes (an answer pushed, a sync), and closes only if its

@@ -165,6 +165,8 @@ function calendar(view: "timeGridWeek" | "dayGridMonth" | "listWeek", inTab = fa
     }),
     editTask: (uid) => ((window as unknown as { __editTask: string }).__editTask = uid),
     menu: () => undefined,
+    pickSlotFor: (uid) => ((window as unknown as { __pickSlot: string }).__pickSlot = uid),
+    remove: (o, all) => ((window as unknown as { __removed: string }).__removed = `${o.title}|${all ? "all" : "one"}`),
     planTasks: () => [
       { path: "a", title: "Envoyer le devis", priority: "high", due: { text: "14 oct.", overdue: true }, blocks: 0 },
       { path: "d", title: "Préparer slides", priority: "medium", due: { text: "15 oct.", overdue: false }, blocks: 2 },

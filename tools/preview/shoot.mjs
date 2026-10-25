@@ -512,13 +512,49 @@ async function editing(page, errors, theme) {
   await pencil.click().catch(() => errors.push("no pencil on an occurrence of a series"));
   await page.waitForTimeout(200);
   if (await page.locator(".ct-popover-edit .ct-form-name:has-text('Collection')").count()) errors.push("an occurrence of a series can't change collection alone");
-  for (const [text, cls] of [["Préparer slides", "ct-ev-timeblock"], ["Préparer slides", "ct-ev-deadline"]]) {
-    await page.evaluate(() => (window.__editTask = ""));
-    pencil = await card(text, cls);
-    const label = await pencil.getAttribute("aria-label").catch(() => "");
-    if (label !== "Modifier la tâche") errors.push(`a ${cls}'s pencil should edit its task, says "${label}"`);
-    await pencil.click().catch(() => undefined);
-    if ((await page.evaluate(() => window.__editTask)) !== "t1") errors.push(`a ${cls}'s pencil should open its task's form`);
+  const tools = () => page.locator(".ct-popover.ct-card .ct-card-tools button").evaluateAll((bs) => bs.map((b) => b.getAttribute("aria-label")).join(", "));
+  // A work session: its pencil is its own form; the line of its task, the task's.
+  await page.evaluate(() => (window.__editTask = ""));
+  pencil = await card("Préparer slides", "ct-ev-timeblock");
+  let label = await tools();
+  if (label !== "Modifier la session, Supprimer, Annuler") errors.push(`a work session's card tools: "${label}"`);
+  const taskLine = page.locator(".ct-popover.ct-card .ct-card-row.is-editable:has-text('Session pour')");
+  await page.screenshot({ path: join(out, `calendar-card-session-${theme}.png`) });
+  await taskLine.click().catch(() => errors.push("no task line to edit in a work session's card"));
+  if ((await page.evaluate(() => window.__editTask)) !== "t1") errors.push("a work session's task line should open its task's form");
+  pencil = await card("Préparer slides", "ct-ev-timeblock");
+  await pencil.click().catch(() => undefined);
+  await page.waitForTimeout(200);
+  const session = await page.locator(".ct-popover-edit .ct-task-title-input").inputValue().catch(() => "");
+  if (session !== "Préparer slides") errors.push(`a work session's pencil should open its own form, got "${session}"`);
+  // A deadline: its task's form, and a session to plan.
+  await page.evaluate(() => ((window.__editTask = ""), (window.__pickSlot = "")));
+  pencil = await card("Préparer slides", "ct-ev-deadline");
+  label = await tools();
+  if (label !== "Modifier la tâche, Planifier une session, Annuler") errors.push(`a deadline's card tools: "${label}"`);
+  await page.screenshot({ path: join(out, `calendar-card-deadline-${theme}.png`) });
+  await pencil.click().catch(() => undefined);
+  if ((await page.evaluate(() => window.__editTask)) !== "t1") errors.push("a deadline's pencil should open its task's form");
+  await card("Préparer slides", "ct-ev-deadline");
+  await page.locator(".ct-popover.ct-card .ct-card-tools button:has(.lucide-calendar-plus)").click().catch(() => undefined);
+  if ((await page.evaluate(() => window.__pickSlot)) !== "t1") errors.push("a deadline's Planifier une session should ask for a slot");
+  // The trash asks again under it: an event, then a series (this occurrence or all of it).
+  for (const [text, items, pick, removed] of [
+    ["Café avec Léa et Sam", "Supprimer", 0, "Café avec Léa et Sam|all"],
+    ["Point Olera", "Supprimer cette occurrence, Supprimer toute la série", 0, "Point Olera|one"],
+  ]) {
+    await page.evaluate(() => (window.__removed = ""));
+    await card(text, "ct-ev-event");
+    if (await page.locator(".ct-popover.ct-card .lucide-more-horizontal").count()) errors.push(`"${text}"'s card still has a "…"`);
+    await page.locator(".ct-popover.ct-card .ct-card-tools button:has(.lucide-trash-2)").click().catch(() => errors.push(`no trash on "${text}"`));
+    await page.waitForTimeout(100);
+    const shown = await page.locator(".menu .menu-item-title").evaluateAll((els) => els.map((e) => e.textContent).join(", "));
+    if (shown !== items) errors.push(`"${text}"'s trash offers "${shown}"`);
+    if (text === "Point Olera") await page.screenshot({ path: join(out, `calendar-card-delete-${theme}.png`) });
+    if (await page.evaluate(() => window.__removed)) errors.push("the trash deleted before its choice");
+    await page.locator(".menu .menu-item").nth(pick).click().catch(() => undefined);
+    if ((await page.evaluate(() => window.__removed)) !== removed) errors.push(`"${text}"'s trash removed "${await page.evaluate(() => window.__removed)}"`);
+    await page.evaluate(() => document.querySelectorAll(".menu").forEach((m) => m.remove()));
   }
 }
 

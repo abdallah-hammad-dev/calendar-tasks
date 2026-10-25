@@ -751,6 +751,12 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
         const path = this.taskNotePath(uid);
         if (path) this.editTask(path, null);
       },
+      pickSlotFor: (uid) => {
+        const path = this.taskNotePath(uid);
+        if (path) this.pickSlot(path);
+      },
+      remove: (occ, all) =>
+        void this.removeOccurrence(occ, all).catch((e: unknown) => new Notice(t("error.write", { error: e instanceof Error ? e.message : String(e) }))),
       menu: (occ, evt, edit) => this.occurrenceMenu(occ, evt, edit),
       planTasks: () => {
         const now = new Date();
@@ -1043,26 +1049,28 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
         );
       }
     }
-    if (changeable && data) {
+    if (changeable) {
       menu.addSeparator();
       if (occ.recurring && occ.recurrenceId) {
-        const rid = occ.recurrenceId;
-        menu.addItem((i) =>
-          i
-            .setTitle(t("menu.deleteOccurrence"))
-            .setIcon("trash")
-            .onClick(run(() => this.saveEvent(occ.calendarUrl, occ.itemUrl, cancelOccurrence(data, rid)))),
-        );
+        menu.addItem((i) => i.setTitle(t("menu.deleteOccurrence")).setIcon("trash").onClick(run(() => this.removeOccurrence(occ, false))));
       }
       menu.addItem((i) =>
         i
           .setTitle(occ.recurring ? t("menu.deleteSeries") : t("menu.delete"))
           .setIcon("trash-2")
           .setWarning(true)
-          .onClick(run(() => this.deleteEvent(occ.itemUrl))),
+          .onClick(run(() => this.removeOccurrence(occ, true))),
       );
     }
     menu.showAtMouseEvent(evt);
+  }
+
+  /** Deletes an event or a work session: the whole item (a series as a whole) when `all`, else this occurrence. */
+  private async removeOccurrence(occ: Occurrence, all: boolean): Promise<void> {
+    const data = this.sync?.item(occ.itemUrl)?.data;
+    if (!data) return;
+    if (all || !occ.recurrenceId) await this.deleteEvent(occ.itemUrl);
+    else await this.saveEvent(occ.calendarUrl, occ.itemUrl, cancelOccurrence(data, occ.recurrenceId));
   }
 
   /** My answer to an invitation (spec §4.6): written on the server, relayed by the backend. */
