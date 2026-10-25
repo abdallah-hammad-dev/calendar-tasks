@@ -20,8 +20,6 @@ export interface CalendarTasksSettings {
   /** The day in event note names: "13-10-2026" by default. */
   eventDateFormat: EventDateFormat;
   taskBaseFile: string;
-  /** Without the leading `#`. */
-  projectTag: string;
   syncIntervalMinutes: number;
   reminderNoteLink: boolean;
   /** Lowercase. Fallback when the server doesn't advertise `calendar-user-address-set`. */
@@ -50,7 +48,6 @@ export const DEFAULT_SETTINGS: CalendarTasksSettings = {
   eventsFolder: "Calendar",
   eventDateFormat: "DD-MM-YYYY",
   taskBaseFile: "Tasks.base",
-  projectTag: "project",
   syncIntervalMinutes: 5,
   reminderNoteLink: true,
   myAddresses: [],
@@ -89,7 +86,6 @@ export function mergeSettings(saved: unknown): CalendarTasksSettings {
     eventsFolder: path("eventsFolder"),
     eventDateFormat: EVENT_DATE_FORMATS.find((f) => f === s.eventDateFormat) ?? DEFAULT_SETTINGS.eventDateFormat,
     taskBaseFile: path("taskBaseFile"),
-    projectTag: str("projectTag")?.replace(/^#+/, "") || DEFAULT_SETTINGS.projectTag,
     syncIntervalMinutes:
       Number.isFinite(interval) && interval >= 1 ? Math.round(interval) : DEFAULT_SETTINGS.syncIntervalMinutes,
     reminderNoteLink: typeof s.reminderNoteLink === "boolean" ? s.reminderNoteLink : DEFAULT_SETTINGS.reminderNoteLink,
@@ -179,11 +175,6 @@ export class SettingsTab extends PluginSettingTab {
             name: t("settings.regenerateBase"),
             desc: t("settings.regenerateBase.desc"),
             action: () => this.host.regenerateTaskBase(),
-          },
-          {
-            name: t("settings.projectTag"),
-            desc: t("settings.projectTag.desc"),
-            control: { type: "text", key: "projectTag", placeholder: DEFAULT_SETTINGS.projectTag },
           },
           {
             name: t("settings.reminderNoteLink"),

@@ -10,7 +10,8 @@ export interface TaskHeaderModel {
   due: { text: string; overdue: boolean } | null;
   /** "chaque lundi"… */
   repeat: string | null;
-  project: { name: string; path: string } | null;
+  /** Its tags, without "#". */
+  tags: string[];
   parent: { name: string; path: string } | null;
   /** "2/5" child tasks done. */
   progress: string | null;
@@ -31,7 +32,7 @@ export interface TaskHeaderModel {
 export interface TaskHeaderActions {
   toggle(): void;
   edit(focus: EditFocus): void;
-  /** Opens a note (the project, the parent task). */
+  /** Opens a note (the parent task). */
   open(path: string): void;
   /** Adds a time block. */
   block(): void;
@@ -46,7 +47,7 @@ export interface TaskHeaderLabels {
   deadline: string;
   addBlock: string;
   repeat: string;
-  project: string;
+  tags: string;
   parent: string;
   progress: string;
   history: string;
@@ -58,7 +59,7 @@ export interface TaskHeaderLabels {
 }
 
 /**
- * The bar above a task note: its checkbox and what it holds (priority, deadline, repetition, time blocks, project, parent,
+ * The bar above a task note: its checkbox and what it holds (priority, deadline, repetition, time blocks, tags, parent,
  * progress), each clickable, instead of the raw properties. Only what it has: the pencil adds the rest.
  */
 export function renderTaskHeader(model: TaskHeaderModel, actions: TaskHeaderActions, labels: TaskHeaderLabels): HTMLElement {
@@ -103,9 +104,11 @@ export function renderTaskHeader(model: TaskHeaderModel, actions: TaskHeaderActi
       add.addEventListener("click", () => actions.block());
     }
   }
-  if (model.project) {
-    const path = model.project.path;
-    item("folder", model.project.name, labels.project, () => actions.open(path), "is-link");
+  if (model.tags.length) {
+    // All in one item, as one field.
+    const el = inner.createEl("button", { cls: "ct-task-header-item ct-task-header-tags", text: model.tags.map((tag) => `#${tag}`).join(" ") });
+    setTooltip(el, labels.tags);
+    el.addEventListener("click", () => actions.edit("tags"));
   }
   if (model.parent) {
     const path = model.parent.path;

@@ -10,7 +10,7 @@ describe("task note frontmatter", () => {
         done: true,
         due: "2026-10-15 14:00",
         repeat: "every week",
-        project: "[[Olera]]",
+        tags: ["famille", "#urgent", "Famille", "2026"],
         created: "2026-10-01 09:30",
         caldav_uid: "u",
         collection: " Pro ",
@@ -20,7 +20,7 @@ describe("task note frontmatter", () => {
       due: "2026-10-15T14:00",
       repeat: "FREQ=WEEKLY",
       priority: null,
-      project: "Olera",
+      tags: ["famille", "urgent"],
       parent: null,
       created: "2026-10-01T09:30",
       completed: null,
@@ -101,13 +101,13 @@ describe("taskBaseFile", () => {
       completed: "Faite le",
       todo: "À faire",
       noDue: "Sans deadline",
-      byProject: "Par projet",
+      byTag: "Par tag",
       done: "Terminées",
     });
     expect(yaml).toContain(`- 'type == "task"'`);
     expect(yaml).toContain('name: "À faire"');
 
-    expect(yaml).toContain("groupBy:\n      property: project");
+    expect(yaml).toContain("groupBy:\n      property: tags");
     // Sorted by deadline, then the most urgent: priority is text, so through a number.
     expect(yaml).toContain(`urgency: 'if(priority == "high" || priority == "haute", 1, if(`);
     expect(yaml).toContain("- property: formula.urgency");

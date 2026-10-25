@@ -59,9 +59,9 @@ export class TaskConverter {
       repeat: plan.repeat,
       priority: null,
       uid: null,
-      projectPath: plan.project,
+      tags: plan.tags,
       parentPath: plan.parent,
-      collection: null, // TaskSync picks it (parent's, project's or the default) and writes it
+      collection: null, // TaskSync picks it (the parent's or the default) and writes it
       created: null, // TaskSync writes it with the reminder
       completed: null,
       completions: [],

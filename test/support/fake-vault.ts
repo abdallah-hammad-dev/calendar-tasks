@@ -3,20 +3,17 @@ import type { NoteRef, VaultPort } from "../../src/tasks/TaskSync";
 interface FakeFile {
   fm: Record<string, unknown> | null;
   body: string;
-  tags: string[];
 }
 
 const basename = (path: string) => path.split("/").pop()!.replace(/\.md$/, "");
 
-/** In-memory vault: wiki-link resolution by path or name, project tags, and link updates on rename. */
+/** In-memory vault: wiki-link resolution by path or name, and link updates on rename. */
 export class FakeVault implements VaultPort {
   files = new Map<string, FakeFile>();
   /** Notes whose frontmatter reads as it was (`lag`) until `catchUp`, as Obsidian re-parses a note after writing it. */
   private parsed = new Map<string, Record<string, unknown> | null>();
-  constructor(private readonly projectTag = "project") {}
-
-  add(path: string, fm: Record<string, unknown> | null, opts: { body?: string; tags?: string[] } = {}): void {
-    this.files.set(path, { fm: fm ? structuredClone(fm) : null, body: opts.body ?? "", tags: opts.tags ?? [] });
+  add(path: string, fm: Record<string, unknown> | null, opts: { body?: string } = {}): void {
+    this.files.set(path, { fm: fm ? structuredClone(fm) : null, body: opts.body ?? "" });
   }
   fm(path: string): Record<string, unknown> | null | undefined {
     return this.files.get(path)?.fm;
@@ -47,13 +44,6 @@ export class FakeVault implements VaultPort {
   linkText(path: string): string {
     const name = basename(path);
     return [...this.files.keys()].filter((p) => basename(p) === name).length > 1 ? path.replace(/\.md$/, "") : name;
-  }
-  isProject(path: string): boolean {
-    return this.files.get(path)?.tags.includes(this.projectTag) ?? false;
-  }
-  findProject(name: string): NoteRef | null {
-    const path = [...this.files.keys()].find((p) => basename(p) === name && this.isProject(p));
-    return path ? this.getNote(path) : null;
   }
   exists(path: string): boolean {
     return this.files.has(path);

@@ -3,7 +3,7 @@
 Your CalDAV calendar and tasks inside Obsidian, in sync with Apple Calendar and Reminders (or any CalDAV client):
 
 - **every task is a note**, synced as a reminder, and shows up as a checkbox wherever you mention it;
-- **write a task anywhere**: `- [ ] Prepare slides @friday 2pm [[My project]]` becomes a task note;
+- **write a task anywhere**: `- [ ] Prepare slides @friday 2pm #work` becomes a task note;
 - **the list of all your tasks** is a native [Bases](https://obsidian.md/help/bases) view;
 - **a calendar view** with your events, task deadlines, work sessions and invitations;
 - **every event can have a note**, created when you open it (one per occurrence for recurring events);
@@ -52,7 +52,7 @@ type: task
 done: false               # tick it here, in the task list, or on the phone
 due: 2026-10-15           # the deadline, or 2026-10-15T14:00 (your local time). Optional
 repeat: every monday      # optional: every day, every 2 weeks, every weekday, every month…
-project: "[[My project]]" # optional
+tags: [work, urgent]      # optional: Obsidian's own tags
 parent: "[[Parent task]]" # only for a sub-task with its own deadline
 created: 2026-10-21T14:05 # when the task was made, set by the extension
 completed: 2026-10-25T14:32 # when it was ticked (here or on the phone); goes if it's unticked
@@ -67,7 +67,7 @@ a *time block*, an event in your calendar linked to the task (see below).
 **Write a task in any note** as a checklist line with an `@`. Each `@` adds one thing:
 
 ```markdown
-- [ ] Prepare slides @friday 2pm [[My project]]        ← deadline (a day right after @)
+- [ ] Prepare slides @friday 2pm #work                 ← deadline (a day right after @), a tag
 - [ ] Write the report @fri @session tue 2pm-4pm       ← deadline + time blocked on Tuesday
 - [ ] Gym @repeat every monday and thursday 7am        ← repeats
 - [ ] Move house @session mon to wed                   ← whole days blocked
@@ -92,11 +92,11 @@ and creates the task; *Something else* adds another `@`.
   you tick it is kept in `completions`; the note's bar lists the last days faintly, and a click lists them all.
 
 A pasted task line is converted at once (except the one the cursor ends on). **Only lines with an `@` become
-tasks**: a tracked task shows as a link with a checkbox and chips (dates, repetition, project, sync state); a
+tasks**: a tracked task shows as a link with a checkbox and chips (dates, repetition, tags, sync state); a
 plain `- [ ]` line stays an ordinary checklist item that lives only in its note.
 
 **A task note** opens with a bar on top that stays while you scroll: its checkbox, deadline, repetition, next time
-block, project, sub-task progress. Click any of them to change it. The raw properties (ids and such) are hidden; the
+block, tags, sub-task progress. Click any of them to change it. The raw properties (ids and such) are hidden; the
 list icon in the bar shows them.
 
 **Changing a task**: click one of its chips (or the pencil that shows when you hover the line) to open its form,
@@ -104,7 +104,7 @@ or type `@` after its link: `- [[Write the report]] @mon` moves the deadline, `@
 block, `@repeat never` stops the repetition, `@deadline never` removes the deadline. ✓ applies it and cleans the line.
 
 **The New task button** (ribbon, command palette, or the calendar's *+ New task*) opens a form: title, deadline,
-time blocks, repetition, project. Dates are typed the same way (`fri 2pm`, `tue 2pm-4pm`) or picked from a calendar
+time blocks, repetition, priority, tags (your vault's tags are suggested as you type). Dates are typed the same way (`fri 2pm`, `tue 2pm-4pm`) or picked from a calendar
 (with a time for the deadline, from / to for a time block). Time blocks are listed: *to add* until you save, then
 *planned*.
 
@@ -113,15 +113,17 @@ time blocks, repetition, project. Dates are typed the same way (`fri 2pm`, `tue 
 calendar, the *To plan* panel lists open tasks with no time block ahead: drag one onto a time slot (an hour, then
 resize it) or a day (all day), or click it to type a slot.
 
-**Projects**: a project is any note with the project tag (default `#project`). A task's project is, in order: a
-link to a project on the line, the project note you're writing in, the `project` of the note you're writing in
-(e.g. a meeting note), or the parent task's project. It's sent to the server as a category.
+**Tags** group tasks: `#family` on a task line goes into the note's `tags` (Obsidian's own, so the tag pane and
+search see them) and leaves the title. Only the line's tags count: a task written in a `#family` note doesn't get
+it. They're sent to the server as the reminder's categories, and categories added elsewhere come back as tags.
 
 **Sub-tasks**: a task written inside a task note becomes its child (`parent`). The iPhone shows them flat.
 
 **The task list** is the Bases file written on first run (default `Tasks.base`), with *To do*,
-*No deadline* (newest first), *By project* and *Done* (the last ones done first) views. It's yours afterwards; *Regenerate the task list* in
-the settings rewrites it with the default views (it asks first). To list the tasks of a project inside its note, embed a base:
+*No deadline* (newest first), *By tag* and *Done* (the last ones done first) views. It's yours afterwards; *Regenerate the task list* in
+the settings rewrites it with the default views (it asks first). *By tag* groups by the whole list (a task tagged
+`#family` and `#urgent` is a group of its own, as Bases does it); for one tag, filter on `file.hasTag("family")`.
+To list the tasks a note links to (or that link to it) inside that note, embed a base:
 
 ````markdown
 ```base

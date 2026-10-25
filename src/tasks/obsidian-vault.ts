@@ -1,12 +1,9 @@
-import { getAllTags, normalizePath, stringifyYaml, TFolder, type App, type TFile } from "obsidian";
+import { normalizePath, stringifyYaml, TFolder, type App, type TFile } from "obsidian";
 import type { NoteRef, VaultPort } from "./TaskSync";
 
 /** VaultPort on Obsidian's documented APIs. Writes go through `fileManager` so links stay up to date. */
 export class ObsidianVault implements VaultPort {
-  constructor(
-    private readonly app: App,
-    private readonly projectTag: () => string,
-  ) {}
+  constructor(private readonly app: App) {}
 
   allNotes(): NoteRef[] {
     return this.app.vault.getMarkdownFiles().map((f) => this.ref(f));
@@ -29,19 +26,6 @@ export class ObsidianVault implements VaultPort {
     const name = path.replace(/\.md$/, "");
     const base = name.slice(name.lastIndexOf("/") + 1);
     return this.app.metadataCache.getFirstLinkpathDest(base, from) ? name : base;
-  }
-
-  isProject(path: string): boolean {
-    const f = this.app.vault.getFileByPath(path);
-    const cache = f && this.app.metadataCache.getFileCache(f);
-    if (!cache) return false;
-    const want = `#${this.projectTag()}`.toLowerCase();
-    return (getAllTags(cache) ?? []).some((t) => t.toLowerCase() === want);
-  }
-
-  findProject(name: string): NoteRef | null {
-    const f = this.app.vault.getMarkdownFiles().find((x) => x.basename === name && this.isProject(x.path));
-    return f ? this.ref(f) : null;
   }
 
   exists(path: string): boolean {

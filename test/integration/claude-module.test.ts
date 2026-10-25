@@ -16,7 +16,7 @@ const available = existsSync(new URL("server/mcp.js", CW));
 const services: CalendarServices = {
   connected: () => true,
   tz: () => "Europe/Paris",
-  folders: () => ({ tasks: "Tâches", events: "Calendrier", projectTag: "projet", taskBase: "Tâches.base", eventNoteExample: "13-10-2026 Title" }),
+  folders: () => ({ tasks: "Tâches", events: "Calendrier", taskBase: "Tâches.base", eventNoteExample: "13-10-2026 Title" }),
   calendars: () => [{ url: "https://c/perso/", name: "Perso", readOnly: false, components: ["VEVENT"] }],
   occurrences: () => [
     {

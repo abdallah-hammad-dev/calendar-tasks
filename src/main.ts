@@ -1,4 +1,4 @@
-import { getLanguage, MarkdownView, Menu, Notice, Platform, Plugin, TFile, type Editor } from "obsidian";
+import { getAllTags, getLanguage, MarkdownView, Menu, Notice, Platform, Plugin, TFile, type Editor } from "obsidian";
 import type { Line, Text } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { ItemCatalog } from "./calendar/catalog";
@@ -37,7 +37,8 @@ import { SyncEngine } from "./sync/engine";
 import { IdbStore } from "./sync/store";
 import { taskBaseFile } from "./tasks/base-file";
 import { ObsidianVault } from "./tasks/obsidian-vault";
-import { collectionOf, normalizeDue, sanitizeTitle, setDone, uniquePath } from "./tasks/notes";
+import { normalizeDue, sanitizeTitle, setDone, uniquePath } from "./tasks/notes";
+import { sameTags, tagsOf } from "./tasks/tags";
 import { TaskIndex, type TaskInfo } from "./tasks/task-index";
 import { TaskSync } from "./tasks/TaskSync";
 
@@ -93,7 +94,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     this.settings = mergeSettings(await this.loadData());
     this.namedWith = this.settings.eventDateFormat;
     this.store = new IdbStore(`calendar-tasks/${this.app.vault.getName()}`);
-    this.vaultPort = new ObsidianVault(this.app, () => this.settings.projectTag);
+    this.vaultPort = new ObsidianVault(this.app);
     this.index = new TaskIndex(this.vaultPort);
     this.converter = new TaskConverter(this.app, this.vaultPort, () => this.settings, this.index, (path, blocks) =>
       this.pendingBlocks.set(path, blocks),
@@ -279,7 +280,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     const task = file && this.index.get(file.path);
     if (!task) return null;
     return chipModel(task, {
-      contextProject: this.index.projectOf(sourcePath),
+      contextTags: this.noteTags(sourcePath),
       children: this.index.childrenOf(task.path),
       sync: this.tasks ? this.tasks.syncState(task.uid) : "synced",
       now: new Date(),
@@ -289,14 +290,35 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     });
   }
 
-  /** Writes a new task note; TaskSync gives it its reminder. `project` and `parent` are note paths. */
+  /** Every tag of a note (properties and text), without "#". */
+  private noteTags(path: string): string[] {
+    const file = this.app.vault.getFileByPath(path);
+    const cache = file && this.app.metadataCache.getFileCache(file);
+    return cache ? tagsOf(getAllTags(cache) ?? []) : [];
+  }
+
+  /** The vault's tags, most used first: what the task form suggests. */
+  private knownTags(): string[] {
+    const count = new Map<string, { tag: string; n: number }>();
+    for (const f of this.app.vault.getMarkdownFiles()) {
+      const cache = this.app.metadataCache.getFileCache(f);
+      for (const tag of cache ? tagsOf(getAllTags(cache) ?? []) : []) {
+        const seen = count.get(tag.toLowerCase());
+        if (seen) seen.n++;
+        else count.set(tag.toLowerCase(), { tag, n: 1 });
+      }
+    }
+    return [...count.values()].sort((a, b) => b.n - a.n || a.tag.localeCompare(b.tag)).map((c) => c.tag);
+  }
+
+  /** Writes a new task note; TaskSync gives it its reminder. `parent` is a note path. */
   private async createTaskNote(task: {
     title: string;
     due?: string | null;
     /** RRULE. */
     repeat?: string | null;
     priority?: Priority | null;
-    project?: string | null;
+    tags?: string[];
     parent?: string | null;
     collection?: string | null;
     body?: string;
@@ -308,7 +330,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       title,
       due: task.due ?? null,
       repeat: task.repeat ?? null,
-      project: task.project ?? null,
+      tags: task.tags ?? [],
       parent: task.parent ?? null,
       blocks: [],
       body: "",
@@ -321,20 +343,14 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     return path;
   }
 
-  /** The "New task" form; the project defaults to the one of the note in front, the collection to the project's. */
+  /** The "New task" form, in the default collection. */
   private openNewTask(): void {
-    const active = this.app.workspace.getActiveFile()?.path ?? null;
-    const projects = this.projects();
-    const project = active ? this.index.projectOf(active) : null;
-    const collections = this.writableCollections("VTODO").map((c) => c.info.displayName);
-    const own = projects.find((p) => p.path === project)?.collection;
     const fallback = this.collectionFor("VTODO");
     new TaskModal(this.app, {
       preview: this.previewSource(null),
-      projects,
-      project,
-      collections,
-      collection: own && collections.includes(own) ? own : fallback ? (this.collections()[fallback] ?? null) : null,
+      knownTags: this.knownTags(),
+      collections: this.writableCollections("VTODO").map((c) => c.info.displayName),
+      collection: fallback ? (this.collections()[fallback] ?? null) : null,
       submit: (task) =>
         void this.createTaskNote(task)
           .then((path) => {
@@ -359,14 +375,6 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     };
   }
 
-  private projects(): { path: string; name: string; collection: string | null }[] {
-    return this.app.vault
-      .getMarkdownFiles()
-      .filter((f) => this.vaultPort.isProject(f.path))
-      .map((f) => ({ path: f.path, name: f.basename, collection: collectionOf(this.app.metadataCache.getFileCache(f)?.frontmatter) }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }
-
   /** The task form on a task already made (clicking its chips), starting at `focus`. */
   private editTask(path: string, focus: EditFocus): void {
     const task = this.index.get(path);
@@ -376,8 +384,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     const collection = task.collection ?? (where ? (this.sync?.calendars().find((c) => c.info.url === where)?.info.displayName ?? null) : null);
     new TaskModal(this.app, {
       preview: this.previewSource(task.uid),
-      projects: this.projects(),
-      project: task.projectPath,
+      knownTags: this.knownTags(),
       collections: this.writableCollections("VTODO").map((c) => c.info.displayName),
       collection,
       focus,
@@ -386,7 +393,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
         due: task.due,
         repeat: task.repeat,
         priority: task.priority,
-        project: task.projectPath,
+        tags: task.tags,
         collection,
         planned: planned.length > 3 ? [...planned.slice(0, 3), { label: "…", start: null }] : planned,
       },
@@ -403,7 +410,8 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     if (!file) return;
     const collectionChanged = !!form.collection && form.collection !== before.collection;
     const priorityChanged = form.priority !== before.priority;
-    if (form.due !== before.due || form.repeat !== before.repeat || priorityChanged || form.project !== before.projectPath || collectionChanged) {
+    const tagsChanged = !sameTags(form.tags, before.tags);
+    if (form.due !== before.due || form.repeat !== before.repeat || priorityChanged || tagsChanged || collectionChanged) {
       await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
         if (form.due !== before.due) {
           if (form.due) fm[PROP.due] = form.due;
@@ -417,9 +425,9 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
           if (form.priority) fm[PROP.priority] = form.priority;
           else delete fm[PROP.priority];
         }
-        if (form.project !== before.projectPath) {
-          if (form.project) fm[PROP.project] = `[[${this.vaultPort.linkText(form.project, before.path)}]]`;
-          else delete fm[PROP.project];
+        if (tagsChanged) {
+          if (form.tags.length) fm[PROP.tags] = form.tags;
+          else delete fm[PROP.tags];
         }
         // The task moves there (TaskSync).
         if (collectionChanged) fm[PROP.collection] = form.collection;
@@ -1220,7 +1228,6 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       folders: () => ({
         tasks: this.settings.tasksFolder,
         events: this.settings.eventsFolder,
-        projectTag: this.settings.projectTag,
         taskBase: this.settings.taskBaseFile,
         eventNoteExample: `${noteDate("2026-10-13", this.settings.eventDateFormat)} Title`,
       }),
@@ -1261,12 +1268,9 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
         await this.saveEvent(entry!.calendarUrl, entry!.url, updated!);
       },
       createTask: async (task) => {
-        const project = task.project
-          ? (this.vaultPort.findProject(task.project)?.path ?? fail(`No project note named "${task.project}" (tagged #${this.settings.projectTag}).`))
-          : null;
         const parent = task.parent ? (this.findTask(task.parent)?.path ?? fail(`No task "${task.parent}".`)) : null;
         const repeat = task.repeat ? (repeatFromNote(task.repeat) ?? fail(`Can't read the repetition "${task.repeat}".`)) : null;
-        return this.createTaskNote({ ...task, repeat, project, parent });
+        return this.createTaskNote({ ...task, repeat, tags: tagsOf(task.tags ?? []), parent });
       },
       setTaskDone: async (ref, done) => {
         const task = this.findTask(ref) ?? fail(`No task "${ref}". List them with calendar_list_tasks.`);
@@ -1302,7 +1306,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
             kind: "task",
             done: task.done,
             due: task.due,
-            project: task.projectPath?.split("/").pop()?.replace(/\.md$/, "") ?? null,
+            tags: task.tags,
             sync: this.tasks ? this.tasks.syncState(task.uid) : "local",
           };
         }
@@ -1470,7 +1474,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       priority: task.priority ? { level: task.priority, label: t("priority.named", { level: t(`priority.${task.priority}`).toLowerCase() }) } : null,
       due: task.due ? dueLabel(task.due, task.done, ctx) : null,
       repeat: task.repeat ? (repeatLabel(task.repeat, getLanguage().startsWith("fr") ? "fr" : "en") ?? t("suggest.customRepeat")) : null,
-      project: note(task.projectPath),
+      tags: task.tags,
       parent: note(task.parentPath),
       progress: kids.length ? `${kids.filter((k) => k.done).length}/${kids.length}` : null,
       blocks: this.plannedBlocks(task).map((b) => ({ label: b.label, start: b.start })),
@@ -1503,7 +1507,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
         deadline: t("header.deadline"),
         addBlock: t("modal.addBlock"),
         repeat: t("header.repeat"),
-        project: t("header.project"),
+        tags: t("header.tags"),
         parent: t("header.parent"),
         progress: t("header.progress"),
         history: t("header.history"),
@@ -1616,7 +1620,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
         .then(() => new Notice(t("base.regenerated", { name })))
         .catch((e: unknown) => new Notice(t("base.regenerateFailed", { error: e instanceof Error ? e.message : String(e) })));
     if (!this.app.vault.getFileByPath(path)) return write();
-    const views = [t("base.todo"), t("base.noDue"), t("base.byProject"), t("base.done")].join(", ");
+    const views = [t("base.todo"), t("base.noDue"), t("base.byTag"), t("base.done")].join(", ");
     new ConfirmModal(this.app, {
       title: t("base.regenerateTitle", { name }),
       lines: [t("base.regenerateViews", { views }), t("base.regenerateLost")],
@@ -1635,7 +1639,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       completed: t("base.completed"),
       todo: t("base.todo"),
       noDue: t("base.noDue"),
-      byProject: t("base.byProject"),
+      byTag: t("base.byTag"),
       done: t("base.done"),
     });
     const existing = this.app.vault.getFileByPath(path);

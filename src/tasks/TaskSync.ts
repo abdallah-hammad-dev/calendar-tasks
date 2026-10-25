@@ -4,7 +4,8 @@ import type { CalendarChange, Conflict, SyncEngine } from "../sync/engine";
 import type { CachedCalendar } from "../sync/store";
 import { formatLocalDate, formatLocalDateTime, fromWall, parseLocal, wallClock } from "../ical/time";
 import { nextOccurrence, repeatToNote } from "../editor/when";
-import { collectionOf, normalizeDue, readNote, sanitizeTitle, titleMatches, uniquePath, type NoteState } from "./notes";
+import { normalizeDue, readNote, sanitizeTitle, titleMatches, uniquePath, type NoteState } from "./notes";
+import { categoriesFor, sameTags, tagsFromCategories } from "./tags";
 import { newTask, readTask, sameFields, taskLink, writeTask, type ReadTask, type TaskFields } from "./vtodo";
 
 /** A markdown note as TaskSync sees it. */
@@ -22,9 +23,6 @@ export interface VaultPort {
   resolve(linkpath: string, from: string): NoteRef | null;
   /** Shortest unambiguous link text for a note, from a source note. */
   linkText(path: string, from: string): string;
-  isProject(path: string): boolean;
-  /** A note carrying the project tag with this exact name, if any. */
-  findProject(name: string): NoteRef | null;
   exists(path: string): boolean;
   create(path: string, frontmatter: Record<string, unknown>, body: string): Promise<void>;
   editFrontmatter(path: string, edit: (fm: Record<string, unknown>) => void): Promise<void>;
@@ -291,8 +289,8 @@ export class TaskSync {
       if (task.due) fm[PROP.due] = task.due;
       if (task.repeat) fm[PROP.repeat] = repeatToNote(task.repeat);
       if (task.priority) fm[PROP.priority] = task.priority;
-      const project = this.serverProject(task);
-      if (project) fm[PROP.project] = `[[${this.d.vault.linkText(project, path)}]]`;
+      const tags = tagsFromCategories(task.categories);
+      if (tags.length) fm[PROP.tags] = tags;
       const parentPath = task.parentUid ? this.notes.get(task.parentUid) : undefined;
       if (parentPath) fm[PROP.parent] = `[[${this.d.vault.linkText(parentPath, path)}]]`;
       if (task.created) fm[PROP.created] = task.created;
@@ -353,12 +351,8 @@ export class TaskSync {
       edits[PROP.priority] = task.priority ?? undefined;
     }
 
-    const current = state.project ? this.d.vault.resolve(state.project, path) : null;
-    const fromServer = this.serverProject(task);
-    const currentIsSynced = current && this.d.vault.isProject(current.path);
-    if (fromServer ? fromServer !== current?.path : currentIsSynced) {
-      edits[PROP.project] = fromServer ? `[[${this.d.vault.linkText(fromServer, path)}]]` : undefined;
-    }
+    const tags = tagsFromCategories(task.categories);
+    if (!sameTags(state.tags, tags)) edits[PROP.tags] = tags.length ? tags : undefined;
 
     const parent = state.parent ? this.d.vault.resolve(state.parent, path) : null;
     const parentPath = task.parentUid ? this.notes.get(task.parentUid) : undefined;
@@ -530,11 +524,6 @@ export class TaskSync {
   }
 
   private fieldsFromNote(note: NoteRef, state: NoteState, current: ReadTask | null): TaskFields {
-    const project = state.project ? this.d.vault.resolve(state.project, note.path) : null;
-    const projectName = project && this.d.vault.isProject(project.path) ? project.basename : null;
-    const categories = (current?.categories ?? []).filter((c) => !this.d.vault.findProject(c));
-    if (projectName) categories.push(projectName);
-
     let parentUid = current?.parentUid ?? null;
     if (state.parent) {
       const parent = this.d.vault.resolve(state.parent, note.path);
@@ -547,7 +536,7 @@ export class TaskSync {
       summary: current && titleMatches(current.summary, note.basename) ? current.summary : note.basename,
       done: state.done,
       due: state.due,
-      categories,
+      categories: categoriesFor(state.tags, current?.categories ?? []),
       parentUid,
       repeat: state.repeat === undefined ? (current?.repeat ?? null) : state.repeat,
       priority: state.priority === undefined ? (current?.priority ?? null) : state.priority,
@@ -581,15 +570,6 @@ export class TaskSync {
     return data ? readTask(data, this.d.tz()) : null;
   }
 
-  /** A category naming a project note (spec §4.2). */
-  private serverProject(task: ReadTask): string | null {
-    for (const c of task.categories) {
-      const p = this.d.vault.findProject(c);
-      if (p) return p.path;
-    }
-    return null;
-  }
-
   /** Collections a task can go to: writable, holding tasks, by name. */
   private taskCalendars(): CachedCalendar[] {
     return this.d.engine
@@ -611,7 +591,7 @@ export class TaskSync {
 
   /**
    * Where a new task goes (spec §4.1): the collection its note names, else its parent's (a subtask stays with
-   * it), else its project's (`collection` on the project note), else the default one, else the first by name.
+   * it), else the default one, else the first by name.
    */
   private calendarFor(note: NoteRef, state: NoteState): string | null {
     const named = state.collection ? this.calendarNamed(state.collection) : null;
@@ -621,10 +601,6 @@ export class TaskSync {
     const parentUid = parent ? readNote(parent.frontmatter)?.uid : null;
     const parentCal = parentUid ? this.items.get(parentUid)?.calendarUrl : undefined;
     if (parentCal && !this.readOnly(parentCal)) return parentCal;
-    const project = state.project ? this.d.vault.resolve(state.project, note.path) : null;
-    const projectCollection = project ? collectionOf(project.frontmatter) : null;
-    const fromProject = projectCollection ? this.calendarNamed(projectCollection) : null;
-    if (fromProject) return fromProject;
     const cals = this.taskCalendars();
     const chosen = this.d.settings().defaultCalendar;
     return (cals.find((c) => c.info.url === chosen) ?? cals[0])?.info.url ?? null;

@@ -11,7 +11,8 @@ export const PROP = {
   repeat: "repeat",
   /** high / medium / low (none: no property); synced as `PRIORITY` 1 / 5 / 9, the three levels Reminders shows. */
   priority: "priority",
-  project: "project",
+  /** Obsidian's own tags (without "#"): how tasks are grouped, if wanted; synced as `CATEGORIES`. */
+  tags: "tags",
   parent: "parent",
   /** When the task was made: the reminder's `CREATED`, local "YYYY-MM-DDTHH:mm". Set once, never overwritten. */
   created: "created",

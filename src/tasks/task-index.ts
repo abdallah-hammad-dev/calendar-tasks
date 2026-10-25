@@ -1,5 +1,5 @@
-import { PROP, type Priority } from "../constants";
-import { linkpathOf, readNote } from "./notes";
+import type { Priority } from "../constants";
+import { readNote } from "./notes";
 import type { NoteRef, VaultPort } from "./TaskSync";
 
 export interface TaskInfo {
@@ -11,7 +11,8 @@ export interface TaskInfo {
   repeat: string | null;
   priority: Priority | null;
   uid: string | null;
-  projectPath: string | null;
+  /** Its tags (without "#"). */
+  tags: string[];
   parentPath: string | null;
   /** The collection its note names. */
   collection: string | null;
@@ -28,7 +29,7 @@ export class TaskIndex {
   private byPath = new Map<string, TaskInfo>();
   private listeners = new Set<() => void>();
 
-  constructor(private readonly vault: Pick<VaultPort, "allNotes" | "getNote" | "resolve" | "isProject">) {}
+  constructor(private readonly vault: Pick<VaultPort, "allNotes" | "getNote" | "resolve">) {}
 
   rebuild(): void {
     this.byPath.clear();
@@ -82,13 +83,6 @@ export class TaskIndex {
     return [...this.byPath.values()].filter((t) => t.parentPath === path);
   }
 
-  /** The project a note belongs to: itself if it is a project, else its `project` link. */
-  projectOf(path: string): string | null {
-    if (this.vault.isProject(path)) return path;
-    const link = linkpathOf(this.vault.getNote(path)?.frontmatter?.[PROP.project]);
-    return link ? (this.vault.resolve(link, path)?.path ?? null) : null;
-  }
-
   onChange(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -109,7 +103,7 @@ export class TaskIndex {
       repeat: s.repeat ?? null,
       priority: s.priority ?? null,
       uid: s.uid,
-      projectPath: resolve(s.project),
+      tags: s.tags,
       parentPath: resolve(s.parent),
       collection: s.collection,
       created: s.created ?? null,

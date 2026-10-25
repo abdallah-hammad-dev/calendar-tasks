@@ -1,6 +1,7 @@
 import { formatLocalDate, parseLocal, wallClock, fromWall } from "../ical/time";
 import type { Priority } from "../constants";
 import type { TaskInfo } from "../tasks/task-index";
+import { sameTag } from "../tasks/tags";
 import { repeatLabel } from "./when";
 
 /** What is drawn around a link to a task note (spec §5.1). */
@@ -12,16 +13,16 @@ export interface ChipModel {
   due: { text: string; overdue: boolean } | null;
   /** "chaque lundi"…, when the task repeats. */
   repeat: string | null;
-  /** Project name, shown when it differs from the note's own project. */
-  project: string | null;
+  /** Its tags (without "#"), but those of the note the link is in (a #famille note needn't say it on each link). */
+  tags: string[];
   sync: "pending" | "local" | null;
   /** "2/5" child tasks done. */
   progress: string | null;
 }
 
 export interface ChipContext {
-  /** Project of the note the link is in. */
-  contextProject: string | null;
+  /** Tags of the note the link is in. */
+  contextTags: string[];
   children: TaskInfo[];
   sync: "local" | "pending" | "synced";
   now: Date;
@@ -31,7 +32,6 @@ export interface ChipContext {
 }
 
 export function chipModel(task: TaskInfo, ctx: ChipContext): ChipModel {
-  const projectName = task.projectPath && task.projectPath !== ctx.contextProject ? basename(task.projectPath) : null;
   const doneKids = ctx.children.filter((c) => c.done).length;
   return {
     path: task.path,
@@ -39,7 +39,7 @@ export function chipModel(task: TaskInfo, ctx: ChipContext): ChipModel {
     priority: task.priority,
     due: task.due ? dueLabel(task.due, task.done, ctx) : null,
     repeat: task.repeat ? (repeatLabel(task.repeat, ctx.lang.startsWith("fr") ? "fr" : "en") ?? "↻") : null,
-    project: projectName,
+    tags: task.tags.filter((t) => !ctx.contextTags.some((c) => sameTag(c, t))),
     sync: ctx.sync === "synced" ? null : ctx.sync,
     progress: ctx.children.length ? `${doneKids}/${ctx.children.length}` : null,
   };
@@ -80,8 +80,4 @@ export function pastLabel(created: string, ctx: Pick<ChipContext, "now" | "tz" |
   const day = new Intl.DateTimeFormat(ctx.lang, { day: "numeric", month: "short", timeZone: "UTC", ...(p.wall.year !== today.year ? { year: "numeric" } : {}) }).format(at);
   const full = new Intl.DateTimeFormat(ctx.lang, { dateStyle: "full", ...(p.allDay ? {} : { timeStyle: "short" }), timeZone: "UTC" }).format(at);
   return { relative, day, full };
-}
-
-function basename(path: string): string {
-  return path.split("/").pop()!.replace(/\.md$/, "");
 }

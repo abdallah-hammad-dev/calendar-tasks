@@ -58,8 +58,8 @@ a.internal-link.ct-task-done {
   background: rgba(var(--color-red-rgb), 0.12);
 }
 
-.ct-chip-project {
-  color: var(--text-accent);
+.ct-chip-tags {
+  color: var(--tag-color);
 }
 
 /* Priority: !!! / !! / ! as on the iPhone, in the colour of its level (the pill stays grey, unlike an overdue
@@ -217,6 +217,10 @@ a.internal-link.ct-task-done {
 
 .ct-task-header .ct-task-header-item.is-link {
   color: var(--text-accent);
+}
+
+.ct-task-header .ct-task-header-item.ct-task-header-tags {
+  color: var(--tag-color);
 }
 
 .ct-task-header .ct-task-header-item.is-static {
@@ -543,7 +547,8 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .clickable-icon:last
   grid-column: -2;
 }
 
-body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-select {
+body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-select,
+body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-task-tags-input {
   grid-column: 2 / -1;
   width: 100%;
   max-width: none;

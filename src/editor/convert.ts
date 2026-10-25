@@ -1,5 +1,6 @@
 import { NOTE_TYPE, PROP } from "../constants";
-import { isTaskNote, linkpathOf, sanitizeTitle } from "../tasks/notes";
+import { isTaskNote, sanitizeTitle } from "../tasks/notes";
+import { findTags } from "../tasks/tags";
 import type { VaultPort } from "../tasks/TaskSync";
 import { findWhen, repeatToNote, type Block, type WhenToken } from "./when";
 
@@ -60,65 +61,46 @@ export interface PlannedTask {
   repeat: string | null;
   /** Time to block for it: events linked to the task once it has its reminder. */
   blocks: Block[];
-  /** Project note path. */
-  project: string | null;
+  /** Its tags, written `#famille` on the line. */
+  tags: string[];
   /** Parent task note path, when the line is written in a task note. */
   parent: string | null;
-  /** The original text, kept as the note's first line when it held links other than the project. */
+  /** The original text, kept as the note's first line when it held links. */
   body: string;
 }
 
 export interface PlanContext {
   /** The note the line is written in. */
   sourcePath: string;
-  vault: Pick<VaultPort, "resolve" | "isProject" | "getNote">;
+  vault: Pick<VaultPort, "getNote">;
   today: { year: number; month: number; day: number };
 }
 
 /** What a task line turns into (spec §5.2). Null if nothing is left for a title. */
 export function planTask(text: string, ctx: PlanContext): PlannedTask | null {
   const marker = findWhen(text, ctx.today);
-  let rest = text;
-  for (const span of [...(marker?.spans ?? [])].reverse()) rest = rest.slice(0, span.start) + rest.slice(span.end);
+  // The `@` words and the `#tags` leave the title; the tags go to the note (2026-10-25: the one way to group tasks).
+  const tagged = findTags(text);
+  let rest = cutSpans(text, [...(marker?.spans ?? []), ...tagged.spans]);
 
-  // 1. A link to a project note on the line is the project; other links keep their display text.
-  let project: string | null = null;
-  let otherLinks = false;
+  // Links keep their display text; the line is kept in the note so none is lost.
+  let links = false;
   rest = rest.replace(LINK, (whole, bang: string, linkpath: string, _sub: string | undefined, alias: string | undefined) => {
-    if (bang) {
-      otherLinks = true;
-      return "";
-    }
-    const target = ctx.vault.resolve(linkpath.trim(), ctx.sourcePath);
-    if (!project && target && ctx.vault.isProject(target.path)) {
-      project = target.path;
-      return "";
-    }
-    otherLinks = true;
-    return alias ?? linkpath.split("/").pop()!;
+    links = true;
+    return bang ? "" : (alias ?? linkpath.split("/").pop()!);
   });
   const words = rest.replace(/\s+/g, " ").trim();
   if (!words) return null;
 
   const source = ctx.vault.getNote(ctx.sourcePath);
-  const sourceFm = source?.frontmatter ?? null;
-  const parent = isTaskNote(sourceFm) ? ctx.sourcePath : null;
-  if (!project) {
-    if (ctx.vault.isProject(ctx.sourcePath)) project = ctx.sourcePath; // 2. written in a project note
-    else {
-      // 3. the note's own project (a meeting note, or the parent task for a sub-task)
-      const link = linkpathOf(sourceFm?.[PROP.project]);
-      project = (link && ctx.vault.resolve(link, ctx.sourcePath)?.path) || null;
-    }
-  }
   return {
     title: sanitizeTitle(words),
     due: marker?.when.due ?? null,
     repeat: marker?.when.repeat ?? null,
     blocks: marker?.when.blocks ?? [],
-    project,
-    parent,
-    body: otherLinks ? text : "",
+    tags: tagged.tags,
+    parent: isTaskNote(source?.frontmatter ?? null) ? ctx.sourcePath : null,
+    body: links ? text : "",
   };
 }
 
@@ -127,7 +109,7 @@ export function plannedFrontmatter(plan: PlannedTask, link: (path: string) => st
   const fm: Record<string, unknown> = { [PROP.type]: NOTE_TYPE.task, [PROP.done]: false };
   if (plan.due) fm[PROP.due] = plan.due;
   if (plan.repeat) fm[PROP.repeat] = repeatToNote(plan.repeat);
-  if (plan.project) fm[PROP.project] = `[[${link(plan.project)}]]`;
+  if (plan.tags.length) fm[PROP.tags] = plan.tags;
   if (plan.parent) fm[PROP.parent] = `[[${link(plan.parent)}]]`;
   return fm;
 }

@@ -13,7 +13,7 @@ export interface RenderLabels {
 }
 
 /** The field a click on a chip opens the task form at. */
-export type EditFocus = "due" | "repeat" | "priority" | "project" | null;
+export type EditFocus = "due" | "repeat" | "priority" | "tags" | null;
 
 /** The checkbox drawn before a task link. Clicking it toggles the task note's `done`. */
 export function renderCheckbox(model: ChipModel, labels: RenderLabels, onToggle: (path: string) => void): HTMLElement {
@@ -31,7 +31,7 @@ export function renderCheckbox(model: ChipModel, labels: RenderLabels, onToggle:
 }
 
 /**
- * Priority (!!!, !!, !), deadline, repetition, project, progress and sync state, drawn after a task link. Clicking a chip (or the pencil
+ * Priority (!!!, !!, !), deadline, repetition, tags, progress and sync state, drawn after a task link. Clicking a chip (or the pencil
  * shown on hover) opens the task's form there.
  */
 export function renderChips(model: ChipModel, labels: RenderLabels, onEdit: (path: string, focus: EditFocus) => void): HTMLElement {
@@ -63,7 +63,7 @@ export function renderChips(model: ChipModel, labels: RenderLabels, onEdit: (pat
     chip.appendText(model.repeat);
     clickable(chip, "repeat", labels.edit);
   }
-  if (model.project) clickable(wrap.createSpan({ cls: "ct-chip ct-chip-project", text: model.project }), "project", labels.edit);
+  if (model.tags.length) clickable(wrap.createSpan({ cls: "ct-chip ct-chip-tags", text: model.tags.map((tag) => `#${tag}`).join(" ") }), "tags", labels.edit);
   if (model.progress) wrap.createSpan({ cls: "ct-chip ct-chip-progress", text: model.progress });
   if (model.sync) {
     const icon = wrap.createSpan({ cls: `ct-sync ct-sync-${model.sync}` });

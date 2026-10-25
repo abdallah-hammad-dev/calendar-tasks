@@ -10,12 +10,10 @@ const plan = (text: string, sourcePath = "Daily/2026-10-15.md") => planTask(text
 
 beforeEach(() => {
   vault = new FakeVault();
-  vault.add("Projets/Olera.md", {}, { tags: ["project"] });
-  vault.add("Projets/Cours réseau.md", {}, { tags: ["project"] });
   vault.add("Docs/Rapport.md", {});
   vault.add("Daily/2026-10-15.md", {});
-  vault.add("Réunions/Point 14-10.md", { project: "[[Olera]]" });
-  vault.add("Tâches/Préparer slides.md", { type: "task", done: false, project: "[[Cours réseau]]" });
+  vault.add("Réunions/Point 14-10.md", { tags: ["olera"] });
+  vault.add("Tâches/Préparer slides.md", { type: "task", done: false, tags: ["cours"] });
 });
 
 describe("hasTaskMarker", () => {
@@ -66,13 +64,13 @@ describe("linkLineEdit", () => {
 });
 
 describe("planTask", () => {
-  it("takes the date and a project link off the title", () => {
-    expect(plan("Préparer démo @lun 14h [[Olera]]")).toEqual({
+  it("takes the date and the tags off the title", () => {
+    expect(plan("Préparer démo @lun 14h #olera")).toEqual({
       title: "Préparer démo",
       due: "2026-10-19T14:00",
       repeat: null,
       blocks: [],
-      project: "Projets/Olera.md",
+      tags: ["olera"],
       parent: null,
       body: "",
     });
@@ -95,40 +93,40 @@ describe("planTask", () => {
     expect(plan("Acheter @ du lait")).toMatchObject({ title: "Acheter du lait" });
   });
 
-  it("keeps other links as text and copies the line into the note", () => {
+  it("keeps links as their text and copies the line into the note", () => {
     expect(plan("Relire [[Rapport]] avec [[Olera|l'équipe]] @demain")).toMatchObject({
-      title: "Relire Rapport avec",
-      project: "Projets/Olera.md",
+      title: "Relire Rapport avec l'équipe",
       body: "Relire [[Rapport]] avec [[Olera|l'équipe]] @demain",
     });
-    expect(plan("Lire [[Docs/Rapport|le rapport]]")).toMatchObject({ title: "Lire le rapport", project: null });
+    expect(plan("Lire [[Docs/Rapport|le rapport]]")).toMatchObject({ title: "Lire le rapport", tags: [] });
   });
 
-  it("inherits the project from where it is written", () => {
-    expect(plan("Envoyer le CR", "Projets/Olera.md")!.project).toBe("Projets/Olera.md"); // a project note
-    expect(plan("Envoyer le CR", "Réunions/Point 14-10.md")!.project).toBe("Projets/Olera.md"); // its project:
-    expect(plan("Envoyer le CR")!.project).toBeNull(); // the daily note: general
-    expect(plan("Envoyer le CR [[Cours réseau]]", "Projets/Olera.md")!.project).toBe("Projets/Cours réseau.md"); // the line wins
+  it("takes the #tags out of the title into the note's tags, once each", () => {
+    expect(plan("Appeler mamie #famille @demain #Famille #urgent")).toMatchObject({ title: "Appeler mamie", tags: ["famille", "urgent"], body: "" });
+    expect(plan("Ranger #projets/maison le garage")).toMatchObject({ title: "Ranger le garage", tags: ["projets/maison"] });
+    // Not tags: a number alone, a # inside a word, a heading-like "# ".
+    expect(plan("Payer la facture #2026 de C#")).toMatchObject({ title: "Payer la facture 2026 de C", tags: [] });
   });
 
-  it("makes a sub-task when written in a task note, with the parent's project", () => {
-    expect(plan("Faire le plan @demain", "Tâches/Préparer slides.md")).toMatchObject({
-      parent: "Tâches/Préparer slides.md",
-      project: "Projets/Cours réseau.md",
-    });
+  it("takes no tags from where it is written: only the line's", () => {
+    expect(plan("Envoyer le CR", "Réunions/Point 14-10.md")!.tags).toEqual([]);
+  });
+
+  it("makes a sub-task when written in a task note, without its tags", () => {
+    expect(plan("Faire le plan @demain", "Tâches/Préparer slides.md")).toMatchObject({ parent: "Tâches/Préparer slides.md", tags: [] });
   });
 
   it("gives up when nothing is left for a title", () => {
-    expect(plan("@demain [[Olera]]")).toBeNull();
+    expect(plan("@demain #famille")).toBeNull();
   });
 
   it("writes the frontmatter of the new note", () => {
-    const p = plan("Faire le plan @demain", "Tâches/Préparer slides.md")!;
+    const p = plan("Faire le plan @demain #cours", "Tâches/Préparer slides.md")!;
     expect(plannedFrontmatter(p, (path) => path.split("/").pop()!.replace(".md", ""))).toEqual({
       type: "task",
       done: false,
       due: "2026-10-16",
-      project: "[[Cours réseau]]",
+      tags: ["cours"],
       parent: "[[Préparer slides]]",
     });
   });
@@ -163,23 +161,21 @@ describe("chips", () => {
     const index = new TaskIndex(vault);
     vault.add("Tâches/Sport.md", { type: "task", done: false, due: "2026-10-14", repeat: "every monday" });
     index.rebuild();
-    const m = chipModel(index.get("Tâches/Sport.md")!, { ...ctx, contextProject: null, children: [], sync: "synced" });
+    const m = chipModel(index.get("Tâches/Sport.md")!, { ...ctx, contextTags: [], children: [], sync: "synced" });
     expect(m.due).toEqual({ text: "14 oct.", overdue: true });
     expect(m.repeat).toBe("chaque lundi");
   });
 
-  it("shows the project only when it differs from the note's, plus progress and sync", () => {
+  it("shows the tags the note it's in doesn't have, plus progress and sync", () => {
     const index = new TaskIndex(vault);
-    vault.add("Tâches/Faire le plan.md", { type: "task", done: true, parent: "[[Préparer slides]]" });
+    vault.add("Tâches/Faire le plan.md", { type: "task", done: true, parent: "[[Préparer slides]]", tags: ["cours", "#urgent"] });
     vault.add("Tâches/Réserver salle.md", { type: "task", done: false, parent: "[[Préparer slides]]" });
     index.rebuild();
     const task = index.get("Tâches/Préparer slides.md")!;
     const base = { ...ctx, children: index.childrenOf(task.path), sync: "pending" as const };
-    expect(chipModel(task, { ...base, contextProject: index.projectOf("Daily/2026-10-15.md") })).toMatchObject({
-      project: "Cours réseau",
-      progress: "1/2",
-      sync: "pending",
-    });
-    expect(chipModel(task, { ...base, contextProject: index.projectOf("Projets/Cours réseau.md") }).project).toBeNull();
+    expect(chipModel(task, { ...base, contextTags: [] })).toMatchObject({ tags: ["cours"], progress: "1/2", sync: "pending" });
+    expect(chipModel(task, { ...base, contextTags: ["Cours"] }).tags).toEqual([]);
+    const kid = index.get("Tâches/Faire le plan.md")!;
+    expect(chipModel(kid, { ...base, children: [], contextTags: ["cours"] }).tags).toEqual(["urgent"]);
   });
 });

@@ -186,6 +186,15 @@ export class SuggestModal<T> extends Modal {
   setPlaceholder(_p: string): void {}
   declare _item: T;
 }
+export abstract class AbstractInputSuggest<T> {
+  constructor(
+    public app: unknown,
+    _input: unknown,
+  ) {}
+  setValue(_v: string): void {}
+  close(): void {}
+  declare _item: T;
+}
 export function setIcon(_el: unknown, _name: string): void {}
 export function setTooltip(_el: unknown, _text: string): void {}
 export const MarkdownRenderer = { render: async () => undefined };

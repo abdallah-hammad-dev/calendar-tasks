@@ -72,15 +72,15 @@ links, drawings). The frontmatter copies the time fields it needs (§4).
 ### 4.1 Tasks
 
 A task = **one note in the tasks folder + one `VTODO`**. Every `VTODO` has a note: a task created in Reminders
-gets its note at the next sync (otherwise Bases couldn't list it). All tasks live in one folder; no project
-folders.
+gets its note at the next sync (otherwise Bases couldn't list it). All tasks live in one folder; tags group
+them (§4.2).
 
 ```yaml
 ---
 type: task
 done: false               # checkbox property
 due: 2026-10-15           # the deadline: date, or date-time (2026-10-15T14:00). Optional
-project: "[[Olera]]"      # optional, link to a project note (§4.2)
+tags: [famille, urgent]   # optional, Obsidian's own tags (§4.2)
 parent: "[[Parent task]]" # only for a child task
 created: 2026-10-21T14:05 # when it was made (the reminder's CREATED), set once
 completed: 2026-10-25T14:32 # when it was ticked (the reminder's COMPLETED), only while done
@@ -98,7 +98,7 @@ Free content: context, links to any file, small steps as plain `- [ ]` (never sy
 | `due` | `DUE` (`VALUE=DATE`, or `DATE-TIME` with `TZID`) + `DTSTART` = same value, as iOS writes it | both |
 | `repeat` | `RRULE` (needs `DTSTART`: written = `DUE`). The note holds an English phrase (`every monday`, `every 2 weeks`, `every weekday`) or, for rules the grammar can't say, the RRULE itself. Rules are compared in one spelling (iOS adds `INTERVAL=1`, `WKST`) | both |
 | `priority` | `PRIORITY` (2026-10-19, asked: none or three levels). The note holds `high` / `medium` / `low` (`haute` / `moyenne` / `basse` read too); written 1 / 5 / 9 as Reminders does, read 1–4 / 5 / 6–9 (RFC 5545); none = no property (0 read as none). A level written elsewhere (2, 7…) is kept while the note says the same level. Shown !!! / !! / ! (red / orange / blue) | both |
-| `project` | `CATEGORIES:<project note name>` | both |
+| `tags` | `CATEGORIES`, one per tag. A category that can't be a tag ("2026") stays on the server untouched; one with spaces reads as a tag with dashes ("Work stuff" → `Work-stuff`) and keeps its spelling there. Compared in any case and order, so the phone's spelling doesn't ping-pong | both |
 | `parent` | `RELATED-TO;RELTYPE=PARENT:<parent UID>`; read a `RELATED-TO` without `RELTYPE` as parent (iOS drops the parameter, RFC default) | both |
 | `created` | `CREATED` (UTC), as a local date-time (2026-10-21, asked: find the small undated tasks jotted down today). A note made here gets it when its reminder is created, and the reminder gets the note's own `created` if it already has one | set once: written only into a note that has none, never overwritten, never pushed |
 | `completed` | `COMPLETED` (UTC), as a local date-time (2026-10-25, the user: keep the last time a task was ticked, the right one after an untick and a tick). Ticked here (the checkbox, Claude): now, in the same write as `done`; ticked from Bases or the properties: now if the reminder isn't done yet, else its time; ticked on the phone: the phone's time. Unticked, it goes on both sides. Never guessed: a note done before, without a ticked reminder, gets none | both |
@@ -125,20 +125,21 @@ Free content: context, links to any file, small steps as plain `- [ ]` (never sy
 - **Collections are contexts** (2026-10-18, the user: "Général, Pro, École", never one collection for tasks and
   another for events): a collection made here holds events and tasks (iOS shows it in Calendar and in Reminders).
   **Where a new task goes**: the collection its note names, else its parent task's (a subtask stays with it), else
-  its project's (`collection: École` on the project note), else the default collection (setting), else the first
-  by name that holds tasks. Its note then says which. A name that matches no collection holding tasks (any case
+  the default collection (setting), else the first by name that holds tasks. Tags never choose one: a tag groups
+  tasks, a collection is where they live (and the list on the phone). Its note then says which. A name that matches no collection holding tasks (any case
   accepted) gets a notice and the task stays. Time blocks go in their task's collection; new events in the
   default one (the new event form can pick another).
 
-### 4.2 Projects
+### 4.2 Tags
 
-- **A project is any note that carries the project tag** (default `#project`, mine `#projet`, setting). No special
-  folder or type. Bases lists all projects with `file.hasTag(<tag>)`.
-- A task belongs to at most one project: the `project:` link property (rename-safe, backlinks, groupable in Bases).
-  No project = a general task.
-- A task can be **mentioned anywhere**, whatever its project; a mention is only a link.
-- Changing the tag setting later: notes with the old tag stop being projects until retagged. Tasks keep their
-  `project:` (it's a link).
+- **Tasks are grouped by Obsidian's own tags** (2026-10-25: project notes were dropped; the user found them odd
+  and wanted one way). The note's `tags` property (a list, without "#"): Obsidian's tag pane, search and
+  `file.hasTag()` in Bases all see them. Any number per task; none = a general task.
+- `#famille` on a task line goes into `tags` and leaves the title (§5.2). The form has a Tags field (§5.3).
+- No inheritance: a task written in a note tagged `#famille`, or a sub-task, gets only the tags on its line.
+- A task can be **mentioned anywhere**, whatever its tags; a mention is only a link.
+- Synced as `CATEGORIES` (§4.1), which Reminders keeps but doesn't show.
+- No migration: the old `project:` property is left in the notes, unused.
 
 ### 4.3 Events
 
@@ -150,7 +151,7 @@ A note is created **only when I click** the event (calendar view, or the `URL` o
   time added (`13-10-2026 Title 14h30`), then " (2)"…; each note is tied to its event by `caldav_uid` (and
   `recurrence_id`), never by its name.
 - **Recurring events: one note per occurrence.** All occurrences share `caldav_uid`; a Bases filter on it lists
-  every session of a series. A hub note for the series is just a project.
+  every session of a series. A hub note for the series is just a note that links to them.
 - If the event is renamed or moved, the note is renamed (links follow).
 - `start`/`end` go **CalDAV → note only**: events are moved in the calendar, not by editing frontmatter.
 - **Header** (2026-10-19, asked: a band with the information, like task notes, not the properties): when, ↻,
@@ -170,7 +171,7 @@ A note is created **only when I click** the event (calendar view, or the `URL` o
 type: event
 start: 2026-10-16T10:00
 end: 2026-10-16T11:00
-project: "[[Olera]]"       # optional, added by hand
+tags: [olera]              # optional, added by hand
 caldav_uid: …
 recurrence_id: …           # occurrences of recurring events only (original start, iCalendar format)
 ---
@@ -265,7 +266,7 @@ desktop and mobile:
 
 - a checkbox from the task's `done`: clicking it sets `done` in the task note, which syncs to CalDAV;
 - the priority (!!! / !! / !), the deadline (flag icon, red when overdue) and the repetition (↻);
-- the project name when it differs from the current note's project;
+- its tags (`#famille #urgent`, one chip), less those the current note has;
 - a small sync-state icon (synced / pending / conflict);
 - child-task progress, e.g. `2/5`, when the task has child tasks.
 
@@ -313,13 +314,10 @@ Implementation: CodeMirror 6 view plugin (Live Preview) + `registerMarkdownPostP
   repeat" when it repeats) and **Stop repeating**
   (`@répéter jamais`).
 - **Written in a task note**, it becomes a child task (`parent:` set). Anywhere else, a standalone task.
-- **Project**, first match wins:
-  1. a link on the line to a project note (`[[Olera]]` carries the tag): it becomes `project:` and leaves the title;
-  2. the note being written in, if it is a project;
-  3. the `project:` of the note being written in (e.g. a meeting note);
-  4. the parent task's project (child tasks);
-  5. none.
-- Other links on the line stay in the task: the title uses their display text, and the original line is copied
+- **Tags**: each `#tag` on the line (Obsidian's rule: letters, digits, `_ - /`, not only digits, after a space or at
+  the start) goes into the note's `tags` and leaves the title, once each. Only the line's: none from the note it's
+  written in or from the parent task (2026-10-25, explicit only).
+- Links on the line stay in the task: the title uses their display text, and the original line is copied
   as the first line of the task body so no link is lost.
 - **The `@` grammar** (`src/editor/when.ts`), French and English. Each `@` is one thing: a keyword, then its value.
   - `@deadline` / `@échéance` / `@due` + a day and/or a time: `@deadline ven 14h`. **Shortcut**: a day straight
@@ -347,12 +345,14 @@ Implementation: CodeMirror 6 view plugin (Live Preview) + `registerMarkdownPostP
 
 - **New task** (ribbon icon, command, and a button in the calendar view): a form with the title, an optional
   deadline (a day and a time, or picked from the month view), optional time blocks (a day, from, to), a repetition (never / daily / weekly / weekdays / monthly /
-  yearly), a project (defaults to the one of the note in front) and the collection (the project's if it names one,
-  else the default; follows the project picked until picked by hand). Writes the task note; TaskSync creates its
+  yearly), a priority, tags (typed as on a line, `#famille #urgent`; the vault's tags suggested for the word being
+  typed, most used first, through Obsidian's `AbstractInputSuggest`) and the collection (the default one). Writes
+  the task note; TaskSync creates its
   reminder, then the block. A repetition with no deadline starts on its first day from today.
 - **The form's look** (2026-10-17): the title as a large field on top, rows with an icon (deadline, time blocks,
-  repeat, priority, project), no static descriptions (the line under a field says what it read). Repeat, priority (None / Low / Medium / High,
-  as on the iPhone) and project open Obsidian's own menu, never the system list. Rows in step (2026-10-19): each
+  repeat, priority, tags, collection), no static descriptions (the line under a field says what it read). Repeat,
+  priority (None / Low / Medium / High, as on the iPhone) and collection open Obsidian's own menu, never the system
+  list. Rows in step (2026-10-19): each
   name centred on its field, the fields in the same columns from row to row (day, time or start, –, end, +,
   calendar), the menus from the time column to the end, the buttons level with the bottom of the day beside, the
   lines under the names short ("→ ven. 23 oct. 18:00"); repeat ends with "Custom…" (type "chaque lundi et jeudi").
@@ -400,7 +400,8 @@ its raw properties ("I don't want to see the id; if I want to, I can open the pr
   ("Done yesterday", "Done 18 Oct", the whole date in its tooltip; "Done" if not known), the priority's
   marks (the word in its tooltip; a click opens the form there), the deadline (red
   when overdue), the repetition, the next time block (+N more; click shows it in the calendar; + adds one from the
-  calendar picker), the project and parent task (links), child-task progress, the sync icon when not synced.
+  calendar picker), its tags (one item; a click opens the form there), the parent task (a link), child-task
+  progress, the sync icon when not synced.
   Clicking the deadline or repetition opens the task form there. Only what the task has is shown (2026-10-19: the
   dashed "Deadline" / "Time block" placeholders read as data; the pencil adds them). A pencil opens the form.
   A repeating task done before lists the days it was done, faint, newest first ("✓ 26 Oct · 19 Oct · 13 Oct",
@@ -591,7 +592,9 @@ file) filtered on `type == "task"`, with views:
 - **No deadline** — `done` false and no `due` (`due.isEmpty()`: true for a missing or empty value, false for a
   date; checked in Obsidian 1.14.4), newest `created` first: the small tasks jotted down without a date
   (2026-10-21);
-- **By project** — grouped by `project` (a "no project" group), same sort;
+- **By tag** — grouped by `tags`, same sort. Bases groups by the whole list (checked in Obsidian 2026-10-25): a task
+  tagged `#famille` and `#urgent` is in a group of its own, "famille, urgent"; for one tag, a view filtered on
+  `file.hasTag("famille")`;
 - **Done** — `done` true, the last ones done first (`completed`, a column too; 2026-10-25).
 
 Views are Obsidian's own: the user (or Claude, whose skill lists the task properties, their types and the
@@ -599,8 +602,8 @@ Views are Obsidian's own: the user (or Claude, whose skill lists the task proper
 shows them.
 
 `done` is a checkbox property, so it can be ticked directly in the table (verify inline editing on the minimum
-Obsidian version). Any note can embed a `base` block listing "tasks of this note": `project` is this note, or this
-note links to them (uses `this` in embedded bases; verify the exact filter syntax). A custom Bases view
+Obsidian version). Any note can embed a `base` block listing the tasks of a tag (`file.hasTag("famille")`), or the
+tasks this note links to (uses `this` in embedded bases; verify the exact filter syntax). A custom Bases view
 (`registerBasesView`, 1.10+) is not needed for v1.
 
 ## 8. Claude module (desktop only)
@@ -616,16 +619,16 @@ Registered by this extension through claude-workspace's `plugin.api.registerModu
 | `calendar_create_event` / `calendar_update_event` / `calendar_delete_event` | Edit events (not mirror events) |
 | `calendar_free_slots` | Free slots of a given length in a range |
 | `calendar_rsvp` | Set my `PARTSTAT` on an invitation (the backend relays it) |
-| `calendar_list_tasks` | Tasks by state, project, due range |
-| `calendar_create_task` | Title, due, project, parent, body → creates note + `VTODO`, returns path |
+| `calendar_list_tasks` | Tasks by state, tag, due range |
+| `calendar_create_task` | Title, due, repeat, priority, tags, parent, body → creates note + `VTODO`, returns path |
 | `calendar_complete_task` | Set `done` |
 | `calendar_schedule_task` | Create a time block for a task |
 | `calendar_note` | Path of the note of an event / task; creates it if missing (Claude then edits it with its own file tools) |
 
 - **Context provider:** in the calendar view, the visible range and the selected event; in a task or event note,
   its CalDAV state (done, due, sync state, attendees).
-- **Skill** (`registerSkill`), generated from the settings (folder names, project tag): deadline ≠ time block, a
-  task is a note, how projects work, prefer these tools over editing `caldav_uid` / time fields by hand.
+- **Skill** (`registerSkill`), generated from the settings (folder names): deadline ≠ time block, a task is a
+  note, tasks are grouped by tags, prefer these tools over editing `caldav_uid` / time fields by hand.
 
 ## 9. Settings
 
@@ -638,7 +641,6 @@ Registered by this extension through claude-workspace's `plugin.api.registerModu
 | Events folder | `Calendar/` (`Calendrier/`) |
 | Date in event note names | `13-10-2026` (or `13.10.2026`, `2026-10-13`) |
 | Task list base file | `Tasks.base` |
-| Project tag | `project` (`projet`) |
 | My email addresses (fallback when the server doesn't advertise `calendar-user-address-set`) | — |
 | Sync interval | 5 min |
 
@@ -658,7 +660,8 @@ certificate (see the bench's `TESTS.md`).
   stub, test vault, release workflow, `CLAUDE.md`, MIT license.
 - **M1 — CalDAV client + cache + sync engine**, no UI. Integration tests against the local Davis bench (`~/organisation/calendar/`).
 - **M2 — Tasks.** Task notes ↔ `VTODO`, index, notes for tasks created elsewhere, `Tasks.base`.
-- **M3 — Editor.** Checkable task links, line conversion, `@date` parser, project resolution.
+- **M3 — Editor.** Checkable task links, line conversion, `@date` parser, project resolution (projects became tags
+  2026-10-25).
 - **M4 — Calendar view (read).** Display types, click → note, event notes, protocol handler.
 - **M5 — Calendar view (write).** Create / move / resize, time blocks.
 - **M6 — Invitations.** Mirror display, RSVP through `PARTSTAT` (tested with fixtures until the backend exists).

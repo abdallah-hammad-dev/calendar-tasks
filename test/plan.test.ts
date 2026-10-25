@@ -4,7 +4,7 @@ import type { Occurrence } from "../src/calendar/expand";
 import type { TaskInfo } from "../src/tasks/task-index";
 
 const task = (o: Partial<TaskInfo>): TaskInfo => ({
-  path: "", basename: "", done: false, due: null, repeat: null, priority: null, uid: null, projectPath: null, parentPath: null, collection: null, created: null, completed: null, completions: [], ...o,
+  path: "", basename: "", done: false, due: null, repeat: null, priority: null, uid: null, tags: [], parentPath: null, collection: null, created: null, completed: null, completions: [], ...o,
 });
 const block = (taskUid: string): Occurrence => ({
   id: taskUid, kind: "timeblock", uid: `b-${taskUid}`, recurrenceId: null, itemUrl: "", calendarUrl: "", title: "",

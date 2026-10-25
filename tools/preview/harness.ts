@@ -224,19 +224,19 @@ function calendar(view: "timeGridWeek" | "dayGridMonth" | "listWeek", inTab = fa
 function taskLinks(): void {
   const now = new Date("2026-10-15T10:00:00Z");
   const t = (o: Partial<TaskInfo>): TaskInfo => ({
-    path: "", basename: "", done: false, due: null, repeat: null, priority: null, uid: "u", projectPath: null, parentPath: null, collection: null, created: null, completed: null, completions: [], ...o,
+    path: "", basename: "", done: false, due: null, repeat: null, priority: null, uid: "u", tags: [], parentPath: null, collection: null, created: null, completed: null, completions: [], ...o,
   });
   const words = { today: "Aujourd'hui", tomorrow: "Demain" };
   const model = (task: TaskInfo, extra: Partial<Parameters<typeof chipModel>[1]> = {}): ChipModel =>
-    chipModel(task, { contextProject: null, children: [], sync: "synced", now, tz: TZ, lang: "fr", words, ...extra });
+    chipModel(task, { contextTags: [], children: [], sync: "synced", now, tz: TZ, lang: "fr", words, ...extra });
   const labels = {
     due: "Deadline", pending: "En attente de synchro", local: "Pas encore sur le serveur", toggle: "Cocher / décocher", edit: "Cliquer pour modifier",
     priority: { high: "Haute", medium: "Moyenne", low: "Basse" },
   };
   const rows: [string, ChipModel][] = [
-    ["Préparer slides", model(t({ path: "Tâches/Préparer slides.md", priority: "high", due: "2026-10-15T18:00", projectPath: "Projets/Olera.md" }), { children: [t({ done: true }), t({})] })],
+    ["Préparer slides", model(t({ path: "Tâches/Préparer slides.md", priority: "high", due: "2026-10-15T18:00", tags: ["olera"] }), { children: [t({ done: true }), t({})] })],
     ["Sport", model(t({ path: "Tâches/Sport.md", due: "2026-10-19T07:00", repeat: "FREQ=WEEKLY;BYDAY=MO,TH" }))],
-    ["Rendre rapport", model(t({ path: "Tâches/Rendre rapport.md", priority: "medium", due: "2026-10-13", projectPath: "Projets/Cours réseau.md" }))],
+    ["Rendre rapport", model(t({ path: "Tâches/Rendre rapport.md", priority: "medium", due: "2026-10-13", tags: ["cours", "urgent"] }))],
     ["Appeler Paul", model(t({ path: "Tâches/Appeler Paul.md", priority: "low", due: "2026-10-16T09:30" }), { sync: "pending" })],
     ["Acheter du café", model(t({ path: "Tâches/Acheter du café.md", done: true, due: "2026-10-14" }))],
     ["Réserver salle", model(t({ path: "Tâches/Réserver salle.md" }), { sync: "local" })],
@@ -269,7 +269,7 @@ function taskLinks(): void {
 
 function settings(): void {
   const host = {
-    settings: { ...DEFAULT_SETTINGS, serverUrl: "https://dav.example.com/dav/", username: "abd", tasksFolder: "Tâches", eventsFolder: "Calendrier", projectTag: "projet" },
+    settings: { ...DEFAULT_SETTINGS, serverUrl: "https://dav.example.com/dav/", username: "abd", tasksFolder: "Tâches", eventsFolder: "Calendrier" },
     saveSettings: async () => undefined,
     testConnection: async () => undefined,
     regenerateTaskBase: () => undefined,
@@ -287,8 +287,7 @@ function settings(): void {
 /** The task form on a task already made, opened from its deadline chip; `menu`: its repeat menu open. */
 function editTask(menu = false): void {
   const modal = new TaskModal({} as never, {
-    projects: [{ path: "Projets/Olera.md", name: "Olera", collection: "Pro" }],
-    project: "Projets/Olera.md",
+    knownTags: KNOWN_TAGS,
     collections: ["Général", "Pro", "École"],
     collection: "Pro",
     focus: "due",
@@ -297,7 +296,7 @@ function editTask(menu = false): void {
       due: "2026-10-23T18:00",
       repeat: "FREQ=WEEKLY",
       priority: "high",
-      project: "Projets/Olera.md",
+      tags: ["olera"],
       collection: "Pro",
       planned: [
         { label: "mar. 20 oct. 14:00–16:00", start: "2026-10-20T14:00" },
@@ -337,14 +336,13 @@ function newEvent(): void {
   done();
 }
 
-/** The "New task" form, filled in. */
-function newTask(): void {
+/** The vault's tags, most used first (what the task form suggests). */
+const KNOWN_TAGS = ["olera", "famille", "urgent", "cours", "maison", "projets/factures"];
+
+/** The "New task" form, filled in; `tags`: a tag being typed, the vault's suggested. */
+function newTask(tags = false): void {
   const modal = new TaskModal({} as never, {
-    projects: [
-      { path: "Projets/Olera.md", name: "Olera", collection: "Pro" },
-      { path: "Projets/Cours réseau.md", name: "Cours réseau", collection: "École" },
-    ],
-    project: "Projets/Olera.md",
+    knownTags: KNOWN_TAGS,
     collections: ["Général", "Pro", "École"],
     collection: "Pro",
     submit: () => undefined,
@@ -367,14 +365,15 @@ function newTask(): void {
   inputs[5]?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
   fill(3, "jeu");
   fill(4, "10h");
+  fill(6, tags ? "#olera #f" : "#olera");
+  if (tags) inputs[6]?.focus();
   done();
 }
 
 /** The task form with the day it's being placed on: a slot typed among the day's events, a deadline. */
 function taskPreview(): void {
   const modal = new TaskModal({} as never, {
-    projects: [],
-    project: null,
+    knownTags: [],
     collections: ["Général", "Pro"],
     collection: "Général",
     submit: () => undefined,
@@ -413,10 +412,8 @@ function datePicker(): void {
 }
 
 /**
- * A task note open in reading view: the header above the page, properties hidden. `short`: a deadline and a project
+ * A task note open in reading view: the header above the page, properties hidden. `short`: a deadline and a tag
  * only, so the creation date has room (the full header has none: it must hide, not wrap).
- */
-/**
  * A task note's header: full, short, done ("Faite hier" by its checkbox), or repeating (the last time it was done,
  * every time in a menu).
  */
@@ -433,7 +430,7 @@ function taskNote(kind: "full" | "short" | "done" | "repeat" = "full"): void {
       priority: short ? null : { level: "high", label: "Priorité haute" },
       due: kind === "repeat" ? { text: "Lun. 2 nov.", overdue: false } : { text: "Demain 18:00", overdue: false },
       repeat: kind === "repeat" ? "chaque lundi" : null,
-      project: { name: "Olera", path: "Projets/Olera.md" },
+      tags: ["olera"],
       parent: null,
       progress: short ? null : "1/3",
       blocks: short
@@ -460,7 +457,7 @@ function taskNote(kind: "full" | "short" | "done" | "repeat" = "full"): void {
     { toggle: () => undefined, edit: () => undefined, open: () => undefined, block: () => undefined, showBlock: () => undefined, properties: { shown: false, toggle: () => undefined } },
     {
       todo: "À faire", done: "Terminée", deadline: "Deadline", addBlock: "Ajouter une session", repeat: "Répétition",
-      project: "Projet", parent: "Tâche parente", progress: "Sous-tâches faites", history: "Les fois où elle a été faite", edit: "Modifier la tâche…",
+      tags: "Tags", parent: "Tâche parente", progress: "Sous-tâches faites", history: "Les fois où elle a été faite", edit: "Modifier la tâche…",
       showProperties: "Afficher les propriétés", hideProperties: "Masquer les propriétés", pending: "", local: "",
     },
   );
@@ -577,6 +574,7 @@ else if (scenario === "task-links") taskLinks();
 else if (scenario === "settings") settings();
 else if (scenario === "date-suggest") dateSuggest();
 else if (scenario === "new-task") newTask();
+else if (scenario === "new-task-tags") newTask(true);
 else if (scenario === "edit-task") editTask();
 else if (scenario === "edit-task-menu") editTask(true);
 else if (scenario === "new-event") newEvent();

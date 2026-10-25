@@ -1,4 +1,4 @@
-import { Modal, Setting, SuggestModal, setIcon, type App } from "obsidian";
+import { AbstractInputSuggest, Modal, Setting, SuggestModal, setIcon, type App } from "obsidian";
 import type { Priority } from "../constants";
 import { formatLocalDate, localZone, parseLocal, wallClock } from "../ical/time";
 import { language, t } from "../i18n";
@@ -9,6 +9,7 @@ import { DayPreview, type Placed, type PreviewSource } from "../calendar/day-pre
 import { localValue } from "../calendar/when-fields";
 import { dateText, dayBlock, dayValue, firstDay, readFields, repeatLabel, suggestAt, type Block } from "../editor/when";
 import { menuSelect, named } from "../ui/menu-select";
+import { sameTag, tagsOf } from "./tags";
 
 const lang = (): "fr" | "en" => (language().startsWith("fr") ? "fr" : "en");
 const today = () => wallClock(new Date(), localZone());
@@ -20,8 +21,8 @@ export interface NewTask {
   /** RRULE. */
   repeat: string | null;
   priority: Priority | null;
-  /** Project note path. */
-  project: string | null;
+  /** Without "#". */
+  tags: string[];
   /** The collection it goes in, by name. */
   collection: string | null;
   /** Time to block for it (events linked to the task). */
@@ -34,7 +35,7 @@ export interface TaskDraft {
   due: string | null;
   repeat: string | null;
   priority: Priority | null;
-  project: string | null;
+  tags: string[];
   collection: string | null;
   /** Time blocks it already has: a label, and where it starts (to show its day; null for "…"). */
   planned: { label: string; start: string | null }[];
@@ -53,7 +54,7 @@ const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const repeatOption = (rule: string) => ({ value: rule, label: capital(repeatLabel(rule, lang()) ?? rule) });
 
 /**
- * The task form (spec §5.3): a title, an optional deadline, time blocks, a repetition, a priority, a project, the
+ * The task form (spec §5.3): a title, an optional deadline, time blocks, a repetition, a priority, tags, the
  * collection.
  * New, or `edit` to change a task already made (clicking its chips): its values filled in. With a `preview`, a day
  * of the calendar beside it shows where the deadline and the time blocks land among the rest, and places them.
@@ -77,9 +78,8 @@ export class TaskModal extends Modal {
   constructor(
     app: App,
     private readonly opts: {
-      /** `collection`: where the project's tasks go, if it says. */
-      projects: { path: string; name: string; collection: string | null }[];
-      project: string | null;
+      /** The vault's tags (without "#"), most used first: what the tags field suggests. */
+      knownTags: string[];
       /** Collections a task can go in (names), and the one to start with. */
       collections: string[];
       collection: string | null;
@@ -98,7 +98,7 @@ export class TaskModal extends Modal {
       due: e?.due ?? null,
       repeat: e?.repeat ?? null,
       priority: e?.priority ?? null,
-      project: opts.project,
+      tags: e?.tags ?? [],
       collection: opts.collection,
       blocks: [],
     };
@@ -169,34 +169,21 @@ export class TaskModal extends Modal {
     });
     startAt("priority", prioritySelect.el);
 
-    // A new task's collection follows the project picked (if it names one), until it's picked by hand.
-    let collectionPicked = !!edit;
-    let collectionSelect: ReturnType<typeof menuSelect> | null = null;
-    if (this.opts.projects.length) {
-      const project = named(new Setting(this.form), "folder", t("modal.project"));
-      const select = menuSelect(project.controlEl, {
-        options: [{ value: "", label: t("modal.none") }, ...this.opts.projects.map((p) => ({ value: p.path, label: p.name, icon: "folder" }))],
-        value: this.task.project ?? "",
-        onChange: (v) => {
-          this.task.project = v || null;
-          const own = this.opts.projects.find((p) => p.path === v)?.collection;
-          const next = own && this.opts.collections.includes(own) ? own : this.opts.collection;
-          if (collectionPicked || !collectionSelect || !next) return;
-          this.task.collection = next;
-          collectionSelect.setValue(next);
-        },
-      });
-      startAt("project", select.el);
-    }
+    // Typed as on a task line ("#famille #urgent"), the vault's tags suggested for the one being typed.
+    const tags = named(new Setting(this.form), "tag", t("modal.tags"));
+    const tagsInput = tags.controlEl.createEl("input", { cls: "ct-task-tags-input", type: "text", attr: { placeholder: t("modal.tagsPlaceholder") } });
+    tagsInput.value = this.task.tags.map((tag) => `#${tag}`).join(" ");
+    const readTags = () => (this.task.tags = tagsOf(tagsInput.value));
+    tagsInput.addEventListener("input", readTags);
+    new TagSuggest(this.app, tagsInput, this.opts.knownTags, readTags);
+    startAt("tags", tagsInput);
+
     if (this.opts.collections.length > 1) {
       const collection = named(new Setting(this.form), "calendar", t("modal.calendar"));
-      collectionSelect = menuSelect(collection.controlEl, {
+      menuSelect(collection.controlEl, {
         options: this.opts.collections.map((name) => ({ value: name, label: name, icon: "calendar" })),
         value: this.task.collection ?? "",
-        onChange: (v) => {
-          collectionPicked = true;
-          this.task.collection = v || null;
-        },
+        onChange: (v) => (this.task.collection = v || null),
       });
     }
     new Setting(this.form)
@@ -484,5 +471,35 @@ export class RepeatPickerModal extends SuggestModal<{ label: string; rule: strin
 
   onChooseSuggestion(item: { label: string; rule: string }): void {
     this.opts.pick(item.rule);
+  }
+}
+
+/** Suggests the vault's tags for the word being typed in a tags field; picking one completes it (then `picked`). */
+class TagSuggest extends AbstractInputSuggest<string> {
+  constructor(
+    app: App,
+    private readonly input: HTMLInputElement,
+    private readonly known: string[],
+    private readonly picked: () => void,
+  ) {
+    super(app, input);
+  }
+
+  protected override getSuggestions(query: string): string[] {
+    const word = /#?([^\s,#]*)$/.exec(query)?.[1]?.toLowerCase() ?? "";
+    const typed = tagsOf(query.slice(0, query.length - word.length));
+    return this.known.filter((tag) => tag.toLowerCase().includes(word) && !typed.some((x) => sameTag(x, tag))).slice(0, 20);
+  }
+
+  override renderSuggestion(tag: string, el: HTMLElement): void {
+    el.setText(`#${tag}`);
+  }
+
+  override selectSuggestion(tag: string): void {
+    const value = this.input.value.replace(/#?[^\s,#]*$/, "");
+    this.setValue(`${value}#${tag} `);
+    // Not an `input` event: it would open the suggestions again.
+    this.picked();
+    this.close();
   }
 }

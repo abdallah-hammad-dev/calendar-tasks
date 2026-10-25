@@ -256,6 +256,63 @@ export class SuggestModal<T> extends Modal {
   declare _t: T;
 }
 
+/** Obsidian's suggestions under a text box (.suggestion-container > .suggestion > .suggestion-item), on input. */
+export abstract class AbstractInputSuggest<T> {
+  limit = 100;
+  private container: HTMLElement | null = null;
+  private picked: ((value: T, evt: MouseEvent | KeyboardEvent) => unknown) | null = null;
+  constructor(
+    public app: unknown,
+    private readonly textInputEl: HTMLInputElement | HTMLDivElement,
+  ) {
+    textInputEl.addEventListener("input", () => void this.update());
+    textInputEl.addEventListener("focus", () => void this.update());
+  }
+  setValue(value: string): void {
+    if (this.textInputEl instanceof HTMLInputElement) this.textInputEl.value = value;
+    else this.textInputEl.textContent = value;
+  }
+  getValue(): string {
+    return this.textInputEl instanceof HTMLInputElement ? this.textInputEl.value : (this.textInputEl.textContent ?? "");
+  }
+  protected abstract getSuggestions(query: string): T[] | Promise<T[]>;
+  abstract renderSuggestion(value: T, el: HTMLElement): void;
+  selectSuggestion(value: T, evt: MouseEvent | KeyboardEvent): void {
+    this.picked?.(value, evt);
+  }
+  onSelect(callback: (value: T, evt: MouseEvent | KeyboardEvent) => unknown): this {
+    this.picked = callback;
+    return this;
+  }
+  open(): void {}
+  close(): void {
+    this.container?.remove();
+    this.container = null;
+  }
+  private async update(): Promise<void> {
+    const items = (await this.getSuggestions(this.getValue())).slice(0, this.limit || undefined);
+    this.close();
+    if (!items.length) return;
+    const container = document.createElement("div");
+    container.className = "suggestion-container";
+    const list = container.appendChild(document.createElement("div"));
+    list.className = "suggestion";
+    items.forEach((item, i) => {
+      const el = list.appendChild(document.createElement("div"));
+      el.className = `suggestion-item${i === 0 ? " is-selected" : ""}`;
+      this.renderSuggestion(item, el);
+      el.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        this.selectSuggestion(item, e);
+      });
+    });
+    const r = this.textInputEl.getBoundingClientRect();
+    Object.assign(container.style, { position: "fixed", left: `${r.left}px`, top: `${r.bottom + 4}px`, minWidth: `${r.width}px` });
+    document.body.appendChild(container);
+    this.container = container;
+  }
+}
+
 // ───────────────────────── Menu (real markup) ─────────────────────────
 
 class MenuItem {

@@ -309,19 +309,17 @@ describe("collections", () => {
     expect(vault.fm("Tâches/T.md")!.collection).toBe("Pro"); // "Events only" can't hold it
   });
 
-  it("goes where its note says, else with its parent, else with its project", async () => {
+  it("goes where its note says, else with its parent, else to the default", async () => {
     settings.defaultCalendar = calendar;
-    vault.add("Projets/Cours.md", { collection: "pro" }, { tags: ["project"] });
     server.externalPut(`${pro}parent.ics`, vtodo("parent", "SUMMARY:Parent\r\n"));
     await start();
     vault.add("Tâches/Named.md", { type: "task", done: false, collection: "Pro" });
     vault.add("Tâches/Child.md", { type: "task", done: false, parent: "[[Parent]]" });
-    vault.add("Tâches/In project.md", { type: "task", done: false, project: "[[Cours]]" });
-    vault.add("Tâches/Plain.md", { type: "task", done: false });
-    for (const p of ["Named", "Child", "In project", "Plain"]) await tasks.noteChanged(`Tâches/${p}.md`);
+    vault.add("Tâches/Plain.md", { type: "task", done: false, tags: ["pro"] }); // a tag isn't a collection
+    for (const p of ["Named", "Child", "Plain"]) await tasks.noteChanged(`Tâches/${p}.md`);
     await cycle();
-    expect(["Named", "Child", "In project", "Plain"].map((p) => vault.fm(`Tâches/${p}.md`)!.collection)).toEqual(["Pro", "Pro", "Pro", "tasks"]);
-    expect([1, 2, 3].map((n) => !!at(pro, `new-${n}`))).toEqual([true, true, true]);
+    expect(["Named", "Child", "Plain"].map((p) => vault.fm(`Tâches/${p}.md`)!.collection)).toEqual(["Pro", "Pro", "tasks"]);
+    expect([1, 2].map((n) => !!at(pro, `new-${n}`))).toEqual([true, true]);
   });
 
   it("changing the collection in the note moves the task, same reminder, same note", async () => {
@@ -530,30 +528,41 @@ describe("when a task was ticked", () => {
   });
 });
 
-describe("projects and sub-tasks", () => {
-  beforeEach(() => {
-    vault.add("Projets/Olera.md", { kind: "project" }, { tags: ["project"] });
-    vault.add("Notes/Random.md", {});
-  });
-
-  it("sends the project as a category, and only real projects", async () => {
+describe("tags and sub-tasks", () => {
+  it("sends the note's tags as categories", async () => {
     await start();
-    vault.add("Tâches/T1.md", { type: "task", done: false, project: "[[Olera]]" });
-    vault.add("Tâches/T2.md", { type: "task", done: false, project: "[[Random]]" });
+    vault.add("Tâches/T1.md", { type: "task", done: false, tags: ["famille", "#urgent"] });
+    vault.add("Tâches/T2.md", { type: "task", done: false, tags: "maison" });
     await tasks.noteChanged("Tâches/T1.md");
     await tasks.noteChanged("Tâches/T2.md");
     await cycle();
-    expect(onServer("new-1")!.categories).toEqual(["Olera"]);
-    expect(onServer("new-2")!.categories).toEqual([]);
-    expect(vault.fm("Tâches/T2.md")!.project).toBe("[[Random]]"); // kept, just not synced
+    expect(onServer("new-1")!.categories).toEqual(["famille", "urgent"]);
+    expect(onServer("new-2")!.categories).toEqual(["maison"]);
   });
 
-  it("turns a project category into a project link, ignoring other categories", async () => {
-    server.externalPut(`${calendar}a.ics`, vtodo("a", "SUMMARY:A\r\nCATEGORIES:Work,Olera\r\n"));
+  it("turns categories into tags, keeping the reminder's spelling and what can't be a tag", async () => {
+    server.externalPut(`${calendar}a.ics`, vtodo("a", "SUMMARY:A\r\nCATEGORIES:Work stuff,Famille,2026\r\n"));
     await start();
-    expect(vault.fm("Tâches/A.md")!.project).toBe("[[Olera]]");
+    expect(vault.fm("Tâches/A.md")!.tags).toEqual(["Work-stuff", "Famille"]);
     await cycle();
-    expect(onServer("a")!.categories).toEqual(["Work", "Olera"]); // Work untouched
+    expect(onServer("a")!.categories).toEqual(["Work stuff", "Famille", "2026"]); // untouched: no echo
+
+    await vault.editFrontmatter("Tâches/A.md", (fm) => (fm.tags = ["famille", "urgent"]));
+    await tasks.noteChanged("Tâches/A.md");
+    await cycle();
+    expect(onServer("a")!.categories).toEqual(["Famille", "2026", "urgent"]);
+    expect(vault.fm("Tâches/A.md")!.tags).toEqual(["famille", "urgent"]); // the note's case stays
+  });
+
+  it("follows tags changed on the phone, and takes them all off", async () => {
+    server.externalPut(`${calendar}a.ics`, vtodo("a", "SUMMARY:A\r\nCATEGORIES:famille\r\n"));
+    await start();
+    server.externalPut(`${calendar}a.ics`, vtodo("a", "SUMMARY:A\r\nCATEGORIES:famille,urgent\r\n"));
+    await cycle();
+    expect(vault.fm("Tâches/A.md")!.tags).toEqual(["famille", "urgent"]);
+    server.externalPut(`${calendar}a.ics`, vtodo("a", "SUMMARY:A\r\n"));
+    await cycle();
+    expect(vault.fm("Tâches/A.md")!.tags).toBeUndefined();
   });
 
   it("links sub-tasks both ways", async () => {

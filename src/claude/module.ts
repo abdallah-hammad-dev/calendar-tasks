@@ -5,6 +5,7 @@ import { repeatToNote } from "../editor/when";
 import { fromWall, parseLocal } from "../ical/time";
 import type { TaskInfo } from "../tasks/task-index";
 import { PRIORITY_RANK_FORMULA } from "../tasks/base-file";
+import { sameTag } from "../tasks/tags";
 import { freeSlots } from "./free-slots";
 import type { ToolResultLike, WorkspaceModule } from "./workspace-api";
 
@@ -12,7 +13,7 @@ import type { ToolResultLike, WorkspaceModule } from "./workspace-api";
 export interface CalendarServices {
   connected(): boolean;
   tz(): string;
-  folders(): { tasks: string; events: string; projectTag: string; taskBase: string; eventNoteExample: string };
+  folders(): { tasks: string; events: string; taskBase: string; eventNoteExample: string };
   calendars(): { url: string; name: string; readOnly: boolean; components: string[] }[];
   occurrences(from: Date, to: Date): Occurrence[];
   tasks(): TaskInfo[];
@@ -21,7 +22,7 @@ export interface CalendarServices {
   updateEvent(uid: string, recurrenceId: string | null, changes: { title?: string; start?: string; end?: string }): Promise<void>;
   deleteEvent(uid: string, recurrenceId: string | null): Promise<void>;
   rsvp(uid: string, answer: "ACCEPTED" | "TENTATIVE" | "DECLINED"): Promise<void>;
-  createTask(t: { title: string; due?: string; repeat?: string; priority?: Priority; project?: string; parent?: string; body?: string }): Promise<string>;
+  createTask(t: { title: string; due?: string; repeat?: string; priority?: Priority; tags?: string[]; parent?: string; body?: string }): Promise<string>;
   setTaskDone(task: string, done: boolean): Promise<string>;
   /** Sets (a value) or clears (null) a task's deadline, repetition and priority; undefined leaves it. */
   setTaskDates(task: string, dates: { due?: string | null; repeat?: string | null; priority?: Priority | null }): Promise<string>;
@@ -93,17 +94,17 @@ function describeTask(t: TaskInfo, s: CalendarServices) {
     due: t.due,
     ...(t.repeat ? { repeat: repeatToNote(t.repeat) } : {}),
     ...(t.priority ? { priority: t.priority } : {}),
-    project: t.projectPath?.split("/").pop()?.replace(/\.md$/, "") ?? null,
+    tags: t.tags,
     parent: t.parentPath,
     uid: t.uid,
     sync: s.syncState(t.uid),
   };
 }
 
-export function skillMarkdown(f: { tasks: string; events: string; projectTag: string; taskBase: string; eventNoteExample: string }): string {
+export function skillMarkdown(f: { tasks: string; events: string; taskBase: string; eventNoteExample: string }): string {
   return `---
 name: calendar-tasks
-description: How the user's calendar and tasks work in this vault (CalDAV-synced task notes, event notes, projects, views of tasks). Use before creating, scheduling or completing tasks or events, or making a view (Bases) of them.
+description: How the user's calendar and tasks work in this vault (CalDAV-synced task notes, event notes, tags, views of tasks). Use before creating, scheduling or completing tasks or events, or making a view (Bases) of them.
 ---
 
 # Calendar & Tasks
@@ -113,14 +114,15 @@ extension. Use the \`calendar_*\` tools; never edit \`caldav_uid\`, \`due\`, \`d
 
 - **A task is a note** in \`${f.tasks}/\` with frontmatter \`type: ${NOTE_TYPE.task}\`, \`${PROP.done}\` (checkbox),
   optional \`${PROP.due}\` (the deadline: "YYYY-MM-DD" or "YYYY-MM-DDTHH:mm", local time), optional
-  \`${PROP.project}: "[[Note]]"\`, \`${PROP.parent}: "[[Parent task]]"\` and \`${PROP.repeat}\` ("every monday", "every 2 weeks",
+  \`${PROP.tags}\` (Obsidian's own tags, a list without "#"), \`${PROP.parent}: "[[Parent task]]"\` and \`${PROP.repeat}\` ("every monday", "every 2 weeks",
   "every weekday"…; synced to the phone; ticking a repeating task moves it to its next date instead of closing it) and
   \`${PROP.priority}\` (high / medium / low, or none; the phone's !!! / !! / !), and \`${PROP.collection}\` (the name of
   the calendar collection it's in, e.g. "Général", "Pro"; writing another name moves it there), \`${PROP.created}\`
   (when it was made) and \`${PROP.completed}\` (when it was ticked, while done), set by the extension; a repeating task
   keeps each time it was ticked in \`${PROP.completions}\`. Its body is free content and is never synced. Small steps inside a task are
   plain \`- [ ]\` lines; a step with its own deadline is a child task (\`calendar_create_task\` with \`parent\`).
-- **A project is any note tagged \`#${f.projectTag}\`.** A task belongs to at most one project.
+- **Tasks are grouped by their tags** (\`#famille\`, \`#urgent\`…), synced as the reminder's categories. A tag
+  written on a \`- [ ]\` line goes into the task's \`${PROP.tags}\`. There are no project notes.
 - **Mention a task anywhere** with a plain link line \`- [[Task title]]\`: the extension draws the checkbox from
   \`${PROP.done}\`. Don't write \`- [ ] [[Task]]\`.
 - **Deadline ≠ work session.** \`${PROP.due}\` is the deadline, the date synced to the phone (optional; set it with
@@ -148,7 +150,7 @@ Views are Obsidian Bases (\`.base\` files, https://obsidian.md/help/bases/syntax
 | \`${PROP.created}\` | date-time | "YYYY-MM-DDTHH:mm", when the task was made (the reminder's creation date); sort on it, newest first, to find what was jotted down lately |
 | \`${PROP.completed}\` | date-time | "YYYY-MM-DDTHH:mm", when it was ticked; only on done tasks; sort on it, newest first, for what was done lately |
 | \`${PROP.completions}\` | list | a repeating task: each time it was ticked ("YYYY-MM-DDTHH:mm"), oldest first |
-| \`${PROP.project}\` | link | "[[Project note]]"; group by it for a per-project view |
+| \`${PROP.tags}\` | tags | its tags, without "#"; grouping by it groups by the whole list (#famille and #urgent together are a group of their own); filter with \`file.hasTag("famille")\` for one tag |
 | \`${PROP.parent}\` | link | the parent task of a sub-task |
 | \`${PROP.collection}\` | text | the collection's name |
 | \`file.name\` | | the task's title |
@@ -280,20 +282,20 @@ export function createCalendarModule(s: CalendarServices): WorkspaceModule {
         name: "calendar_list_tasks",
         title: "List tasks",
         description:
-          "Task notes with their deadline (due), repetition, state, project and sync state. Filters are optional.",
+          "Task notes with their deadline (due), repetition, state, tags and sync state. Filters are optional.",
         inputSchema: {
           status: describe(z.optional(z.enum(["open", "done", "all"])), "Default: open"),
-          project: describe(z.optional(z.string()), "Project note name"),
+          tag: describe(z.optional(z.string()), "Only tasks with this tag (with or without \"#\")"),
           dueBefore: z.optional(local("Only tasks due before")),
         },
         annotations: { readOnlyHint: true },
-        handler: async ({ status, project, dueBefore }) =>
+        handler: async ({ status, tag, dueBefore }) =>
           guard(async () => {
             const st = status ?? "open";
             const list = s
               .tasks()
               .filter((t) => st === "all" || t.done === (st === "done"))
-              .filter((t) => !project || t.projectPath?.split("/").pop()?.replace(/\.md$/, "") === project)
+              .filter((t) => !tag || t.tags.some((x) => sameTag(x, tag.replace(/^#+/, ""))))
               .filter((t) => !dueBefore || (t.due !== null && t.due < dueBefore))
               .sort((a, b) => (a.due ?? "9999").localeCompare(b.due ?? "9999"));
             return { tasks: list.map((t) => describeTask(t, s)) };
@@ -305,14 +307,14 @@ export function createCalendarModule(s: CalendarServices): WorkspaceModule {
         title: "Create a task",
         description:
           "Creates a task note (synced as a reminder on the phone). `due`: deadline; to block time for it, use " +
-          "calendar_schedule_task afterwards. `project`: project note name; `parent`: parent task (path, name or uid) " +
+          "calendar_schedule_task afterwards. `tags`: its tags (\"famille\"…); `parent`: parent task (path, name or uid) " +
           "for a sub-task with its own deadline. Returns the note path; to mention it in a note, add a line `- [[<title>]]`.",
         inputSchema: {
           title: text(),
           due: z.optional(local("Deadline")),
           repeat: describe(z.optional(z.string()), 'How it repeats: "every day", "every monday", "every 2 weeks", "every weekday"…'),
           priority: describe(z.optional(z.enum(PRIORITIES)), "Leave out for none"),
-          project: z.optional(z.string()),
+          tags: describe(z.optional(z.array(z.string())), 'Its tags, e.g. ["famille"]'),
           parent: z.optional(z.string()),
           body: describe(z.optional(z.string()), "Markdown content of the task note"),
         },
@@ -392,7 +394,7 @@ export function createCalendarModule(s: CalendarServices): WorkspaceModule {
         collect: (_view, file) => (file ? s.noteInfo(file.path) : null),
         render: (d) => [
           d.kind === "task"
-            ? `This note is a task: ${d.done ? "done" : "not done"}${d.due ? `, due ${str(d.due)}` : ""}${d.project ? `, project ${str(d.project)}` : ""}, ${str(d.sync)}.`
+            ? `This note is a task: ${d.done ? "done" : "not done"}${d.due ? `, due ${str(d.due)}` : ""}${Array.isArray(d.tags) && d.tags.length ? `, tags ${d.tags.map((x) => `#${str(x)}`).join(" ")}` : ""}, ${str(d.sync)}.`
             : `This note is an event note: ${str(d.start)} → ${str(d.end)}${d.recurrenceId ? ` (occurrence ${str(d.recurrenceId)})` : ""}.`,
         ],
       });

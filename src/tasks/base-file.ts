@@ -9,7 +9,7 @@ export interface BaseFileLabels {
   completed: string;
   todo: string;
   noDue: string;
-  byProject: string;
+  byTag: string;
   done: string;
 }
 
@@ -56,7 +56,7 @@ export function taskBaseFile(l: BaseFileLabels): string {
     "    filters:",
     "      and:",
     `        - '${notDone}'`,
-    ...columns(PROP.due, PROP.priority, PROP.repeat, PROP.project, PROP.collection),
+    ...columns(PROP.due, PROP.priority, PROP.repeat, PROP.tags, PROP.collection),
     ...sortBy(PROP.due, "formula.urgency"),
     // Small tasks jotted down without a deadline, newest first (`isEmpty()` is true for a missing or empty value).
     "  - type: table",
@@ -65,15 +65,16 @@ export function taskBaseFile(l: BaseFileLabels): string {
     "      and:",
     `        - '${notDone}'`,
     `        - '${PROP.due}.isEmpty()'`,
-    ...columns(PROP.created, PROP.priority, PROP.project),
+    ...columns(PROP.created, PROP.priority, PROP.tags),
     ...newestFirst(PROP.created),
     "  - type: table",
-    `    name: ${JSON.stringify(l.byProject)}`,
+    `    name: ${JSON.stringify(l.byTag)}`,
     "    filters:",
     "      and:",
     `        - '${notDone}'`,
+    // Bases groups by the whole list: a task tagged #famille and #urgent is in a group of its own, "famille, urgent".
     "    groupBy:",
-    `      property: ${PROP.project}`,
+    `      property: ${PROP.tags}`,
     "      direction: ASC",
     ...columns(PROP.due, PROP.priority),
     ...sortBy(PROP.due, "formula.urgency"),
@@ -83,7 +84,7 @@ export function taskBaseFile(l: BaseFileLabels): string {
     "      and:",
     `        - '${PROP.done} == true'`,
     // The last ones done first (2026-10-25: when a task was ticked is kept).
-    ...columns(PROP.completed, PROP.due, PROP.project),
+    ...columns(PROP.completed, PROP.due, PROP.tags),
     ...newestFirst(PROP.completed),
     "",
   ].join("\n");

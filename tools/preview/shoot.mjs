@@ -64,6 +64,8 @@ const SCENARIOS = [
   ["settings", 760, 2000],
   ["date-suggest", 1700, 560],
   ["new-task", 760, 760],
+  // A tag being typed in the form: the vault's tags that match, under the field.
+  ["new-task-tags", 760, 760],
   ["edit-task", 760, 740],
   ["edit-task-menu", 760, 760],
   ["new-event", 760, 520],
@@ -789,6 +791,16 @@ for (const [name, width, height, scale = 2] of run) {
       if (!(lines.heights[1] > 0 && lines.heights[0] > lines.heights[1] * 1.5)) errors.push(`an event should take two lines, a deadline one: ${lines.heights.join(" vs ")}px`);
     }
     if (name === "calendar-zoom") await zoom(page, errors, theme);
+    if (name === "new-task-tags") {
+      // "#olera #f": the vault's tags with an "f", less the one already typed; a pick completes the word.
+      const offered = await page.locator(".suggestion-container .suggestion-item").allTextContents();
+      if (offered.join(" ") !== "#famille #projets/factures") errors.push(`the tags field should offer #famille #projets/factures, offers "${offered.join(" ")}"`);
+      await page.screenshot({ path: join(out, `${name}-${theme}.png`) });
+      await page.locator(".suggestion-container .suggestion-item").first().dispatchEvent("mousedown");
+      const value = await page.locator(".ct-task-tags-input").inputValue();
+      if (value !== "#olera #famille ") errors.push(`picking #famille should complete the field, reads "${value}"`);
+      if (await page.locator(".suggestion-container").count()) errors.push("the suggestions should close once one is picked");
+    }
     if (name === "task-preview") {
       const day = (await page.locator(".ct-day-preview-day").textContent()) ?? "";
       if (!/jeudi 22 octobre/i.test(day)) errors.push(`the preview should show the typed slot's day, shows "${day}"`);
@@ -1030,7 +1042,7 @@ for (const [name, width, height, scale = 2] of run) {
       const box = await settings.boundingBox();
       if (box) await page.setViewportSize({ width, height: Math.max(height, Math.ceil(box.y + box.height)) });
       await settings.screenshot({ path: file });
-    } else if (!["calendar-time", "calendar-new", "task-preview", "slot-picker", "date-picker", "new-event"].includes(name)) await page.screenshot({ path: file });
+    } else if (!["calendar-time", "calendar-new", "task-preview", "new-task-tags", "slot-picker", "date-picker", "new-event"].includes(name)) await page.screenshot({ path: file });
     console.log(`${errors.length ? "✗" : "✓"} ${name}-${theme}${errors.length ? `  ${errors.join(" | ")}` : ""}`);
     await page.close();
   }

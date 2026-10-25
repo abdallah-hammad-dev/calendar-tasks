@@ -1,6 +1,7 @@
 import { NOTE_TYPE, PROP, type Priority } from "../constants";
 import { formatLocalDate, formatLocalDateTime, parseLocal } from "../ical/time";
 import { repeatFromNote } from "../editor/when";
+import { tagsOf } from "./tags";
 
 /** What a task note says, read from its frontmatter. */
 export interface NoteState {
@@ -10,8 +11,9 @@ export interface NoteState {
   repeat: string | null | undefined;
   /** null = none; undefined = a `priority` that isn't one (left alone on the server). */
   priority: Priority | null | undefined;
-  /** Link paths (inside `[[…]]`), not resolved. */
-  project: string | null;
+  /** Its tags (without "#"), as written. */
+  tags: string[];
+  /** Link path (inside `[[…]]`), not resolved. */
   parent: string | null;
   /** When the task was made, local "YYYY-MM-DD[THH:mm]"; null = none; undefined = unreadable (left alone). */
   created: string | null | undefined;
@@ -36,7 +38,7 @@ export function readNote(fm: Record<string, unknown> | null | undefined): NoteSt
     due: normalizeDue(fm[PROP.due]),
     repeat: fm[PROP.repeat] === undefined || fm[PROP.repeat] === null || fm[PROP.repeat] === "" ? null : (repeatFromNote(fm[PROP.repeat]) ?? undefined),
     priority: priorityOf(fm[PROP.priority]),
-    project: linkpathOf(fm[PROP.project]),
+    tags: tagsOf(fm[PROP.tags]),
     parent: linkpathOf(fm[PROP.parent]),
     created: fm[PROP.created] === undefined || fm[PROP.created] === null || fm[PROP.created] === "" ? null : (normalizeDue(fm[PROP.created]) ?? undefined),
     completed: normalizeDue(fm[PROP.completed]),
@@ -61,7 +63,7 @@ export function priorityOf(v: unknown): Priority | null | undefined {
   return typeof v === "string" ? PRIORITY_WORDS[v.trim().toLowerCase()] : undefined;
 }
 
-/** A note's `collection` (a task's, or a project's: where its tasks go), as written; null when there's none. */
+/** A task note's `collection`, as written; null when there's none. */
 export function collectionOf(fm: Record<string, unknown> | null | undefined): string | null {
   const raw: unknown = fm?.[PROP.collection];
   const v = Array.isArray(raw) ? (raw as unknown[])[0] : raw;
@@ -91,7 +93,7 @@ export function normalizeDue(v: unknown): string | null {
   return p.allDay ? formatLocalDate(p.wall) : formatLocalDateTime(p.wall);
 }
 
-/** `"[[Olera]]"`, `"[[Projects/Olera|Olera]]"`, `"Olera"` (or a one-item list) → link path. */
+/** `"[[Rapport]]"`, `"[[Tasks/Rapport|Rapport]]"`, `"Rapport"` (or a one-item list) → link path. */
 export function linkpathOf(v: unknown): string | null {
   const raw: unknown = Array.isArray(v) ? (v as unknown[])[0] : v;
   if (typeof raw !== "string") return null;

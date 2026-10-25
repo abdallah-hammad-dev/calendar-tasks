@@ -47,14 +47,14 @@ user at each one.
 - `src/sync/` — `store.ts` (cache snapshot + pending queue; `IdbStore` in IndexedDB, `MemoryStore` for tests),
   `engine.ts` (`SyncEngine`: push queue with `If-Match`, then pull with sync tokens / ctag / etag listing).
 - `src/tasks/` — `vtodo.ts` (read/write the owned VTODO fields in place with ical.js, `taskLink`), `notes.ts`
-  (frontmatter ↔ state, titles), `TaskSync.ts` (notes ↔ VTODOs; depends on `VaultPort`, not on Obsidian),
+  (frontmatter ↔ state, titles), `tags.ts` (tag rule, `#tags` in a line, tags ↔ categories), `TaskSync.ts` (notes ↔ VTODOs; depends on `VaultPort`, not on Obsidian),
   `obsidian-vault.ts` (`VaultPort` on documented APIs: `processFrontMatter`, `fileManager.renameFile`…),
   `base-file.ts` (the `Tasks.base` YAML).
 - `src/editor/` — `date-token.ts` (day words: `15/10`, `demain`, `lun`…), `when.ts` (the `@` grammar: one
   keyword + value per `@`, deadline / time block / repeat; suggestions; RRULE helpers),
-  `convert.ts` (pure: task line → planned task, project resolution order), `converter.ts` (creates the task note,
+  `convert.ts` (pure: task line → planned task: `@` words and `#tags` cut from the title), `converter.ts` (creates the task note,
   returns `- [[Task]]`), `chips.ts`
-  (pure chip model: due label/overdue, project label, progress, sync state), `render.ts` (DOM), `live-preview.ts`
+  (pure chip model: due label/overdue, tags, progress, sync state), `render.ts` (DOM), `live-preview.ts`
   (CM6 ViewPlugin decorations + "cursor left a line" listener; `refreshTaskDecorations()`), `left-lines.ts` (pure:
   which task lines an update left, pasted lines included), `date-suggest.ts` (the `@` assistant, an
   `EditorSuggest` on `suggestAt`; also after the link of a converted line, to change that task),
@@ -239,8 +239,8 @@ user at each one.
   the done transition in `metadataCache.on("changed")`.
 - **Collections are contexts, each holding events and tasks** (2026-10-18; the user never wanted a list for tasks
   and a calendar for events): one setting, `defaultCalendar` (migrated from `taskCalendar` / `eventCalendar`),
-  and a `collection` property in task notes (by name). `TaskSync.calendarFor`: note's → parent's → project note's
-  `collection` → default → first by name. Moving = `putItem` in the new collection + `deleteItem` of the old
+  and a `collection` property in task notes (by name). `TaskSync.calendarFor`: note's → parent's → default → first by
+  name (tags never pick one). Moving = `putItem` in the new collection + `deleteItem` of the old
   (two queued ops, in that order). `TaskSync.known` (uid → the collection the note was last in step with) tells a
   user's change (note names another one: move) from a note that's behind (the phone moved it: the note follows);
   without it, a tick queued while the phone moved the reminder sent it back. A rename anywhere →
@@ -389,8 +389,18 @@ user at each one.
   strings: they're stored in event notes and travel in `obsidian://…&rid=` links.
 - ical.js needs the zones: `registerZones` registers the item's VTIMEZONEs and generates one for IANA TZIDs
   without a definition.
-- `project` syncs as a `CATEGORIES` value only when the linked note carries the project tag; other categories are
-  kept untouched. File names keep the server summary unless the user renames the note (`titleMatches`).
+- File names keep the server summary unless the user renames the note (`titleMatches`).
+- **Tags, not projects** (2026-10-25, the user found project notes odd; "oui" to: Obsidian's own tags, projects
+  gone): the note's `tags` (list, no "#"; `tagsOf` reads a string or "#" too) ↔ `CATEGORIES` (`categoriesFor` /
+  `tagsFromCategories` in `src/tasks/tags.ts`: a category that can't be a tag stays, "Work stuff" ↔ `Work-stuff`
+  keeps its spelling, compared in any case and order so nothing ping-pongs). `#tag` on a task line goes into `tags`
+  and leaves the title; no inheritance (not from the note it's in, nor the parent). Chips show tags in one chip,
+  less the containing note's (`getAllTags` in `main.noteTags`); the header shows them in one item (two pills
+  wrapped the full header at 900 px). The form's Tags field is free text with `AbstractInputSuggest` (vault tags
+  from `getAllTags` over every note, most used first; `metadataCache.getTags` isn't public); a pick sets the field
+  without an `input` event (that reopened the list). Bases groups by the whole list: `[famille, urgent]` is one
+  group "famille, urgent" (checked in Obsidian); `file.hasTag("famille")` filters one tag (checked too). The
+  `projectTag` setting, project notes and the `project:` property are gone; old `project:` values are left alone.
 
 ## Gotchas (inherited from claude-workspace)
 - Never declare class fields that shadow Obsidian base-class members (`containerEl`, `contentEl`, `titleEl`,
