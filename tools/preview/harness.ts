@@ -2,6 +2,7 @@
  * UI preview scenarios, rendered with Obsidian's real app.css in Chromium by shoot.mjs.
  * ?scenario=<name>&theme=light|dark&lang=fr|en
  */
+import { Menu } from "obsidian";
 import { CalendarView, type CalendarHost } from "../../src/calendar/CalendarView";
 import { wholeDevicePixels } from "../../src/calendar/device-pixels";
 import { expandItem } from "../../src/calendar/expand";
@@ -164,9 +165,10 @@ function calendar(view: "timeGridWeek" | "dayGridMonth" | "listWeek", inTab = fa
       },
     }),
     editTask: (uid) => ((window as unknown as { __editTask: string }).__editTask = uid),
-    menu: () => undefined,
     pickSlotFor: (uid) => ((window as unknown as { __pickSlot: string }).__pickSlot = uid),
     remove: (o, all) => ((window as unknown as { __removed: string }).__removed = `${o.title}|${all ? "all" : "one"}`),
+    // The right-click menu, one item: enough to see what a click elsewhere does.
+    menu: (_o, e, edit) => new Menu().addItem((i) => i.setTitle(t("menu.edit")).onClick(edit)).showAtMouseEvent(e),
     planTasks: () => [
       { path: "a", title: "Envoyer le devis", priority: "high", due: { text: "14 oct.", overdue: true }, blocks: 0 },
       { path: "d", title: "Préparer slides", priority: "medium", due: { text: "15 oct.", overdue: false }, blocks: 2 },

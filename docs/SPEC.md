@@ -560,7 +560,9 @@ popovers.
   changes its reminder at once, then its note (2026-10-19: "ça revient puis ça se redéplace" when the calendar
   redrew before the note's change reached the reminder). While something is held, the calendar doesn't redraw
   (2026-10-19: a redraw from the move just before showed the old one again beside the one in hand); it does once
-  it's dropped. **Selecting a range** creates an event (title, collection, or a task it's a work session for: picking it names the event, unless a title was typed), in a popover beside the selection, which stays drawn until the popover closes (a modal on phones).
+  it's dropped. **Selecting a range** creates an event (title, collection, or a task it's a work session for: picking it names the event, unless a title was typed), in a popover beside the selection, which stays drawn until the popover closes (a modal on phones). A click beside the events while a menu is open
+  only closes the menu (2026-10-25, the user: closing the right-click menu that way started a new event); a click on an
+  event still does what it does, as anywhere in Obsidian.
 - Editing an event's details (title, times, place, collection, task) is its form (the pencil above); the
   recurrence and complex edits stay in Apple Calendar.
 

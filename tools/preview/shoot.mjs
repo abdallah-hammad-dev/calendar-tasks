@@ -458,6 +458,18 @@ async function interact(page, errors) {
     const time = (await olera.locator(".ct-ev-time").textContent()) ?? "";
     if (!/^10:(05|10|15|20|25)/.test(time)) errors.push(`a dragged event didn't land on a 5-minute step: "${time}"`);
   } else errors.push("missing Point Olera");
+  // A click beside the events while a menu is open only closes the menu (2026-10-25, asked): no new event.
+  await page.locator(".fc-timegrid-event:has-text('Point Olera')").first().click({ button: "right" });
+  await page.waitForTimeout(100);
+  if (!(await page.locator(".menu").count())) errors.push("no menu on a right-click");
+  await page.mouse.click(fri.x + fri.width / 2, at13.y + at13.height / 2);
+  await page.waitForTimeout(300);
+  if (await page.locator(".menu").count()) errors.push("a click elsewhere should close the menu");
+  if (await page.locator(".ct-popover, .fc-event-mirror").count()) {
+    errors.push("the click that closed a menu started a new event");
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(200);
+  }
   await page.mouse.click(fri.x + fri.width / 2, at13.y + at13.height / 2);
   await page.waitForTimeout(300);
   if (!(await page.locator(".ct-popover").count())) errors.push("no new event form after clicking a slot");
@@ -474,11 +486,22 @@ async function interact(page, errors) {
   typed = (await page.locator(".fc-event-mirror").first().textContent()) ?? "";
   if (!typed.includes("14:10")) errors.push(`a typed end should end the selection at 14:10, got "${typed}"`);
   if (!(await page.locator(".ct-popover").count())) errors.push("typing a time closed the form");
+  // A menu of the form (its collection), closed by a click in the grid: the form and its selection stay.
+  await page.locator(".ct-popover .ct-select").first().click();
+  await page.waitForTimeout(100);
+  if (!(await page.locator(".menu").count())) errors.push("the form's collection should open a menu");
+  await page.mouse.click(tue.x + tue.width / 2, at13.y + at13.height / 2);
+  await page.waitForTimeout(300);
+  if (await page.locator(".menu").count()) errors.push("a click in the grid should close the form's menu");
+  if (!(await page.locator(".ct-popover").count()) || !(await page.locator(".fc-event-mirror").count())) errors.push("the click that closed the form's menu closed the form");
+  typed = (await page.locator(".fc-event-mirror").first().textContent()) ?? "";
+  if (!typed.includes("13:37")) errors.push(`the click that closed the form's menu moved the selection: "${typed}"`);
 }
 
 /**
  * An event's pencil opens its form filled in, beside it (a series' occurrence stays in its collection), and saving
- * changes it; a work session's and a deadline's pencil opens their task's form.
+ * changes it; a work session's pencil opens its own form, its task line the task's; a deadline's pencil opens its
+ * task's form. No card has a "…" (it only repeated the card): each action is there once, the trash asks again.
  */
 async function editing(page, errors, theme) {
   await page.keyboard.press("Escape");

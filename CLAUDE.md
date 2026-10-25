@@ -167,6 +167,10 @@ user at each one.
   The checkbox stops `mousedown`/`touchstart`/`pointerdown` (no drag) and prevents mousedown's default: focusing
   the event lays FullCalendar's `.fc-event:focus::before` overlay over it and the release opened the card.
   Snap 5 min (`SNAP_MS`); a click selects one snap, so `select` turns it into an hour from the half hour.
+  A press beside the events while a `.menu` is open stops at the grid (capture: pointerdown, mousedown,
+  touchstart; 2026-10-25, it started a new event): FullCalendar never sees it (no selection, no unselect of an open
+  form), and Obsidian's Menu, which listens on the window, closes on the `click` that follows. `calendar-interact`
+  checks both (the harness's `menu` opens a stand-in Menu, which closes as Obsidian's does).
   Times to the minute: `when-fields.ts` (`datetime-local` / `date` inputs, which Obsidian styles; they follow the
   OS language, so the preview launches Chromium in French). The new event form's `preview` moves the selection
   with `calendar.select`, guarded by `reselecting` so `select` doesn't reopen the form. Zoom: `--ct-slot-h` on the

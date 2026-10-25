@@ -318,8 +318,22 @@ export class Menu extends Component {
     (this.dom.firstElementChild as unknown as { createDiv(o: string): HTMLElement }).createDiv("menu-separator");
     return this;
   }
+  /** Like Obsidian: a mousedown or a click outside it (on the window, as it bubbles) hides it. */
+  private outside = (e: Event): void => {
+    if (!this.dom.contains(e.target as Node)) this.hide();
+  };
+  hide(): void {
+    this.dom.remove();
+    window.removeEventListener("mousedown", this.outside);
+    window.removeEventListener("click", this.outside);
+  }
   showAtPosition(pos: { x: number; y: number }): this {
     document.body.appendChild(this.dom);
+    // After the click that opened it.
+    setTimeout(() => {
+      window.addEventListener("mousedown", this.outside);
+      window.addEventListener("click", this.outside);
+    }, 0);
     // Like Obsidian: keep the menu inside the window.
     this.dom.style.left = "0px";
     const w = this.dom.offsetWidth;

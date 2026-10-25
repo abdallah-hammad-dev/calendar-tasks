@@ -385,6 +385,14 @@ export class CalendarView extends ItemView {
     this.registerDomEvent(grid, "pointerdown", (e) => {
       if ((e.target as HTMLElement | null)?.closest(".fc-event")) this.pressed = true;
     }, { capture: true });
+    // A press beside the events while a menu is open only closes the menu (2026-10-25, the user: it started a new
+    // event): FullCalendar never sees it, so nothing is selected and a selection's form stays. Obsidian then closes
+    // the menu on the click that follows. A press on an event goes through, as anywhere in Obsidian.
+    for (const type of ["pointerdown", "mousedown", "touchstart"] as const) {
+      this.registerDomEvent(grid, type, (e) => {
+        if (grid.ownerDocument.querySelector(".menu") && !(e.target as HTMLElement | null)?.closest(".fc-event")) e.stopPropagation();
+      }, { capture: true });
+    }
     for (const type of ["pointerup", "pointercancel"] as const) {
       this.registerDomEvent(window, type, () => {
         this.pressed = false;
