@@ -1,11 +1,20 @@
 import type { ChangeSet, EditorState } from "@codemirror/state";
+import { findTags } from "../tasks/tags";
 import { parseLinkLine, parseTaskLine } from "./convert";
 
-/** A line to look at once left: `- [ ] …` (to convert), or `- [[Task]] …` with an `@` after the link (to apply). */
+/** A line to look at once left: `- [ ] …` (to convert), or `- [[Task]] …` with an `@` or a `#tag` after the link (to apply). */
 function watched(text: string): boolean {
   if (parseTaskLine(text)) return true;
   const link = parseLinkLine(text);
-  return !!link && /(^|\s)@/.test(text.slice(link.end));
+  if (!link) return false;
+  const tail = text.slice(link.end);
+  return /(^|\s)@/.test(tail) || findTags(tail).tags.length > 0;
+}
+
+/** The cursor's line if it is one to look at (see `watched`): what the editor leaves when it loses focus. */
+export function cursorTaskLine(state: EditorState): { from: number; text: string } | null {
+  const line = state.doc.lineAt(state.selection.main.head);
+  return watched(line.text) ? { from: line.from, text: line.text } : null;
 }
 
 /**

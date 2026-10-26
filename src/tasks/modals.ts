@@ -169,9 +169,9 @@ export class TaskModal extends Modal {
     });
     startAt("priority", prioritySelect.el);
 
-    // Typed as on a task line ("#famille #urgent"), the vault's tags suggested for the one being typed.
+    // Typed as tags ("#famille #urgent", "#" or not), the vault's tags suggested for the one being typed.
     const tags = named(new Setting(this.form), "tag", t("modal.tags"));
-    const tagsInput = tags.controlEl.createEl("input", { cls: "ct-task-tags-input", type: "text", attr: { placeholder: t("modal.tagsPlaceholder") } });
+    const tagsInput = tags.controlEl.createEl("input", { cls: "ct-task-tags-input", type: "text" });
     tagsInput.value = this.task.tags.map((tag) => `#${tag}`).join(" ");
     const readTags = () => (this.task.tags = tagsOf(tagsInput.value));
     tagsInput.addEventListener("input", readTags);

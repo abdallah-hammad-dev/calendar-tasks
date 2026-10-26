@@ -22,7 +22,7 @@ import { chipModel, dueLabel, pastLabel, type ChipModel } from "./editor/chips";
 import { linkLineEdit, parseTaskLine, plannedFrontmatter } from "./editor/convert";
 import { TaskConverter } from "./editor/converter";
 import { blockLabel, DateSuggest, shortDay, slotLabel } from "./editor/date-suggest";
-import { repeatFromNote, repeatLabel, repeatToNote, taskEdit, type Block, type WhenToken } from "./editor/when";
+import { repeatFromNote, repeatLabel, repeatToNote, taskEdit, type Block, type TaskEdit, type WhenToken } from "./editor/when";
 import { refreshTaskDecorations, taskEditorExtension } from "./editor/live-preview";
 import { decorateRendered } from "./editor/reading-view";
 import { renderCheckbox, renderChips, type EditFocus, type RenderLabels } from "./editor/render";
@@ -247,7 +247,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
           const file = this.app.metadataCache.getFirstLinkpathDest(linkpath, sourcePath);
           return (file && this.index.get(file.path)) ?? null;
         },
-        edit: (path, found) => void this.applyEdit(path, found),
+        edit: (path, found, tags) => void this.applyEdit(path, found, tags),
         knownTags: () => this.knownTags(),
       }),
     );
@@ -339,7 +339,6 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       due: task.due ?? null,
       repeat: task.repeat ?? null,
       tags: task.tags ?? [],
-      noteTags: [],
       parent: task.parent ?? null,
       blocks: [],
       body: "",
@@ -450,13 +449,16 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     }
   }
 
-  /** A line's `@` tokens written after a task's link (`- [[Task]] @ven @tag famille`): what they change on that task. */
-  private async applyEdit(path: string, found: WhenToken): Promise<void> {
+  /**
+   * A line's `@` tokens and `#tags` written after a task's link (`- [[Task]] @ven @tag famille #urgent`): what they
+   * change on that task.
+   */
+  private async applyEdit(path: string, found: WhenToken | null, hashTags: string[]): Promise<void> {
     const task = this.index.get(path);
     const file = this.app.vault.getFileByPath(path);
     if (!task || !file) return;
-    const edit = taskEdit(found, task);
-    const tags = edit.tags ?? [];
+    const edit: TaskEdit = found ? taskEdit(found, task) : { blocks: [] };
+    const tags = tagsOf([...(edit.tags ?? []), ...hashTags]);
     const addTags = tags.some((tag) => !task.tags.some((x) => sameTag(x, tag)));
     if (edit.due !== undefined || edit.repeat !== undefined || addTags) {
       await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
@@ -551,7 +553,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     }
   }
 
-  /** Cursor left a `- [[Task]] @…` line: the `@` tokens change the task and leave the line. */
+  /** Cursor left a `- [[Task]] @… #…` line: the `@` tokens and `#tags` change the task and leave the line. */
   private async editFromLine(view: EditorView, from: number, text: string, sourcePath: string): Promise<void> {
     const res = linkLineEdit(text, wallClock(new Date(), localZone()));
     const file = res && this.app.metadataCache.getFirstLinkpathDest(res.linkpath, sourcePath);
@@ -560,7 +562,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     const line = findLine(view.state.doc, from, text);
     if (!line) return;
     view.dispatch({ changes: { from: line.from, to: line.to, insert: res.rest } });
-    await this.applyEdit(file.path, res.found);
+    await this.applyEdit(file.path, res.found, res.tags);
   }
 
   /** "Convert to task" on the current line or every selected line, dated or not. */

@@ -52,11 +52,12 @@ user at each one.
   `base-file.ts` (the `Tasks.base` YAML).
 - `src/editor/` — `date-token.ts` (day words: `15/10`, `demain`, `lun`…), `when.ts` (the `@` grammar: one
   keyword + value per `@`, deadline / time block / repeat; suggestions; RRULE helpers),
-  `convert.ts` (pure: task line → planned task: `@` words cut from the title, `#tags` put back after the link), `converter.ts` (creates the task note,
+  `convert.ts` (pure: task line → planned task: `@` words and `#tags` cut from the title), `converter.ts` (creates the task note,
   returns `- [[Task]]`), `chips.ts`
   (pure chip model: due label/overdue, tags, progress, sync state), `render.ts` (DOM), `live-preview.ts`
-  (CM6 ViewPlugin decorations + "cursor left a line" listener; `refreshTaskDecorations()`), `left-lines.ts` (pure:
-  which task lines an update left, pasted lines included), `date-suggest.ts` (the `@` assistant, an
+  (CM6 ViewPlugin decorations + "cursor left a line" listener, also on a blur inside Obsidian;
+  `refreshTaskDecorations()`), `left-lines.ts` (pure: which task lines an update left, pasted lines included;
+  `cursorTaskLine` for a blur), `date-suggest.ts` (the `@` assistant, an
   `EditorSuggest` on `suggestAt`; also after the link of a converted line, to change that task),
   `date-picker.ts` (month-view date picker modal, replaces the system one), `reading-view.ts` (post-processor).
   `src/tasks/task-index.ts` — every task note's state, read by the decorations. `src/tasks/modals.ts` — the task
@@ -152,10 +153,13 @@ user at each one.
   link of a `- [[Task]]` line (`parseLinkLine` / `linkLineEdit`) uses the same grammar; `taskEdit` turns it into
   field changes (a repetition alone keeps the deadline, `startOn` moves it to the rule's day; `@deadline jamais` /
   `@répéter jamais` set `When.clear`). Applied on ✓ or when the line is left (`left-lines.ts` watches such lines).
-  `@tag x` adds a tag (`TaskEdit.tags`, `withTags`). A `#tag` after the link (2026-10-26) was dropped the same
-  day: it applied only once the cursor moved to another line of that note (a click elsewhere left it there,
-  tagging the note), and Obsidian's tag menu opened instead of ours; the user asked for `@` instead. Clicking a
-  chip opens `TaskModal` in edit mode at that field.
+  `@tag x` or `#x` adds a tag (`TaskEdit.tags` and `linkLineEdit`'s `tags`, merged in `main.applyEdit` with
+  `withTags`). **A blur leaves the line too** (2026-10-26, the user: "fix the weakness"; a click elsewhere left a
+  `#tag` on the line, tagging the note): `focusStayedInObsidian` in live-preview.ts, on CodeMirror's
+  `focusChanged` (reported 10 ms after the blur, so the focus is already where it went). Not when the whole window
+  lost focus (`document.hasFocus()`: alt-tab mid-line), nor into a `.modal-container` or `.menu` (the `@`
+  assistant's date picker is a modal, and the cursor comes back after). Clicking a chip opens `TaskModal` in edit
+  mode at that field.
 - **No system dropdowns in forms** (the user found the blue Windows list ugly, 2026-10-17): `src/ui/menu-select.ts`
   opens Obsidian's `Menu` from a button; `named()` puts an icon before a setting's name. The settings tab keeps
   Obsidian's standard dropdowns (that's what every settings page uses).
@@ -398,8 +402,9 @@ user at each one.
   `tagsFromCategories` in `src/tasks/tags.ts`: a category that can't be a tag stays, "Work stuff" ↔ `Work-stuff`
   keeps its spelling, compared in any case and order so nothing ping-pongs). `@tag famille` (one per `@`; spelling
   kept: `findWhen` reads it back from the line, `parseToken` sees folded words) gives the task a tag; the assistant
-  offers `main.knownTags` (cached until a note changes). A `#tag` on a task line stays Obsidian's: out of the
-  title, put back after the link (`PlannedTask.noteTags`). No inheritance (not from the note it's in, nor the
+  offers `main.knownTags` (cached until a note changes). A `#tag` on a task line does too (2026-10-26: left to
+  Obsidian for a few hours, put back after the link; the user asked for both): out of the title, and off the line
+  once applied. A `#tag` alone doesn't make a task (`hasTaskMarker` is `@` only). No inheritance (not from the note it's in, nor the
   parent). Chips show tags in one chip,
   less the containing note's (`getAllTags` in `main.noteTags`); the header shows them in one item (two pills
   wrapped the full header at 900 px). The form's Tags field is free text with `AbstractInputSuggest` (vault tags

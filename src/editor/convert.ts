@@ -1,6 +1,6 @@
 import { NOTE_TYPE, PROP } from "../constants";
 import { isTaskNote, sanitizeTitle } from "../tasks/notes";
-import { findTags } from "../tasks/tags";
+import { findTags, tagsOf } from "../tasks/tags";
 import type { VaultPort } from "../tasks/TaskSync";
 import { findWhen, repeatToNote, type Block, type WhenToken } from "./when";
 
@@ -27,13 +27,32 @@ export function parseLinkLine(line: string): { linkpath: string; end: number } |
   return m ? { linkpath: m[1]!.trim(), end: m[0].length } : null;
 }
 
-/** `@` tokens written after the link of a `- [[Task]]` line (to change that task), and the line without them. */
-export function linkLineEdit(line: string, today: { year: number; month: number; day: number }): { linkpath: string; rest: string; found: WhenToken } | null {
+/**
+ * Where the `@` being typed before `ch` is, if it opens the assistant: at the start, after a space, or right after
+ * the link of a `- [[Task]]` line (a click on the line puts the cursor there, the chips hiding that no space is).
+ * Null otherwise (an e-mail address…).
+ */
+export function typedAt(line: string, ch: number): number | null {
+  const at = line.lastIndexOf("@", ch - 1);
+  if (at < 0) return null;
+  return at === 0 || /\s/.test(line[at - 1]!) || at === parseLinkLine(line)?.end ? at : null;
+}
+
+/**
+ * `@` tokens and `#tags` written after the link of a `- [[Task]]` line (to change that task), and the line without
+ * them. `tags` holds the `#tags` (the `@tag` ones are in `found`).
+ */
+export function linkLineEdit(
+  line: string,
+  today: { year: number; month: number; day: number },
+): { linkpath: string; rest: string; found: WhenToken | null; tags: string[] } | null {
   const link = parseLinkLine(line);
   if (!link) return null;
   const tail = line.slice(link.end);
   const found = findWhen(tail, today);
-  return found ? { linkpath: link.linkpath, rest: line.slice(0, link.end) + cutSpans(tail, found.spans), found } : null;
+  const tagged = findTags(tail);
+  if (!found && !tagged.tags.length) return null;
+  return { linkpath: link.linkpath, rest: line.slice(0, link.end) + cutSpans(tail, [...(found?.spans ?? []), ...tagged.spans]), found, tags: tagged.tags };
 }
 
 /** `text` without these spans, each with the space before it. */
@@ -61,13 +80,8 @@ export interface PlannedTask {
   repeat: string | null;
   /** Time to block for it: events linked to the task once it has its reminder. */
   blocks: Block[];
-  /** Its tags, written `@tag famille` on the line. */
+  /** Its tags, written `@tag famille` or `#famille` on the line. */
   tags: string[];
-  /**
-   * `#tags` written on the line: Obsidian's, the note's own (2026-10-26, the user: tags go through `@`). Out of the
-   * title (a file name can't hold "#"), they stay on the line after the link.
-   */
-  noteTags: string[];
   /** Parent task note path, when the line is written in a task note. */
   parent: string | null;
   /** The original text, kept as the note's first line when it held links. */
@@ -84,7 +98,7 @@ export interface PlanContext {
 /** What a task line turns into (spec §5.2). Null if nothing is left for a title. */
 export function planTask(text: string, ctx: PlanContext): PlannedTask | null {
   const marker = findWhen(text, ctx.today);
-  // The `@` words leave the title; so do `#tags`, which stay the note's (put back after the link).
+  // The `@` words and the `#tags` leave the title; both kinds of tag go to the task.
   const tagged = findTags(text);
   let rest = cutSpans(text, [...(marker?.spans ?? []), ...tagged.spans]);
 
@@ -103,8 +117,7 @@ export function planTask(text: string, ctx: PlanContext): PlannedTask | null {
     due: marker?.when.due ?? null,
     repeat: marker?.when.repeat ?? null,
     blocks: marker?.when.blocks ?? [],
-    tags: marker?.when.tags ?? [],
-    noteTags: tagged.tags,
+    tags: tagsOf([...(marker?.when.tags ?? []), ...tagged.tags]),
     parent: isTaskNote(source?.frontmatter ?? null) ? ctx.sourcePath : null,
     body: links ? text : "",
   };

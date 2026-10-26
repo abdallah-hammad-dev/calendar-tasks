@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { chipModel, pastLabel, dueLabel } from "../src/editor/chips";
-import { cutSpans, hasTaskMarker, linkLineEdit, parseTaskLine, planTask, plannedFrontmatter } from "../src/editor/convert";
+import { cutSpans, hasTaskMarker, linkLineEdit, parseTaskLine, planTask, plannedFrontmatter, typedAt } from "../src/editor/convert";
 import { TaskIndex } from "../src/tasks/task-index";
 import { FakeVault } from "./support/fake-vault";
 
@@ -39,24 +39,53 @@ describe("parseTaskLine", () => {
   });
 });
 
+describe("typedAt", () => {
+  const at = (line: string) => typedAt(line, line.length);
+
+  it("finds the @ being typed after a space or at the start", () => {
+    expect(at("- [ ] Rapport @ven")).toBe(14);
+    expect(at("@demain")).toBe(0);
+    expect(at("- [ ] Rapport @ven @")).toBe(19);
+  });
+
+  it("takes an @ right after a task's link (where a click on the line puts the cursor)", () => {
+    expect(at("- [[zzfez]]@")).toBe(11);
+    expect(at("- [[zzfez]]@dem")).toBe(11);
+    expect(at("  * [[Projets/Rapport|R]]@ven")).toBe(25);
+  });
+
+  it("ignores an @ inside a word", () => {
+    expect(at("- [ ] écrire à paul@exemple")).toBeNull();
+    expect(at("- [ ] Voir [[Rapport]]@ven")).toBeNull(); // not a link line: the link isn't first
+    expect(at("- [ ] Rapport")).toBeNull();
+  });
+});
+
 describe("linkLineEdit", () => {
   const today = { year: 2026, month: 10, day: 15 };
 
   it("reads @ tokens after the link of a converted line, and the line without them", () => {
     const res = linkLineEdit("- [[Rapport]] @ven", today)!;
     expect(res).toMatchObject({ linkpath: "Rapport", rest: "- [[Rapport]]" });
-    expect(res.found.when.due).toBe("2026-10-16");
+    expect(res.found!.when.due).toBe("2026-10-16");
     expect(linkLineEdit("  * [[Projets/Rapport|R]] @session mar 14h-16h voir Paul", today)).toMatchObject({
       linkpath: "Projets/Rapport",
       rest: "  * [[Projets/Rapport|R]] voir Paul",
     });
   });
 
-  it("takes @tag after the link for the task; a #tag there stays the note's", () => {
+  it("reads an @ or a # right after the link", () => {
+    expect(linkLineEdit("- [[zzfez]]@demain", today)).toMatchObject({ rest: "- [[zzfez]]", found: { when: { due: "2026-10-16" } } });
+    expect(linkLineEdit("- [[zzfez]]#famille", today)).toMatchObject({ rest: "- [[zzfez]]", tags: ["famille"] });
+  });
+
+  it("takes @tag and #tags after the link for the task", () => {
     const res = linkLineEdit("- [[Untitled task]] @tag Eejip #notes", today)!;
-    expect(res).toMatchObject({ rest: "- [[Untitled task]] #notes" });
-    expect(res.found.when.tags).toEqual(["Eejip"]);
-    expect(linkLineEdit("- [[Rapport]] #famille", today)).toBeNull();
+    expect(res).toMatchObject({ rest: "- [[Untitled task]]", tags: ["notes"] });
+    expect(res.found!.when.tags).toEqual(["Eejip"]);
+    expect(linkLineEdit("- [[Untitled task]] #Eejip", today)).toMatchObject({ rest: "- [[Untitled task]]", found: null, tags: ["Eejip"] });
+    expect(linkLineEdit("- [[Rapport]] @ven #famille voir Paul", today)).toMatchObject({ rest: "- [[Rapport]] voir Paul", tags: ["famille"] });
+    expect(linkLineEdit("- [[Rapport]] #2026", today)).toBeNull();
   });
 
   it("ignores lines that don't start with a link, and text with no @ token", () => {
@@ -78,7 +107,6 @@ describe("planTask", () => {
       repeat: null,
       blocks: [],
       tags: ["olera"],
-      noteTags: [],
       parent: null,
       body: "",
     });
@@ -109,11 +137,12 @@ describe("planTask", () => {
     expect(plan("Lire [[Docs/Rapport|le rapport]]")).toMatchObject({ title: "Lire le rapport", tags: [] });
   });
 
-  it("gives the task its @tags; #tags leave the title and stay the note's", () => {
-    expect(plan("Appeler mamie @tag famille @demain @tag urgent")).toMatchObject({ title: "Appeler mamie", tags: ["famille", "urgent"], noteTags: [] });
-    expect(plan("Ranger #maison le garage @demain")).toMatchObject({ title: "Ranger le garage", tags: [], noteTags: ["maison"] });
+  it("gives the task its @tags and #tags, once each, out of the title", () => {
+    expect(plan("Appeler mamie @tag famille @demain @tag urgent")).toMatchObject({ title: "Appeler mamie", tags: ["famille", "urgent"] });
+    expect(plan("Ranger #maison le garage @demain")).toMatchObject({ title: "Ranger le garage", tags: ["maison"] });
+    expect(plan("Appeler mamie @demain #Famille @tag famille #urgent")).toMatchObject({ title: "Appeler mamie", tags: ["famille", "urgent"] });
     // Not tags: a number alone, a # inside a word.
-    expect(plan("Payer la facture #2026 de C#")).toMatchObject({ title: "Payer la facture 2026 de C", noteTags: [] });
+    expect(plan("Payer la facture #2026 de C#")).toMatchObject({ title: "Payer la facture 2026 de C", tags: [] });
   });
 
   it("takes no tags from where it is written: only the line's", () => {

@@ -12,7 +12,7 @@ import { formatLocalDate, localZone, parseLocal, wallClock } from "../ical/time"
 import { language, t } from "../i18n";
 import { DatePickerModal } from "./date-picker";
 import { addDays } from "./date-token";
-import { linkLineEdit, parseLinkLine, parseTaskLine } from "./convert";
+import { linkLineEdit, parseLinkLine, parseTaskLine, typedAt } from "./convert";
 import { dateText, repeatLabel, slotText, suggestAt, type AtItem, type Block, type Feature, type When, type WhenToken } from "./when";
 
 type Item = AtItem | { kind: "pick"; text: string; label: string };
@@ -88,8 +88,8 @@ export interface EditedTask {
 export interface DateSuggestDeps {
   /** The task note a link points to, from a note. */
   task(linkpath: string, sourcePath: string): EditedTask | null;
-  /** Applies a line's `@` tokens to that task. */
-  edit(path: string, found: WhenToken): void;
+  /** Applies a line's `@` tokens and `#tags` to that task. */
+  edit(path: string, found: WhenToken | null, tags: string[]): void;
   /** The vault's tags, most used first (offered after `@tag`). */
   knownTags(): string[];
 }
@@ -116,16 +116,15 @@ export class DateSuggest extends EditorSuggest<Item> {
 
   onTrigger(cursor: EditorPosition, editor: Editor, file: TFile | null): EditorSuggestTriggerInfo | null {
     const line = editor.getLine(cursor.line);
-    const m = /(^|\s)@([^@]*)$/.exec(line.slice(0, cursor.ch));
-    if (!m) return null;
-    const at = m.index + m[1]!.length;
+    const at = typedAt(line, cursor.ch);
+    if (at === null) return null;
     let editing: EditedTask | null = null;
     if (!parseTaskLine(line)) {
       const link = parseLinkLine(line);
       editing = link && link.end <= at && file ? this.deps.task(link.linkpath, file.path) : null;
       if (!editing) return null;
     }
-    const typed = m[2]!;
+    const typed = line.slice(at + 1, cursor.ch);
     if (!suggestAt(typed, today(), lang(), editing ? fields(editing) : undefined, this.deps.knownTags())) return null;
     this.editing = editing;
     return { start: { line: cursor.line, ch: at }, end: cursor, query: typed };
@@ -203,7 +202,7 @@ export class DateSuggest extends EditorSuggest<Item> {
     });
   }
 
-  /** Changes the task linked on the line with its `@` tokens, and takes them off the line. */
+  /** Changes the task linked on the line with its `@` tokens and `#tags`, and takes them off the line. */
   private finishEdit(editor: Editor, n: number, task: EditedTask): void {
     this.close();
     const line = editor.getLine(n);
@@ -211,7 +210,7 @@ export class DateSuggest extends EditorSuggest<Item> {
     if (!res) return;
     editor.replaceRange(res.rest, { line: n, ch: 0 }, { line: n, ch: line.length });
     editor.setCursor({ line: n, ch: res.rest.length });
-    this.deps.edit(task.path, res.found);
+    this.deps.edit(task.path, res.found, res.tags);
   }
 
   /**

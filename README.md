@@ -91,7 +91,9 @@ and creates the task; *Something else* adds another `@`.
   syncs as a repeating reminder; ticking it brings it back at its next date instead of closing it. Each time
   you tick it is kept in `completions`; the note's bar lists the last days faintly, and a click lists them all.
 
-A pasted task line is converted at once (except the one the cursor ends on). **Only lines with an `@` become
+A line is *left* when the cursor moves to another line, or when you click somewhere else in Obsidian (another note,
+a sidebar); switching to another app doesn't count, so a half-written line waits. A pasted task line is converted
+at once (except the one the cursor ends on). **Only lines with an `@` become
 tasks**: a tracked task shows as a link with a checkbox and chips (dates, repetition, tags, sync state); a
 plain `- [ ]` line stays an ordinary checklist item that lives only in its note.
 
@@ -101,8 +103,8 @@ list icon in the bar shows them.
 
 **Changing a task**: click one of its chips (or the pencil that shows when you hover the line) to open its form,
 or type `@` after its link: `- [[Write the report]] @mon` moves the deadline, `@session thu 10am-12pm` adds a time
-block, `@repeat never` stops the repetition, `@deadline never` removes the deadline, `@tag family` adds a tag. ✓ (or
-leaving the line) applies it and cleans the line.
+block, `@repeat never` stops the repetition, `@deadline never` removes the deadline, `@tag family` or `#family` adds
+a tag. ✓ (or leaving the line) applies it and cleans the line.
 
 **The New task button** (ribbon, command palette, or the calendar's *+ New task*) opens a form: title, deadline,
 time blocks, repetition, priority, tags (your vault's tags are suggested as you type). Dates are typed the same way (`fri 2pm`, `tue 2pm-4pm`) or picked from a calendar
@@ -114,10 +116,11 @@ time blocks, repetition, priority, tags (your vault's tags are suggested as you 
 calendar, the *To plan* panel lists open tasks with no time block ahead: drag one onto a time slot (an hour, then
 resize it) or a day (all day), or click it to type a slot.
 
-**Tags** group tasks: `@tag family` on a task line (one tag per `@tag`; the assistant offers your vault's tags) goes
-into the task note's `tags` (Obsidian's own, so the tag pane and search see them). Only the line's tags count: a
-task written in a `#family` note doesn't get it. A `#family` written on the line stays Obsidian's: it tags the
-note you're writing in, not the task. They're sent to the server as the reminder's categories, and categories added elsewhere come back as tags.
+**Tags** group tasks: `@tag family` (one tag per `@tag`; the assistant offers your vault's tags) or `#family` on a
+task line goes into the task note's `tags` (Obsidian's own, so the tag pane and search see them), and leaves the
+line, so the note you're writing in isn't tagged. Only the line's tags count: a task written in a `#family` note
+doesn't get it. A `#tag` alone doesn't make a task (it takes an `@`). They're sent to the server as the reminder's
+categories, and categories added elsewhere come back as tags.
 
 **Sub-tasks**: a task written inside a task note becomes its child (`parent`). The iPhone shows them flat.
 

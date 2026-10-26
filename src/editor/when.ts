@@ -715,7 +715,7 @@ export interface AtItem {
 
 interface Words {
   /** Feature, keyword, label, icon, hint: a short example of what to type after it (2026-10-25, the user found
-   *  hints of every kind and length odd). */
+   *  hints of every kind and length odd); a tag's comes from the vault (`suggestAt`). */
   features: [Feature, string, string, string, string][];
   /** `@tâche`: keyword, label (no hint: the label says it all). */
   task: [string, string];
@@ -740,7 +740,7 @@ const L: Record<"fr" | "en", Words> = {
       ["due", "deadline", "Deadline", "flag", "ven 14h"],
       ["block", "session", "Session", "clock", "mar 14h-16h"],
       ["repeat", "répéter", "Répéter", "repeat", "chaque lundi"],
-      ["tag", "tag", "Tag", "tag", "famille"],
+      ["tag", "tag", "Tag", "tag", ""],
     ],
     task: ["tâche", "Créer la tâche"],
     clearDue: ["Retirer la deadline", "Retirer la deadline et la répétition"],
@@ -761,7 +761,7 @@ const L: Record<"fr" | "en", Words> = {
       ["due", "deadline", "Deadline", "flag", "fri 2pm"],
       ["block", "session", "Session", "clock", "tue 2pm-4pm"],
       ["repeat", "repeat", "Repeat", "repeat", "every monday"],
-      ["tag", "tag", "Tag", "tag", "family"],
+      ["tag", "tag", "Tag", "tag", ""],
     ],
     task: ["task", "Create the task"],
     clearDue: ["Remove the deadline", "Remove the deadline and the repeat"],
@@ -802,6 +802,8 @@ export function suggestAt(
   const all = ws.map((w) => w.f);
   const items: AtItem[] = [];
   const featureLabel = (k: Feature) => v.features.find((x) => x[0] === k)!;
+  // A tag's example is the vault's most used one (2026-10-26: a word of ours there read as the user's), else none.
+  const hintOf = (k: Feature, hint: string): string | undefined => (k === "tag" ? knownTags[0] : hint);
 
   // Step 1: nothing chosen yet. What to add, plus shortcuts for what's being typed (a day, a repetition).
   const keyword = complete.length ? FEATURE_WORDS[complete[0]!.f] : undefined;
@@ -811,8 +813,8 @@ export function suggestAt(
     if (whole && whole.used === 1 && whole.valueUsed) {
       items.push({ kind: "accept", text: typed, label: `@${typed.trim()}`, icon: "check", when: combine([whole], today) });
     }
-    for (const [, word, label, icon, hint] of v.features) {
-      if (fold(word).startsWith(tail) && fold(word) !== tail) items.push({ kind: "insert", text: `${word} `, label, icon, hint });
+    for (const [key, word, label, icon, hint] of v.features) {
+      if (fold(word).startsWith(tail) && fold(word) !== tail) items.push({ kind: "insert", text: `${word} `, label, icon, hint: hintOf(key, hint) });
     }
     if (tail) {
       for (const c of [...suggestDates(tail, today, lang).map((d) => d.word), ...v.repeats]) {
@@ -903,7 +905,7 @@ export function suggestAt(
   if (tail && !items.length) return null;
   if (!keptCount && !items.length) return null;
   const [, , label, icon, hint] = featureLabel(feature);
-  if (!items.length) items.push({ kind: "insert", text: "", label, icon, hint }); // the keyword alone: say what it wants
+  if (!items.length) items.push({ kind: "insert", text: "", label, icon, hint: hintOf(feature, hint) }); // the keyword alone: say what it wants
   return { from: Math.min(from, typed.length), items, wantsDay: (feature === "due" || feature === "block") && !hasDay && !tail, feature };
 }
 

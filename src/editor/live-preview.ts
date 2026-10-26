@@ -2,7 +2,7 @@ import { syntaxTree } from "@codemirror/language";
 import { RangeSetBuilder, StateEffect, type EditorState, type Extension } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { editorInfoField } from "obsidian";
-import { leftTaskLines } from "./left-lines";
+import { cursorTaskLine, leftTaskLines } from "./left-lines";
 import type { ChipModel } from "./chips";
 
 export interface TaskLinkDeps {
@@ -11,7 +11,7 @@ export interface TaskLinkDeps {
   toggle(path: string): void;
   checkbox: (model: ChipModel) => HTMLElement;
   chips: (model: ChipModel) => HTMLElement;
-  /** Called when the cursor leaves a line (for auto-conversion). */
+  /** Called when the cursor leaves a line, or the editor its line (for auto-conversion). */
   lineLeft(view: EditorView, lineFrom: number, text: string, sourcePath: string): void;
 }
 
@@ -88,8 +88,20 @@ function build(view: EditorView, deps: TaskLinkDeps): DecorationSet {
 }
 
 /**
+ * The editor lost focus to something else in Obsidian (another note, a sidebar, the note's header): its cursor's
+ * line is left too. Not when the whole window lost it (alt-tab with a line half written), nor for a modal or a
+ * menu (the date picker, the command palette), after which the cursor comes back. CodeMirror reports a blur 10 ms
+ * after it, so the focus is already where it went.
+ */
+function focusStayedInObsidian(view: EditorView): boolean {
+  const doc = view.dom.ownerDocument;
+  return doc.hasFocus() && !doc.activeElement?.closest(".modal-container, .menu");
+}
+
+/**
  * Live Preview / source mode: checkboxes and chips around links to task notes, and the "cursor left a line"
- * signal for auto-conversion. Rebuilt on edits, scrolling, and `refreshTaskDecorations()` (task changes).
+ * signal for auto-conversion (also when the editor loses focus, see `focusStayedInObsidian`). Rebuilt on edits,
+ * scrolling, and `refreshTaskDecorations()` (task changes).
  */
 export function taskEditorExtension(deps: TaskLinkDeps): Extension {
   const decorations = ViewPlugin.fromClass(
@@ -111,10 +123,15 @@ export function taskEditorExtension(deps: TaskLinkDeps): Extension {
   );
 
   const leave = EditorView.updateListener.of((u) => {
-    const pasted = u.transactions.some((tr) => tr.isUserEvent("input.paste") || tr.isUserEvent("input.drop"));
-    if (!u.selectionSet && !pasted) return;
     const file = u.state.field(editorInfoField, false)?.file;
     if (!file) return;
+    if (u.focusChanged && !u.view.hasFocus && focusStayedInObsidian(u.view)) {
+      const line = cursorTaskLine(u.state);
+      if (line) deps.lineLeft(u.view, line.from, line.text, file.path);
+      return;
+    }
+    const pasted = u.transactions.some((tr) => tr.isUserEvent("input.paste") || tr.isUserEvent("input.drop"));
+    if (!u.selectionSet && !pasted) return;
     for (const line of leftTaskLines(u.startState, u.state, u.changes, u.selectionSet, pasted)) {
       deps.lineLeft(u.view, line.from, line.text, file.path);
     }
