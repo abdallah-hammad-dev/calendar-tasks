@@ -425,6 +425,19 @@ user at each one.
 - **Repetition**: `repeat` in the note (English phrase, or raw RRULE) ↔ `RRULE`; `normalizeRule` gives one spelling
   so iOS's `INTERVAL=1;WKST=MO` doesn't ping-pong. Ticking moves the task on (`TaskSync.moveOn`, `nextOccurrence`
   via ical.js), pushing from the new state rather than re-reading the note (Obsidian parses frontmatter later).
+- **A sub-task shows in its parent's note** (2026-10-27, the user: a child from the server had only the parent's
+  `1/1`, "sous-tâches zombie"): `metadataCache.on("changed")` compares the task's `parentPath` with the index's
+  previous one; a new parent gets `- [[Child]] ` (`main.listInParent`, `childLineInsert` in convert.ts: end of the
+  body, under a list without a blank line; nothing if the body already links to it), through the editor when the
+  parent is open, else `vault.process`. A converted line doesn't trigger it: `TaskConverter.prepare` primes the
+  index with the parent. `TaskIndex.rename` moves children's `parentPath` at once, so Obsidian rewriting their link
+  later doesn't read as a new parent. Only on a change: children made before this got no line (Test 4 in
+  ct-test-vault was fixed by hand). **A line taken out detaches** (the user chose it over putting it back): each
+  task's `links` (its body's, `VaultPort.bodyLinks`: `cache.links` + `embeds`, resolved) before and after a change
+  go through `listingChanges` (task-index.ts): a child that was listed and isn't any more loses `parent`
+  (`main.setParent`, index patched first); `main.detached` (child → parent, memory only) attaches it again if its
+  line comes back to that note (undo, cut and pasted after a save) and it has no other parent. A child never listed
+  isn't detached by its parent changing.
 - **Pasted task lines convert at once** (`input.paste` / `input.drop` only, never undo or a file synced from
   elsewhere): a line copied with its newline puts the cursor below it, so it was never "left".
 - **Auto-conversion is optimistic**: `TaskConverter.prepare` picks the path (reserving it against a second quick

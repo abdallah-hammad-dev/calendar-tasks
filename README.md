@@ -129,7 +129,10 @@ line, so the note you're writing in isn't tagged. Only the line's tags count: a 
 doesn't get it. A `#tag` alone doesn't make a task (it takes an `@`). They're sent to the server as the reminder's
 categories, and categories added elsewhere come back as tags.
 
-**Sub-tasks**: a task written inside a task note becomes its child (`parent`). The iPhone shows them flat.
+**Sub-tasks**: a task written inside a task note becomes its child (`parent`). A sub-task always shows in its
+parent's note: one that gets its parent another way (from another app, the `parent` property, Claude) is added there
+as a `- [[Sub-task]]` line. Take that line out of the parent and the sub-task becomes a task of its own (it isn't
+deleted); put it back (undo, paste) and it's a sub-task again. The iPhone shows them flat.
 
 **The task list** is the Bases file written on first run (default `Tasks.base`), with *To do*,
 *No deadline* (newest first), *By tag* and *Done* (the last ones done first) views. It's yours afterwards; *Regenerate the task list* in

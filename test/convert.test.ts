@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { chipModel, pastLabel, dueLabel } from "../src/editor/chips";
-import { cutSpans, hasTaskMarker, linkLine, linkLineEdit, parseTaskLine, planTask, plannedFrontmatter, typedAt } from "../src/editor/convert";
-import { TaskIndex } from "../src/tasks/task-index";
+import { childLineInsert, cutSpans, hasTaskMarker, linkLine, linkLineEdit, parseTaskLine, planTask, plannedFrontmatter, typedAt } from "../src/editor/convert";
+import { listingChanges, TaskIndex } from "../src/tasks/task-index";
 import { FakeVault } from "./support/fake-vault";
 
 const TODAY = { year: 2026, month: 10, day: 15 };
@@ -66,6 +66,24 @@ describe("linkLine", () => {
     expect(linkLine("- [[Rapport]]")).toBe("- [[Rapport]] ");
     expect(linkLine("- [[Rapport]]", "  ")).toBe("- [[Rapport]] ");
     expect(linkLine("- [[Rapport]]", " voir Paul")).toBe("- [[Rapport]] voir Paul");
+  });
+});
+
+describe("childLineInsert", () => {
+  const isChild = (l: string) => l === "Enfant";
+  const apply = (text: string) => {
+    const spot = childLineInsert(text, "- [[Enfant]] ", isChild);
+    return spot ? text.slice(0, spot.at) + spot.insert + text.slice(spot.at) : null;
+  };
+  it("lists a sub-task in its parent's body: first line, under a list, or after a blank line", () => {
+    expect(apply("---\ntype: task\n---\n")).toBe("---\ntype: task\n---\n- [[Enfant]] \n");
+    expect(apply("---\ntype: task\n---")).toBe("---\ntype: task\n---\n- [[Enfant]] \n");
+    expect(apply("---\na: 1\n---\n- [[Autre]] \n\n")).toBe("---\na: 1\n---\n- [[Autre]] \n- [[Enfant]] \n\n");
+    expect(apply("---\na: 1\n---\nContexte.\n")).toBe("---\na: 1\n---\nContexte.\n\n- [[Enfant]] \n");
+  });
+  it("leaves a body that already links to it (a frontmatter link doesn't count)", () => {
+    expect(apply("---\na: 1\n---\nVoir [[Enfant|ça]].\n")).toBeNull();
+    expect(apply("---\nx: \"[[Enfant]]\"\n---\n")).toBe("---\nx: \"[[Enfant]]\"\n---\n- [[Enfant]] \n");
   });
 });
 
@@ -229,5 +247,41 @@ describe("chips", () => {
     expect(chipModel(task, { ...base, contextTags: ["Cours"] }).tags).toEqual([]);
     const kid = index.get("Tâches/Faire le plan.md")!;
     expect(chipModel(kid, { ...base, children: [], contextTags: ["cours"] }).tags).toEqual(["urgent"]);
+  });
+
+  it("keeps a renamed parent's children, before Obsidian rewrites their link (not a new parent)", () => {
+    const index = new TaskIndex(vault);
+    vault.add("Tâches/Réserver salle.md", { type: "task", done: false, parent: "[[Préparer slides]]" });
+    index.rebuild();
+    void vault.rename("Tâches/Préparer slides.md", "Tâches/Slides.md");
+    vault.files.get("Tâches/Réserver salle.md")!.fm!.parent = "[[Préparer slides]]"; // not rewritten yet
+    index.rename("Tâches/Préparer slides.md", "Tâches/Slides.md");
+    expect(index.get("Tâches/Réserver salle.md")!.parentPath).toBe("Tâches/Slides.md");
+    expect(index.childrenOf("Tâches/Slides.md").map((t) => t.basename)).toEqual(["Réserver salle"]);
+  });
+
+  it("detaches a sub-task whose line left its parent's note, and attaches it again if the line comes back", () => {
+    const index = new TaskIndex(vault);
+    const P = "Tâches/Préparer slides.md";
+    const kid = "Tâches/Réserver salle.md";
+    vault.add(kid, { type: "task", done: false, parent: "[[Préparer slides]]" });
+    vault.add("Tâches/Faire le plan.md", { type: "task", done: false, parent: "[[Préparer slides]]" }); // never listed
+    vault.add("Tâches/Autre.md", { type: "task", done: false }); // a link, not a sub-task
+    vault.files.get(P)!.body = "- [[Réserver salle]] \n- [[Autre]] \n";
+    index.rebuild();
+    const listed = index.get(P)!;
+    expect(listed.links).toEqual([kid, "Tâches/Autre.md"]);
+    vault.files.get(P)!.body = "Plus rien.\n";
+    index.refresh(P);
+    const emptied = index.get(P)!;
+    const get = (p: string) => index.get(p);
+    expect(listingChanges(listed, emptied, get, new Map())).toEqual({ detach: [kid], attach: [] });
+
+    index.patch(kid, { parentPath: null });
+    const detached = new Map([[kid, P]]);
+    expect(listingChanges(emptied, listed, get, detached)).toEqual({ detach: [], attach: [kid] });
+    expect(listingChanges(emptied, listed, get, new Map()).attach).toEqual([]); // only those detached that way
+    index.patch(kid, { parentPath: "Tâches/Autre.md" }); // given another parent meanwhile: it stays there
+    expect(listingChanges(emptied, listed, get, detached).attach).toEqual([]);
   });
 });

@@ -45,6 +45,11 @@ export class FakeVault implements VaultPort {
     const name = basename(path);
     return [...this.files.keys()].filter((p) => basename(p) === name).length > 1 ? path.replace(/\.md$/, "") : name;
   }
+  bodyLinks(path: string): string[] {
+    const body = this.files.get(path)?.body ?? "";
+    const paths = [...body.matchAll(/!?\[\[([^\]|#]+)/g)].map((m) => this.resolve(m[1]!.trim())?.path);
+    return [...new Set(paths.filter((p): p is string => !!p))];
+  }
   exists(path: string): boolean {
     return this.files.has(path);
   }

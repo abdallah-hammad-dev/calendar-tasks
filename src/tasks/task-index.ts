@@ -14,6 +14,8 @@ export interface TaskInfo {
   /** Its tags (without "#"). */
   tags: string[];
   parentPath: string | null;
+  /** The notes its body links to (paths): a parent's sub-tasks are listed there. */
+  links: string[];
   /** The collection its note names. */
   collection: string | null;
   /** When it was made, local "YYYY-MM-DD[THH:mm]". */
@@ -24,12 +26,31 @@ export interface TaskInfo {
   completions: string[];
 }
 
+/**
+ * What a parent's note changing does to its sub-tasks (spec §4.1): one whose line left it is no longer its sub-task
+ * (`detach`); one detached that way whose line came back (undo, a cut line pasted) is again (`attach`), unless it has
+ * another parent by then. `detached`: child path → the parent it was detached from.
+ */
+export function listingChanges(
+  was: TaskInfo,
+  now: TaskInfo,
+  get: (path: string) => TaskInfo | undefined,
+  detached: ReadonlyMap<string, string>,
+): { detach: string[]; attach: string[] } {
+  const detach = was.links.filter((p) => !now.links.includes(p) && get(p)?.parentPath === now.path);
+  const attach = now.links.filter((p) => {
+    const child = get(p);
+    return !was.links.includes(p) && detached.get(p) === now.path && !!child && !child.parentPath;
+  });
+  return { detach, attach };
+}
+
 /** Every task note's state, kept current from vault events; what the editor decorations read. */
 export class TaskIndex {
   private byPath = new Map<string, TaskInfo>();
   private listeners = new Set<() => void>();
 
-  constructor(private readonly vault: Pick<VaultPort, "allNotes" | "getNote" | "resolve">) {}
+  constructor(private readonly vault: Pick<VaultPort, "allNotes" | "getNote" | "resolve" | "bodyLinks">) {}
 
   rebuild(): void {
     this.byPath.clear();
@@ -71,6 +92,8 @@ export class TaskIndex {
 
   rename(oldPath: string, newPath: string): void {
     this.byPath.delete(oldPath);
+    // Its children follow at once: Obsidian rewrites their `parent` link later, which mustn't read as a new parent.
+    for (const [p, t] of this.byPath) if (t.parentPath === oldPath) this.byPath.set(p, { ...t, parentPath: newPath });
     this.refresh(newPath);
   }
 
@@ -113,6 +136,7 @@ export class TaskIndex {
       uid: s.uid,
       tags: s.tags,
       parentPath: resolve(s.parent),
+      links: this.vault.bodyLinks(n.path),
       collection: s.collection,
       created: s.created ?? null,
       completed: s.completed,

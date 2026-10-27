@@ -120,6 +120,11 @@ Free content: context, links to any file, small steps as plain `- [ ]` (never sy
 - **A step with its own deadline** becomes a child task (a note with `parent:`), synced as a child `VTODO`. It's a
   tree (`RELTYPE=PARENT`), not a dependency chain. Reminders shows child tasks flat and can't create them on a
   CalDAV list, but keeps `RELATED-TO` when a child is edited on the iPhone: hierarchy is created in Obsidian.
+  **A child always shows in its parent's note** (2026-10-27, the user: no "sous-tâches zombie"): typed there, its
+  line stays; given a parent any other way (from the server, the `parent` property, Claude), the parent's note gets
+  `- [[Child]]` at its end unless its body already links to it. **Its line taken out of the parent's note detaches
+  it** (2026-10-27, chosen over putting the line back or deleting the task): its `parent` goes, it stays a task.
+  Back in that note in the same session (an undo, a cut line pasted), it's a child again.
 - **Calendar shows deadlines** (`DUE`), not tasks. Time spent on a task is a time block (§4.4).
 - File names: `SUMMARY` with `/\:*?"<>|#^[]` replaced; a duplicate name gets ` (2)`, ` (3)`…
 - **Collections are contexts** (2026-10-18, the user: "Général, Pro, École", never one collection for tasks and
@@ -358,7 +363,8 @@ Implementation: CodeMirror 6 view plugin (Live Preview) + `registerMarkdownPostP
   the task" is replaced by **Remove the deadline** (`@deadline jamais`: deadline and repetition, "Remove the deadline and the
   repeat" when it repeats) and **Stop repeating**
   (`@répéter jamais`).
-- **Written in a task note**, it becomes a child task (`parent:` set). Anywhere else, a standalone task.
+- **Written in a task note**, it becomes a child task (`parent:` set), its line there the link to it (§4.1).
+  Anywhere else, a standalone task.
 - **Tags**: `@tag famille` or `#famille` (§4.2), both out of the title (a file name can't hold "#"). Only the
   line's: none from the note it's written in or from the parent task (2026-10-25, explicit only). A `#tag` alone
   doesn't make a task: `- [ ] Appeler #famille` stays a small step, Obsidian's tag on the note.

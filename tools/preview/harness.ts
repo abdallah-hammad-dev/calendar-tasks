@@ -231,7 +231,7 @@ function calendar(view: "timeGridWeek" | "dayGridMonth" | "listWeek", inTab = fa
 function taskLinks(): void {
   const now = new Date("2026-10-15T10:00:00Z");
   const t = (o: Partial<TaskInfo>): TaskInfo => ({
-    path: "", basename: "", done: false, due: null, repeat: null, priority: null, uid: "u", tags: [], parentPath: null, collection: null, created: null, completed: null, completions: [], ...o,
+    path: "", basename: "", done: false, due: null, repeat: null, priority: null, uid: "u", tags: [], parentPath: null, links: [], collection: null, created: null, completed: null, completions: [], ...o,
   });
   const words = { today: "Aujourd'hui", tomorrow: "Demain" };
   const model = (task: TaskInfo, extra: Partial<Parameters<typeof chipModel>[1]> = {}): ChipModel =>
@@ -287,7 +287,7 @@ function taskFields(): void {
   };
   let task: TaskInfo = {
     path: "Tâches/Rapport.md", basename: "Rapport", done: false, due: "2026-10-16T09:30", repeat: null, priority: "medium", uid: "u", tags: ["famille", "urgent"],
-    parentPath: null, collection: null, created: null, completed: null, completions: [],
+    parentPath: null, links: [], collection: null, created: null, completed: null, completions: [],
   };
   const log = { removed: [] as string[], form: [] as string[], left: [] as string[], closed: [] as string[] };
   (window as unknown as { __fields: typeof log }).__fields = log;

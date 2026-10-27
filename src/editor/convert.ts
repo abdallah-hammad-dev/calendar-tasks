@@ -63,6 +63,22 @@ export function linkLine(link: string, tail = ""): string {
   return tail.trim() ? link + tail : `${link} `;
 }
 
+/**
+ * Where a sub-task's line goes in its parent's note, so every sub-task shows there (typed there, it already does):
+ * after the body's last line, under a list without a blank line. Null when the body already links to it.
+ */
+export function childLineInsert(text: string, line: string, isChild: (linkpath: string) => boolean): { at: number; insert: string } | null {
+  const fm = /^---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/.exec(text);
+  const start = fm ? fm[0].length : 0;
+  for (const m of text.slice(start).matchAll(LINK)) if (isChild(m[2]!.trim())) return null;
+  const content = text.trimEnd().length;
+  const nl = text.indexOf("\n", content);
+  const end = content <= start ? start : nl < 0 ? text.length : text[nl - 1] === "\r" ? nl - 1 : nl; // the last line's end
+  if (end === start) return { at: start, insert: `${start && text[start - 1] !== "\n" ? "\n" : ""}${line}\n` };
+  const last = text.slice(text.lastIndexOf("\n", end - 1) + 1, end);
+  return { at: end, insert: `${/^\s*(?:[-*+]|\d+[.)]) /.test(last) ? "\n" : "\n\n"}${line}` };
+}
+
 /** `text` without these spans, each with the space before it. */
 export function cutSpans(text: string, spans: { start: number; end: number }[]): string {
   let out = text;

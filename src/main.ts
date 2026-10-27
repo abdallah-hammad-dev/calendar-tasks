@@ -19,7 +19,7 @@ import { NOTE_TYPE, PROP, PROTOCOL_ACTION, type Priority } from "./constants";
 import { obsidianTransport } from "./caldav/transport";
 import { domParser } from "./caldav/xml";
 import { chipModel, dueLabel, pastLabel, type ChipModel } from "./editor/chips";
-import { cutSpans, linkLine, linkLineEdit, parseLinkLine, parseTaskLine, plannedFrontmatter } from "./editor/convert";
+import { childLineInsert, cutSpans, linkLine, linkLineEdit, parseLinkLine, parseTaskLine, plannedFrontmatter } from "./editor/convert";
 import { TaskConverter } from "./editor/converter";
 import { blockLabel, DateSuggest, shortDay, slotLabel } from "./editor/date-suggest";
 import { findWhen, lineTokens, NO_WHEN, repeatFromNote, repeatLabel, repeatToNote, taskEdit, type Block, type Cleared, type TaskEdit, type WhenToken } from "./editor/when";
@@ -40,7 +40,7 @@ import { taskBaseFile } from "./tasks/base-file";
 import { ObsidianVault } from "./tasks/obsidian-vault";
 import { normalizeDue, sanitizeTitle, setDone, uniquePath } from "./tasks/notes";
 import { sameTag, sameTags, tagsOf, withoutTag, withTags } from "./tasks/tags";
-import { TaskIndex, type TaskInfo } from "./tasks/task-index";
+import { listingChanges, TaskIndex, type TaskInfo } from "./tasks/task-index";
 import { TaskSync } from "./tasks/TaskSync";
 
 const FOCUS_SYNC_GAP_MS = 30_000;
@@ -81,6 +81,8 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
   private index!: TaskIndex;
   private converter!: TaskConverter;
   private dateSuggest: DateSuggest | null = null;
+  /** Sub-tasks detached because their line left their parent's note (child path → that parent), for an undo. */
+  private detached = new Map<string, string>();
   /** Time blocks of task notes waiting for their reminder's UID (see `createBlocks`). */
   private pendingBlocks = new Map<string, Block[]>();
   /** The date format event notes were last named with (a change renames them). */
@@ -178,6 +180,21 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
         const task = this.index.get(file.path);
         // Done for good (a repeating task comes back): its sessions that come back stop.
         if (was && task?.uid && !was.done && task.done && !task.repeat) void this.endSessions(task.uid);
+        // A new parent (the server, its properties, Claude): the parent's note lists it, as one typed there does.
+        const parent = task?.parentPath;
+        if (task && parent && parent !== was?.parentPath && parent !== task.path && this.index.get(parent)) void this.listInParent(parent, task.path);
+        // A sub-task's line taken out of this note: no longer its sub-task; put back this session, it is again.
+        if (was && task) {
+          const { detach, attach } = listingChanges(was, task, (p) => this.index.get(p), this.detached);
+          for (const p of detach) {
+            this.detached.set(p, task.path);
+            void this.setParent(p, null);
+          }
+          for (const p of attach) {
+            this.detached.delete(p);
+            void this.setParent(p, task.path);
+          }
+        }
         this.eventNotes.refresh(file.path);
         this.noteChanged(file.path);
       }),
@@ -704,6 +721,39 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     const head = view.state.selection.main.head;
     view.dispatch({ changes: { from: base, to: line.to, insert: rest }, selection: head >= base && head <= line.to ? { anchor: base + rest.length } : undefined });
     if (found && !blank) await this.applyEdit(file.path, found, [], replaces);
+  }
+
+  /** Adds `- [[Child]] ` to a parent task's note unless its body already links to it: no sub-task out of sight. */
+  private async listInParent(parentPath: string, childPath: string): Promise<void> {
+    const file = this.app.vault.getFileByPath(parentPath);
+    if (!file) return;
+    const line = linkLine(`- [[${this.vaultPort.linkText(childPath, parentPath)}]]`);
+    const isChild = (linkpath: string) => this.app.metadataCache.getFirstLinkpathDest(linkpath, parentPath)?.path === childPath;
+    // An open note changes through its editor: cursor, undo and unsaved typing kept.
+    const view = this.app.workspace
+      .getLeavesOfType("markdown")
+      .map((l) => l.view)
+      .find((v): v is MarkdownView => v instanceof MarkdownView && v.file?.path === parentPath);
+    if (view) {
+      const spot = childLineInsert(view.editor.getValue(), line, isChild);
+      if (spot) view.editor.replaceRange(spot.insert, view.editor.offsetToPos(spot.at));
+      return;
+    }
+    await this.app.vault.process(file, (text) => {
+      const spot = childLineInsert(text, line, isChild);
+      return spot ? text.slice(0, spot.at) + spot.insert + text.slice(spot.at) : text;
+    });
+  }
+
+  /** A task's `parent` (a note path, or none), shown at once: the index is patched before Obsidian reads it back. */
+  private async setParent(path: string, parent: string | null): Promise<void> {
+    const file = this.app.vault.getFileByPath(path);
+    if (!file) return;
+    this.index.patch(path, { parentPath: parent });
+    await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
+      if (parent) fm[PROP.parent] = `[[${this.vaultPort.linkText(parent, path)}]]`;
+      else delete fm[PROP.parent];
+    });
   }
 
   /** "Convert to task" on the current line or every selected line, dated or not. */

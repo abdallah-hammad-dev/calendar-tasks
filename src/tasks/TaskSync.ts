@@ -24,6 +24,8 @@ export interface VaultPort {
   /** Shortest unambiguous link text for a note, from a source note. */
   linkText(path: string, from: string): string;
   exists(path: string): boolean;
+  /** The notes a note's body links to (paths), its frontmatter's left out. */
+  bodyLinks(path: string): string[];
   create(path: string, frontmatter: Record<string, unknown>, body: string): Promise<void>;
   editFrontmatter(path: string, edit: (fm: Record<string, unknown>) => void): Promise<void>;
   /** Moves a note and updates links to it. */

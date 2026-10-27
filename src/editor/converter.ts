@@ -61,6 +61,7 @@ export class TaskConverter {
       uid: null,
       tags: plan.tags,
       parentPath: plan.parent,
+      links: [],
       collection: null, // TaskSync picks it (the parent's or the default) and writes it
       created: null, // TaskSync writes it with the reminder
       completed: null,

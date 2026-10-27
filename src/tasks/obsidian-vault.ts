@@ -1,4 +1,4 @@
-import { normalizePath, stringifyYaml, TFolder, type App, type TFile } from "obsidian";
+import { getLinkpath, normalizePath, stringifyYaml, TFolder, type App, type TFile } from "obsidian";
 import type { NoteRef, VaultPort } from "./TaskSync";
 
 /** VaultPort on Obsidian's documented APIs. Writes go through `fileManager` so links stay up to date. */
@@ -30,6 +30,17 @@ export class ObsidianVault implements VaultPort {
 
   exists(path: string): boolean {
     return !!this.app.vault.getAbstractFileByPath(normalizePath(path));
+  }
+
+  bodyLinks(path: string): string[] {
+    const f = this.app.vault.getFileByPath(path);
+    const cache = f && this.app.metadataCache.getFileCache(f);
+    const out = new Set<string>();
+    for (const l of [...(cache?.links ?? []), ...(cache?.embeds ?? [])]) {
+      const dest = this.app.metadataCache.getFirstLinkpathDest(getLinkpath(l.link), path);
+      if (dest) out.add(dest.path);
+    }
+    return [...out];
   }
 
   async create(path: string, frontmatter: Record<string, unknown>, body: string): Promise<void> {
