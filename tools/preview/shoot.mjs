@@ -61,8 +61,12 @@ const SCENARIOS = [
   ["calendar-marks-list-125", 1200, 820, 1.25],
   ["calendar-marks-list-150", 1200, 820, 1.5],
   ["task-links", 760, 520],
+  // A real editor: an `@` typed is a field labelled with its keyword, a block once it has its value; Backspace
+  // selects a block, then deletes it; a click on one opens its field. On a task already made, Backspace takes its
+  // chips off one by one, and a click on the deadline chip opens its field in its place.
+  ["task-fields", 760, 300],
   ["settings", 760, 2000],
-  ["date-suggest", 2120, 560],
+  ["date-suggest", 2540, 560],
   ["new-task", 760, 760],
   // A tag being typed in the form: the vault's tags that match, under the field.
   ["new-task-tags", 760, 760],
@@ -176,6 +180,89 @@ async function moveMode(page, errors) {
   if (!(await page.locator(".ct-move-hint").count()) || (await page.locator(".ct-key").count())) errors.push("in move mode the hint should replace the key");
   const fixed = await page.locator(".fc-event.ct-ev-pending").first().evaluate((el) => getComputedStyle(el).opacity).catch(() => null);
   if (fixed !== null && Number(fixed) > 0.5) errors.push(`an invitation (can't move) should fade in move mode, opacity ${fixed}`);
+}
+
+/** Types in the `task-fields` editor, checking what the line shows at each step (see SCENARIOS). */
+async function taskFields(page, errors, theme) {
+  const line = (n) => page.evaluate((n) => window.__view.state.doc.line(n).text, n);
+  const selected = () => page.evaluate(() => { const s = window.__view.state; return s.sliceDoc(s.selection.main.from, s.selection.main.to); });
+  const cursorAt = (n) => page.evaluate((n) => { const v = window.__view; v.dispatch({ selection: { anchor: v.state.doc.line(n).to } }); v.focus(); }, n);
+  const text = (sel) => page.locator(sel).first().textContent().catch(() => null);
+  const count = (sel) => page.locator(sel).count();
+  const fields = () => page.evaluate(() => window.__fields);
+  const shot = (step) => page.screenshot({ path: join(out, `task-fields-${step}-${theme}.png`) });
+
+  await cursorAt(2);
+  await page.keyboard.type("@deadline dem");
+  if (!(await count(".ct-field"))) errors.push("an @ being typed should be a field");
+  if ((await text(".ct-field-label")) !== "Deadline") errors.push(`the field's label reads "${await text(".ct-field-label")}", not Deadline`);
+  await shot("typing");
+  await page.keyboard.type("ain pour");
+  if (await count(".ct-field")) errors.push("the field should close once the title goes on");
+  if (!/Demain/.test((await text(".ct-field-block.ct-chip-due")) ?? "")) errors.push(`no deadline block reading Demain (${await text(".ct-field-block")})`);
+  await page.keyboard.type(" @tag fam");
+  if ((await text(".ct-field-label.is-tag")) !== "#") errors.push("a tag's field should be labelled #");
+  await shot("tag");
+  await page.keyboard.type("ille");
+  await page.keyboard.press("Escape");
+  if ((await text(".ct-field-block.ct-chip-tags")) !== "#famille") errors.push(`no #famille block after Escape (${await line(2)})`);
+  await page.keyboard.press("Backspace");
+  if (!(await count(".ct-field-block.ct-chip-tags.is-selected"))) errors.push("a first Backspace should select the block");
+  await shot("selected");
+  await page.keyboard.press("Backspace");
+  if ((await line(2)) !== "- [ ] Appeler mamie @deadline demain pour") errors.push(`the second Backspace should delete the block: "${await line(2)}"`);
+  await page.locator(".ct-field-block.ct-chip-due").click();
+  if (!(await count(".ct-field")) || (await selected()) !== "demain") errors.push(`a click on a block should open its field, value selected ("${await selected()}")`);
+  await page.keyboard.type("ven");
+  if ((await line(2)) !== "- [ ] Appeler mamie @deadline ven pour") errors.push(`typing should replace the value: "${await line(2)}"`);
+  await page.keyboard.press("Escape");
+
+  await cursorAt(3);
+  // The cursor at the line's end is drawn after the chips, as after text.
+  const after = await page.evaluate(() => window.getSelection().getRangeAt(0).comparePoint(document.querySelector(".ct-task-chips"), 0) < 0);
+  if (!after) errors.push("the cursor at the line's end is drawn before the chips");
+  await page.keyboard.press("Backspace");
+  if ((await page.locator(".ct-task-chips .ct-chip.is-selected").getAttribute("data-key").catch(() => null)) !== "tag:urgent") errors.push("Backspace after a task's link should select its last chip");
+  await page.keyboard.press("Backspace");
+  // At once, before the note is read again.
+  if ((await fields()).removed.join() !== "tag:urgent" || (await count(".ct-task-chips [data-key='tag:urgent']"))) errors.push(`the second Backspace should take #urgent off at once (${(await fields()).removed})`);
+  if ((await line(3)) !== "- [[Rapport]] ") errors.push(`the task's line should stay as it is: "${await line(3)}"`);
+  await page.locator(".ct-task-chips .ct-chip-due").first().click();
+  if ((await line(3)) !== "- [[Rapport]] @deadline 16/10/2026 9h30") errors.push(`a click on the deadline chip should open its field: "${await line(3)}"`);
+  if ((await selected()) !== "16/10/2026 9h30") errors.push(`the chip's value should be selected ("${await selected()}")`);
+  // In the chip's place: after the priority, before #famille.
+  const place = await page.evaluate(() => {
+    const x = (sel) => document.querySelectorAll(".cm-line")[2].querySelector(sel)?.getBoundingClientRect();
+    return { priority: x(".ct-chip-priority")?.right, label: x(".ct-field-label")?.left, end: x(".ct-field")?.right, tag: x(".ct-chip-tags")?.left, due: !!x(".ct-task-chips .ct-chip-due") };
+  });
+  if (place.due || !(place.priority < place.label && place.end < place.tag)) errors.push(`the field should stand in the chip's place: ${JSON.stringify(place)}`);
+  await page.keyboard.type("lun");
+  await shot("chip");
+  await page.keyboard.press("Escape");
+  const closed = (await fields()).closed;
+  if (closed.at(-1) !== "- [[Rapport]] @deadline lun|due") errors.push(`Escape should hand the field to the task, in the chip's place (${closed})`);
+  await page.waitForTimeout(50);
+  if ((await line(3)) !== "- [[Rapport]] " || !/19 oct/.test((await text(".ct-task-chips .ct-chip-due")) ?? "")) errors.push(`the new deadline should be the chip's: "${await line(3)}", ${await text(".ct-task-chips .ct-chip-due")}`);
+  // A chip's field emptied (its value, then its label): the value goes from the task, as two Backspaces would.
+  await page.locator(".ct-task-chips .ct-chip-due").first().click();
+  await page.keyboard.press("Backspace");
+  await page.keyboard.press("Backspace");
+  await page.waitForTimeout(50);
+  if ((await fields()).removed.join() !== "tag:urgent,due") errors.push(`emptying the deadline's field should take the deadline off (${(await fields()).removed})`);
+  if ((await line(3)) !== "- [[Rapport]] " || (await count(".cm-line:nth-child(3) .ct-chip-due"))) errors.push(`the line should be back to its link, without the deadline: "${await line(3)}"`);
+  // A line from before (no space after the link): a click past its chips gives it its space, the cursor after it.
+  const last = await page.evaluate(() => { const r = document.querySelectorAll(".cm-line")[4].querySelector(".ct-task-chips").getBoundingClientRect(); return { x: r.right + 40, y: r.top + r.height / 2 }; });
+  await page.mouse.click(last.x, last.y);
+  const head = await page.evaluate(() => window.__view.state.selection.main.head === window.__view.state.doc.length);
+  if ((await line(5)) !== "- [[Rapport]] " || !head) errors.push(`a click past an old line's chips should give it its space, cursor at its end: "${await line(5)}"`);
+  // The priority's chip too (2026-10-27, asked): `@priorité moyenne`, its level selected.
+  await page.locator(".ct-task-chips .ct-chip-priority").first().click();
+  if ((await line(3)) !== "- [[Rapport]] @priorité moyenne" || (await selected()) !== "moyenne") errors.push(`a click on the priority chip should open its field: "${await line(3)}" ("${await selected()}")`);
+  if ((await text(".ct-field-label")) !== "Priorité") errors.push(`the priority's field is labelled "${await text(".ct-field-label")}"`);
+  await page.keyboard.type("haute");
+  await page.keyboard.press("Escape");
+  if ((await fields()).closed.at(-1) !== "- [[Rapport]] @priorité haute|priority") errors.push(`Escape should hand the priority to the task (${(await fields()).closed.at(-1)})`);
+  if ((await fields()).form.length) errors.push(`no chip should open the form now (${(await fields()).form})`);
 }
 
 /** Moves an event, a work session and a deadline, and checks where each one is drawn after its data changed. */
@@ -652,11 +739,12 @@ for (const [name, width, height, scale = 2] of run) {
     page.on("pageerror", (e) => errors.push(e.message));
     // Obsidian's bundled fonts aren't extracted; ignore those 404s.
     page.on("console", (m) => m.type() === "error" && !m.text().includes("ERR_FILE_NOT_FOUND") && errors.push(m.text()));
-    if (name.startsWith("calendar-list")) await page.clock.setFixedTime(new Date(2026, 9, 15, 11, 0));
+    if (name.startsWith("calendar-list") || name === "task-fields") await page.clock.setFixedTime(new Date(2026, 9, 15, 11, 0));
     await page.goto(`file://${join(cache, "index.html")}?scenario=${name}&theme=${theme}`);
     await page.waitForFunction(() => window.__ready === true, null, { timeout: 10000 }).catch(() => errors.push("timed out"));
     await page.waitForTimeout(150);
     if (name === "calendar-interact") await interact(page, errors);
+    if (name === "task-fields") await taskFields(page, errors, theme);
     if (name === "calendar-drag") await drag(page, errors, theme);
     if (name === "calendar-month-drag") await monthDrag(page, errors, theme);
     if (name === "calendar-card") {

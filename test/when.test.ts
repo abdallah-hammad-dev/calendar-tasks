@@ -6,7 +6,9 @@ import {
   slotText,
   dayValue,
   parseSlot,
+  featureWord,
   findWhen,
+  lineTokens,
   nextOccurrence,
   normalizeRule,
   parseDate,
@@ -187,7 +189,7 @@ describe("suggestions while typing after @", () => {
     suggestAt(typed, TODAY, "fr")?.items.map((i) => (i.kind === "accept" ? `✓${i.label}` : i.kind === "more" ? "+" : i.label)) ?? null;
 
   it("first offers what to add", () => {
-    expect(items("")).toEqual(["Deadline", "Session", "Répéter", "Tag", "✓Créer la tâche"]);
+    expect(items("")).toEqual(["Deadline", "Session", "Répéter", "Tag", "Priorité", "✓Créer la tâche"]);
     expect(items("se")).toEqual(["Session"]);
     expect(items("tâ")).toEqual(["Tag", "✓Créer la tâche"]);
     // Every hint is a short example of what to type, and parses as one.
@@ -388,9 +390,9 @@ describe("changing a task already made", () => {
   it("offers taking things off instead of \"Create the task\"", () => {
     const items = (typed: string, editing: { due: boolean; repeat: boolean }) =>
       suggestAt(typed, TODAY, "fr", editing)?.items.map((i) => (i.kind === "accept" ? `✓${i.label}` : i.label)) ?? null;
-    expect(items("", { due: true, repeat: true })).toEqual(["Deadline", "Session", "Répéter", "Tag", "✓Retirer la deadline et la répétition", "✓Ne plus répéter"]);
-    expect(items("", { due: true, repeat: false })).toEqual(["Deadline", "Session", "Répéter", "Tag", "✓Retirer la deadline"]);
-    expect(items("", { due: false, repeat: false })).toEqual(["Deadline", "Session", "Répéter", "Tag"]);
+    expect(items("", { due: true, repeat: true })).toEqual(["Deadline", "Session", "Répéter", "Tag", "Priorité", "✓Retirer la deadline et la répétition", "✓Ne plus répéter"]);
+    expect(items("", { due: true, repeat: false })).toEqual(["Deadline", "Session", "Répéter", "Tag", "Priorité", "✓Retirer la deadline"]);
+    expect(items("", { due: false, repeat: false })).toEqual(["Deadline", "Session", "Répéter", "Tag", "Priorité"]);
     expect(items("répéter ", { due: true, repeat: true })![0]).toBe("jamais");
     expect(items("deadline ", { due: true, repeat: false })![0]).toBe("jamais");
     expect(items("deadline ", { due: false, repeat: false })).not.toContain("jamais");
@@ -432,5 +434,62 @@ describe("readFields", () => {
     expect(readFields({ day: "", time: "14h" }, today).error).toBe("noDay");
     expect(readFields({ day: "ven", time: "", end: "16h" }, today).error).toBe("noStart");
     expect(readFields({ day: "ven", time: "16h", end: "14h" }, today).error).toBe("endBefore");
+  });
+});
+
+describe("lineTokens", () => {
+  const toks = (line: string) =>
+    lineTokens(line, TODAY).map((t) => ({ text: line.slice(t.start, t.end), value: line.slice(t.valueStart, t.end), feature: t.feature, complete: t.complete }));
+
+  it("splits a line into its @, each with where its value starts", () => {
+    expect(toks("Appeler @deadline ven 14h @tag Été @demain")).toEqual([
+      { text: "@deadline ven 14h", value: " ven 14h", feature: "due", complete: true },
+      { text: "@tag Été", value: " Été", feature: "tag", complete: true },
+      { text: "@demain", value: "demain", feature: "due", complete: true },
+    ]);
+  });
+
+  it("says when an @ has no value yet: a keyword alone, the task alone", () => {
+    expect(toks("Appeler @deadline")).toEqual([{ text: "@deadline", value: "", feature: "due", complete: false }]);
+    expect(toks("Appeler @ et @tâche")).toEqual([
+      { text: "@", value: "", feature: null, complete: false },
+      { text: "@tâche", value: "", feature: null, complete: false },
+    ]);
+    expect(toks("Appeler @répéter jamais")[0]).toMatchObject({ feature: "repeat", complete: true });
+    expect(toks("écrire à paul@exemple.fr")).toEqual([]);
+  });
+
+  it("reads each one alone", () => {
+    const [due, tag, block] = lineTokens("@ven 14h @tag famille @session mar 14h-16h", TODAY);
+    expect(due!.when.due).toBe("2026-10-16T14:00");
+    expect(due!.timed).toBe(true);
+    expect(tag!.when.tags).toEqual(["famille"]);
+    expect(block!.when.blocks).toEqual([{ start: "2026-10-20T14:00", end: "2026-10-20T16:00" }]);
+    expect(featureWord("repeat", "fr")).toBe("répéter");
+  });
+});
+
+describe("priority", () => {
+  it("is one @ with its level, in French or English, and makes a task", () => {
+    expect(when("- [ ] Rapport @priorité haute")).toMatchObject({ priority: "high" });
+    expect(when("- [ ] Rapport @priority low")).toMatchObject({ priority: "low" });
+    expect(when("- [ ] Rapport @prio moyenne")).toMatchObject({ priority: "medium" });
+    expect(cut("Rapport @priorité basse pour lundi")).toBe("@priorité basse");
+    expect(lineTokens("@priorité haute", TODAY)[0]).toMatchObject({ feature: "priority", complete: true });
+    expect(lineTokens("@priorité", TODAY)[0]).toMatchObject({ feature: "priority", complete: false });
+  });
+
+  it("is changed or taken off a task already made", () => {
+    expect(taskEdit(findWhen("@priorité basse", TODAY)!, { due: null })).toMatchObject({ priority: "low" });
+    expect(taskEdit(findWhen("@priorité aucune", TODAY)!, { due: null })).toMatchObject({ priority: null });
+    expect(taskEdit(findWhen("@demain", TODAY)!, { due: null }).priority).toBeUndefined();
+  });
+
+  it("is offered by the assistant, then its levels (and none on a task that has one)", () => {
+    expect(suggestAt("", TODAY, "fr")!.items.map((i) => i.label)).toContain("Priorité");
+    expect(suggestAt("priorité ", TODAY, "fr")!.items.map((i) => `${i.label} ${i.when?.priority}`)).toEqual(["Haute high", "Moyenne medium", "Basse low"]);
+    expect(suggestAt("priorité ", TODAY, "fr", { due: false, repeat: false, priority: true })!.items.map((i) => i.label)).toContain("Retirer la priorité");
+    expect(suggestAt("priorité h", TODAY, "fr")!.items.map((i) => i.text)).toEqual(["haute"]);
+    expect(suggestAt("priority hi", TODAY, "en")!.items.map((i) => i.text)).toEqual(["high"]);
   });
 });

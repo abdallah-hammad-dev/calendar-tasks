@@ -78,8 +78,12 @@ In French: `@deadline ven 14h` (or just `@ven 14h`), `@session mar 14h-16h`, `@r
 `@session lun au mer`, `@tâche`.
 
 **The `@` assistant**: typing `@` in a checklist line first asks what to add (*Deadline*, *Session*,
-*Repeat*, *Create the task*), then offers values for it and shows what they mean. The ✓ item ends the line
+*Repeat*, *Tag*, *Priority*, *Create the task*), then offers values for it and shows what they mean. The ✓ item ends the line
 and creates the task; *Something else* adds another `@`.
+
+While you type it, an `@` shows as a **field** labelled with what it is (*🚩 Deadline*, or `#` for a tag); once it
+has its value it becomes a **block** like the chips (`🚩 Tomorrow`, `#work`). Click a block to change it.
+Backspace against a block selects it, a second Backspace deletes it.
 
 - **Deadline**: `friday`, `tomorrow 2pm`, `15/10`, `15/10/2027`, `15 october 2027`, `in 3 days`, `next monday`…
   It's the date your phone shows. *Pick a date…* opens a calendar, with a time field (or none, for the whole day).
@@ -87,6 +91,8 @@ and creates the task; *Something else* adds another `@`.
   It becomes an event in your calendar, linked to the task (clicking it opens the task note), so it shows on the
   phone too. A task can have several. `every tuesday 2pm-4pm` makes a session that comes back (a recurring event);
   it stops when the task is done.
+- **Priority**: `high`, `medium`, `low` (`@priority none` takes it off a task). Shown as !!! / !! / !, and synced
+  as the reminder's priority.
 - **Repeat**: `every week`, `every 2 days`, `every monday and thursday`, `every weekday`, `monthly`… The task
   syncs as a repeating reminder; ticking it brings it back at its next date instead of closing it. Each time
   you tick it is kept in `completions`; the note's bar lists the last days faintly, and a click lists them all.
@@ -101,10 +107,11 @@ plain `- [ ]` line stays an ordinary checklist item that lives only in its note.
 block, tags, sub-task progress. Click any of them to change it. The raw properties (ids and such) are hidden; the
 list icon in the bar shows them.
 
-**Changing a task**: click one of its chips (or the pencil that shows when you hover the line) to open its form,
-or type `@` after its link: `- [[Write the report]] @mon` moves the deadline, `@session thu 10am-12pm` adds a time
-block, `@repeat never` stops the repetition, `@deadline never` removes the deadline, `@tag family` or `#family` adds
-a tag. ✓ (or leaving the line) applies it and cleans the line.
+**Changing a task**: click its priority, deadline, repetition or a tag: its field opens on the line with the value selected,
+type the new one (Escape or leaving the field applies it). Backspace right after the link selects its last chip,
+a second one takes it off the task. The pencil (shown when you hover the line) opens the task's form. Or type `@` after its link: `- [[Write the report]] @mon` moves the deadline, `@session thu 10am-12pm` adds
+a time block, `@repeat never` stops the repetition, `@deadline never` removes the deadline, `@tag family` or
+`#family` adds a tag; it applies once the field closes (a `#tag` when you leave the line) and cleans the line.
 
 **The New task button** (ribbon, command palette, or the calendar's *+ New task*) opens a form: title, deadline,
 time blocks, repetition, priority, tags (your vault's tags are suggested as you type). Dates are typed the same way (`fri 2pm`, `tue 2pm-4pm`) or picked from a calendar

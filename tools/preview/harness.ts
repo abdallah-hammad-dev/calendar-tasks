@@ -2,7 +2,10 @@
  * UI preview scenarios, rendered with Obsidian's real app.css in Chromium by shoot.mjs.
  * ?scenario=<name>&theme=light|dark&lang=fr|en
  */
-import { Menu } from "obsidian";
+import { defaultKeymap } from "@codemirror/commands";
+import { EditorState } from "@codemirror/state";
+import { EditorView, keymap } from "@codemirror/view";
+import { editorInfoField, Menu } from "obsidian";
 import { CalendarView, type CalendarHost } from "../../src/calendar/CalendarView";
 import { wholeDevicePixels } from "../../src/calendar/device-pixels";
 import { expandItem } from "../../src/calendar/expand";
@@ -18,6 +21,10 @@ import { renderTaskHeader } from "../../src/editor/task-header";
 import { renderEventHeader } from "../../src/editor/event-header";
 import { DatePickerModal } from "../../src/editor/date-picker";
 import { renderCheckbox, renderChips } from "../../src/editor/render";
+import { refreshTaskDecorations, taskEditorExtension } from "../../src/editor/live-preview";
+import { chipFieldText, openChipField, type ChipKey } from "../../src/editor/fields-state";
+import { parseLinkLine } from "../../src/editor/convert";
+import { findWhen } from "../../src/editor/when";
 import { DEFAULT_SETTINGS, SettingsTab, type SettingsHost } from "../../src/settings";
 import type { TaskInfo } from "../../src/tasks/task-index";
 
@@ -264,6 +271,84 @@ function taskLinks(): void {
     box.checked = checked;
     li.appendText(` ${text}`);
   }
+  done();
+}
+
+/**
+ * A real editor (CodeMirror, our extension) on a note with a task line being typed and a task already made: what
+ * the line shows while an `@` is typed (a field), once it has its value (a block), and the chips of the task.
+ * The page clock is Thursday 15/10/2026 11:00. Records in `window.__fields`.
+ */
+function taskFields(): void {
+  const today = { year: 2026, month: 10, day: 15 };
+  const labels = {
+    due: "Deadline", pending: "En attente de synchro", local: "Pas encore sur le serveur", toggle: "Cocher / décocher", edit: "Cliquer pour modifier",
+    priority: { high: "Haute", medium: "Moyenne", low: "Basse" },
+  };
+  let task: TaskInfo = {
+    path: "Tâches/Rapport.md", basename: "Rapport", done: false, due: "2026-10-16T09:30", repeat: null, priority: "medium", uid: "u", tags: ["famille", "urgent"],
+    parentPath: null, collection: null, created: null, completed: null, completions: [],
+  };
+  const log = { removed: [] as string[], form: [] as string[], left: [] as string[], closed: [] as string[] };
+  (window as unknown as { __fields: typeof log }).__fields = log;
+  const model = () => chipModel(task, { contextTags: [], children: [], sync: "synced", now: new Date(), tz: TZ, lang: "fr", words: { today: "Aujourd'hui", tomorrow: "Demain" } });
+  const keys = (): ChipKey[] => [...(task.priority ? ["priority" as const] : []), ...(task.due ? ["due" as const] : []), ...task.tags.map((tag) => `tag:${tag}` as const)];
+  const page = document.body.createDiv({ cls: "markdown-source-view mod-cm6 is-live-preview" });
+  page.style.padding = "24px 32px";
+  const view = new EditorView({
+    parent: page,
+    state: EditorState.create({
+      // The last line as written before its chips had a space of their own.
+      doc: "À faire cette semaine :\n- [ ] Appeler mamie \n- [[Rapport]] \n- [ ] Réviser le partiel\n- [[Rapport]]",
+      extensions: [
+        EditorView.lineWrapping,
+        keymap.of(defaultKeymap), // Backspace and the rest, as in Obsidian
+        editorInfoField.init(() => ({ file: { path: "Notes/Olera.md" } })),
+        taskEditorExtension({
+          model: (linkpath) => (linkpath === "Rapport" ? model() : null),
+          toggle: () => undefined,
+          checkbox: (m) => renderCheckbox(m, labels, () => undefined),
+          chips: (m, marks) =>
+            renderChips(
+              m,
+              labels,
+              (_path, focus, el, key) => {
+                const text = key ? chipFieldText(task, key, "fr", today) : null;
+                const root = el.closest<HTMLElement>(".cm-editor");
+                const v = root && EditorView.findFromDOM(root);
+                if (!text || !key || !v) return void log.form.push(String(focus));
+                v.dispatch(openChipField(v.state, v.posAtDOM(el), key, text));
+                v.focus();
+              },
+              marks,
+            ),
+          lineLeft: (_v, _from, text) => void log.left.push(text),
+          fieldClosed: (v, from, text, _path, replaces) => {
+            log.closed.push(`${text}|${replaces ?? ""}`);
+            // As the plugin does: the `@` goes to the task and leaves the line.
+            const link = parseLinkLine(text);
+            const found = link && findWhen(text.slice(link.end), today);
+            if (!link || (!found && text.slice(link.end).trim())) return;
+            queueMicrotask(() => {
+              if (found?.when.due) task = { ...task, due: found.when.due };
+              v.dispatch({ changes: { from: from + link.end, to: from + text.length, insert: " " }, selection: { anchor: from + link.end + 1 } });
+              refreshTaskDecorations();
+            });
+          },
+          chipKeys: () => keys(),
+          removeChip: (_text, _path, key) => {
+            log.removed.push(key);
+            if (key === "priority") task = { ...task, priority: null };
+            else if (key === "due") task = { ...task, due: null };
+            else task = { ...task, tags: task.tags.filter((tag) => `tag:${tag}` !== key) };
+            queueMicrotask(refreshTaskDecorations);
+          },
+          fields: { today: () => today, lang: () => "fr", knownTags: () => KNOWN_TAGS },
+        }),
+      ],
+    }),
+  });
+  (window as unknown as { __view: EditorView }).__view = view;
   done();
 }
 
@@ -542,7 +627,7 @@ function slotPicker(): void {
 function dateSuggest(): void {
   const popup = new DateSuggest({} as never, { task: () => null, edit: () => undefined, knownTags: () => KNOWN_TAGS });
   const editing = { path: "Tâches/Sport.md", due: "2026-10-19T07:00", repeat: "FREQ=WEEKLY;BYDAY=MO,TH" };
-  ["", "deadline ven ", "session chaque mardi ", "tag ", "edit:"].forEach((col_typed, col) => {
+  ["", "deadline ven ", "session chaque mardi ", "tag ", "priorité ", "edit:"].forEach((col_typed, col) => {
     const edit = col_typed.startsWith("edit:");
     const typed = edit ? col_typed.slice(5) : col_typed;
     (popup as unknown as { editing: unknown }).editing = edit ? editing : null;
@@ -571,6 +656,7 @@ else if (scenario.startsWith("calendar-marks-week")) calendar("timeGridWeek");
 else if (scenario.startsWith("calendar-marks-list")) calendar("listWeek");
 else if (scenario === "calendar-month-drag") calendar("dayGridMonth", true);
 else if (scenario === "task-links") taskLinks();
+else if (scenario === "task-fields") taskFields();
 else if (scenario === "settings") settings();
 else if (scenario === "date-suggest") dateSuggest();
 else if (scenario === "new-task") newTask();

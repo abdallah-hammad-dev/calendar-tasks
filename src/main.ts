@@ -1,6 +1,6 @@
 import { getAllTags, getLanguage, MarkdownView, Menu, Notice, Platform, Plugin, TFile, type Editor } from "obsidian";
 import type { Line, Text } from "@codemirror/state";
-import type { EditorView } from "@codemirror/view";
+import { EditorView } from "@codemirror/view";
 import { ItemCatalog } from "./calendar/catalog";
 import { wholeDevicePixels } from "./calendar/device-pixels";
 import { CALENDAR_VIEW, CalendarView, type CalendarEntry, type CalendarHost } from "./calendar/CalendarView";
@@ -19,18 +19,19 @@ import { NOTE_TYPE, PROP, PROTOCOL_ACTION, type Priority } from "./constants";
 import { obsidianTransport } from "./caldav/transport";
 import { domParser } from "./caldav/xml";
 import { chipModel, dueLabel, pastLabel, type ChipModel } from "./editor/chips";
-import { linkLineEdit, parseTaskLine, plannedFrontmatter } from "./editor/convert";
+import { cutSpans, linkLine, linkLineEdit, parseLinkLine, parseTaskLine, plannedFrontmatter } from "./editor/convert";
 import { TaskConverter } from "./editor/converter";
 import { blockLabel, DateSuggest, shortDay, slotLabel } from "./editor/date-suggest";
-import { repeatFromNote, repeatLabel, repeatToNote, taskEdit, type Block, type TaskEdit, type WhenToken } from "./editor/when";
+import { findWhen, lineTokens, NO_WHEN, repeatFromNote, repeatLabel, repeatToNote, taskEdit, type Block, type Cleared, type TaskEdit, type WhenToken } from "./editor/when";
+import { chipFieldText, openChipField, type ChipKey } from "./editor/fields-state";
 import { refreshTaskDecorations, taskEditorExtension } from "./editor/live-preview";
 import { decorateRendered } from "./editor/reading-view";
-import { renderCheckbox, renderChips, type EditFocus, type RenderLabels } from "./editor/render";
+import { renderCheckbox, renderChips, type ChipMarks, type EditFocus, type RenderLabels } from "./editor/render";
 import { joinText, meetingHost, openLabel, whenText } from "./calendar/event-card";
 import { renderEventHeader } from "./editor/event-header";
 import { renderTaskHeader, type TaskHeaderModel } from "./editor/task-header";
 import { DatePickerModal } from "./editor/date-picker";
-import { t } from "./i18n";
+import { language, t } from "./i18n";
 import { formatLocalDate, formatLocalDateTime, localZone, wallClock } from "./ical/time";
 import { mergeSettings, SettingsTab, type CalendarTasksSettings, type SettingsHost } from "./settings";
 import { SyncEngine } from "./sync/engine";
@@ -38,7 +39,7 @@ import { IdbStore } from "./sync/store";
 import { taskBaseFile } from "./tasks/base-file";
 import { ObsidianVault } from "./tasks/obsidian-vault";
 import { normalizeDue, sanitizeTitle, setDone, uniquePath } from "./tasks/notes";
-import { sameTag, sameTags, tagsOf, withTags } from "./tasks/tags";
+import { sameTag, sameTags, tagsOf, withoutTag, withTags } from "./tasks/tags";
 import { TaskIndex, type TaskInfo } from "./tasks/task-index";
 import { TaskSync } from "./tasks/TaskSync";
 
@@ -236,10 +237,17 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       model: (linkpath: string, sourcePath: string) => this.chipFor(linkpath, sourcePath),
       toggle: (path: string) => void this.toggleTask(path),
       checkbox: (m: ChipModel) => renderCheckbox(m, labels, (path) => void this.toggleTask(path)),
-      chips: (m: ChipModel) => renderChips(m, labels, (path, focus) => this.editTask(path, focus)),
+      chips: (m: ChipModel, marks?: ChipMarks) => renderChips(m, labels, (path, focus, el, key) => this.editChip(path, focus, el, key), marks),
     };
     this.registerEditorExtension(
-      taskEditorExtension({ ...deps, lineLeft: (view, from, text, path) => void this.autoConvert(view, from, text, path) }),
+      taskEditorExtension({
+        ...deps,
+        lineLeft: (view, from, text, path, replaces) => void this.autoConvert(view, from, text, path, replaces),
+        fieldClosed: (view, from, text, path, replaces) => void this.applyField(view, from, text, path, replaces),
+        chipKeys: (text, path) => this.chipKeys(text, path),
+        removeChip: (text, path, key) => void this.removeChip(text, path, key),
+        fields: { today: () => wallClock(new Date(), localZone()), lang: uiLang, knownTags: () => this.knownTags() },
+      }),
     );
     this.registerEditorSuggest(
       new DateSuggest(this.app, {
@@ -247,7 +255,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
           const file = this.app.metadataCache.getFirstLinkpathDest(linkpath, sourcePath);
           return (file && this.index.get(file.path)) ?? null;
         },
-        edit: (path, found, tags) => void this.applyEdit(path, found, tags),
+        edit: (path, found, tags, replaces) => void this.applyEdit(path, found, tags, replaces),
         knownTags: () => this.knownTags(),
       }),
     );
@@ -339,12 +347,12 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       due: task.due ?? null,
       repeat: task.repeat ?? null,
       tags: task.tags ?? [],
+      priority: task.priority ?? null,
       parent: task.parent ?? null,
       blocks: [],
       body: "",
     };
     const fm = plannedFrontmatter(plan, (target) => this.vaultPort.linkText(target, path));
-    if (task.priority) fm[PROP.priority] = task.priority;
     if (task.collection) fm[PROP.collection] = task.collection;
     await this.vaultPort.ensureFolder(folder);
     await this.vaultPort.create(path, fm, task.body ?? "");
@@ -381,6 +389,56 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       color: (url) => colors.get(url) ?? null,
       language: () => getLanguage(),
     };
+  }
+
+  /**
+   * A click on a chip: its field opens on the line, its value selected (priority, deadline, repetition, a tag).
+   * The form opens instead for the pencil, in reading view, or for a value the `@` can't say the same way.
+   */
+  private editChip(path: string, focus: EditFocus, el: HTMLElement, key: ChipKey | null): void {
+    if (!key || !this.editInline(path, el, key)) this.editTask(path, focus);
+  }
+
+  /** Writes `@deadline 30/10/2026` (…) at the end of the chip's line and opens it as a field, in place of the chip. */
+  private editInline(path: string, el: HTMLElement, key: ChipKey): boolean {
+    // findFromDOM wants the editor's own element, not one inside it.
+    const root = el.closest<HTMLElement>(".cm-editor");
+    const view = root && EditorView.findFromDOM(root);
+    const task = this.index.get(path);
+    const text = task && chipFieldText(task, key, uiLang(), wallClock(new Date(), localZone()));
+    if (!view || !text) return false;
+    const pos = view.posAtDOM(el);
+    if (!parseLinkLine(view.state.doc.lineAt(pos).text)) return false;
+    view.dispatch(openChipField(view.state, pos, key, text));
+    view.focus();
+    return true;
+  }
+
+  /** The chip keys of the task linked on a line, in their order on screen (Backspace takes the last first). */
+  private chipKeys(lineText: string, sourcePath: string): ChipKey[] {
+    const link = parseLinkLine(lineText);
+    const model = link && this.chipFor(link.linkpath, sourcePath);
+    if (!model) return [];
+    const keys: ChipKey[] = [];
+    if (model.priority) keys.push("priority");
+    if (model.due) keys.push("due");
+    if (model.repeat) keys.push("repeat");
+    for (const tag of model.tags) keys.push(`tag:${tag}`);
+    return keys;
+  }
+
+  /** Takes a chip off the task linked on a line (a second Backspace): its field, or one tag. */
+  private async removeChip(lineText: string, sourcePath: string, key: ChipKey): Promise<void> {
+    const link = parseLinkLine(lineText);
+    const file = link && this.app.metadataCache.getFirstLinkpathDest(link.linkpath, sourcePath);
+    if (!file || !this.index.get(file.path)) return;
+    // As `@deadline jamais` / `@répéter jamais` / `@priorité aucune` would.
+    if (!key.startsWith("tag:")) return this.applyEdit(file.path, { spans: [], when: { ...NO_WHEN, clear: [key as Cleared] }, dueGiven: false }, []);
+    await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
+      const left = withoutTag(fm[PROP.tags], key.slice(4));
+      if (left.length) fm[PROP.tags] = left;
+      else delete fm[PROP.tags];
+    });
   }
 
   /** The task form on a task already made (clicking its chips), starting at `focus`. */
@@ -451,22 +509,28 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
 
   /**
    * A line's `@` tokens and `#tags` written after a task's link (`- [[Task]] @ven @tag famille #urgent`): what they
-   * change on that task.
+   * change on that task. `replaces`: the chip they were typed in place of (a tag edited goes, if a tag came).
    */
-  private async applyEdit(path: string, found: WhenToken | null, hashTags: string[]): Promise<void> {
+  private async applyEdit(path: string, found: WhenToken | null, hashTags: string[], replaces?: ChipKey): Promise<void> {
     const task = this.index.get(path);
     const file = this.app.vault.getFileByPath(path);
     if (!task || !file) return;
     const edit: TaskEdit = found ? taskEdit(found, task) : { blocks: [] };
     const tags = tagsOf([...(edit.tags ?? []), ...hashTags]);
+    const old = replaces?.startsWith("tag:") && tags.length ? replaces.slice(4) : null;
+    const drop = old && !tags.some((tag) => sameTag(tag, old)) && task.tags.some((x) => sameTag(x, old)) ? old : null;
     const addTags = tags.some((tag) => !task.tags.some((x) => sameTag(x, tag)));
-    if (edit.due !== undefined || edit.repeat !== undefined || addTags) {
+    const priority = edit.priority !== undefined && edit.priority !== task.priority;
+    if (edit.due !== undefined || edit.repeat !== undefined || addTags || drop || priority) {
       await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
         if (edit.due === null) delete fm[PROP.due];
         else if (edit.due) fm[PROP.due] = edit.due;
+        if (edit.priority === null) delete fm[PROP.priority];
+        else if (edit.priority) fm[PROP.priority] = edit.priority;
         if (edit.repeat === null) delete fm[PROP.repeat];
         else if (edit.repeat) fm[PROP.repeat] = repeatToNote(edit.repeat);
-        const withThem = withTags(fm[PROP.tags], tags);
+        const kept = drop ? withoutTag(fm[PROP.tags], drop) : fm[PROP.tags];
+        const withThem = withTags(kept, tags) ?? (drop ? kept : null);
         if (withThem) fm[PROP.tags] = withThem;
       });
     }
@@ -535,8 +599,8 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
    * Cursor left a `- [ ] … @date` line: convert it (spec §5.2). The line changes at once and the note is written
    * after; if writing fails, the line comes back.
    */
-  private async autoConvert(view: EditorView, from: number, text: string, sourcePath: string): Promise<void> {
-    if (!parseTaskLine(text)) return this.editFromLine(view, from, text, sourcePath);
+  private async autoConvert(view: EditorView, from: number, text: string, sourcePath: string, replaces?: ChipKey): Promise<void> {
+    if (!parseTaskLine(text)) return this.editFromLine(view, from, text, sourcePath, replaces);
     const task = this.converter.prepare(text, sourcePath, true);
     if (!task) return;
     await Promise.resolve(); // we're called from inside an editor update, which can't dispatch another
@@ -554,7 +618,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
   }
 
   /** Cursor left a `- [[Task]] @… #…` line: the `@` tokens and `#tags` change the task and leave the line. */
-  private async editFromLine(view: EditorView, from: number, text: string, sourcePath: string): Promise<void> {
+  private async editFromLine(view: EditorView, from: number, text: string, sourcePath: string, replaces?: ChipKey): Promise<void> {
     const res = linkLineEdit(text, wallClock(new Date(), localZone()));
     const file = res && this.app.metadataCache.getFirstLinkpathDest(res.linkpath, sourcePath);
     if (!res || !file || !this.index.get(file.path)) return;
@@ -562,7 +626,30 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     const line = findLine(view.state.doc, from, text);
     if (!line) return;
     view.dispatch({ changes: { from: line.from, to: line.to, insert: res.rest } });
-    await this.applyEdit(file.path, res.found, res.tags);
+    await this.applyEdit(file.path, res.found, res.tags, replaces);
+  }
+
+  /**
+   * A field closed on a `- [[Task]]` line, the cursor still on it: its `@` tokens change the task and leave the
+   * line, if they all have their value (`#tags` wait until the line is left: one may still be typed).
+   */
+  private async applyField(view: EditorView, from: number, text: string, sourcePath: string, replaces?: ChipKey): Promise<void> {
+    const link = parseLinkLine(text);
+    const file = link && this.app.metadataCache.getFirstLinkpathDest(link.linkpath, sourcePath);
+    if (!link || !file || !this.index.get(file.path)) return;
+    const tail = text.slice(link.end);
+    const today = wallClock(new Date(), localZone());
+    const found = findWhen(tail, today);
+    const blank = !tail.trim(); // a chip's field emptied: the line goes back to its link and its space
+    if (blank ? tail === " " : !found || !lineTokens(tail, today).every((x) => x.complete)) return;
+    await Promise.resolve(); // we're called from inside an editor update, which can't dispatch another
+    const line = findLine(view.state.doc, from, text);
+    if (!line) return;
+    const base = line.from + link.end;
+    const rest = linkLine("", found && !blank ? cutSpans(tail, found.spans) : "");
+    const head = view.state.selection.main.head;
+    view.dispatch({ changes: { from: base, to: line.to, insert: rest }, selection: head >= base && head <= line.to ? { anchor: base + rest.length } : undefined });
+    if (found && !blank) await this.applyEdit(file.path, found, [], replaces);
   }
 
   /** "Convert to task" on the current line or every selected line, dated or not. */
@@ -1716,6 +1803,9 @@ function newUid(): string {
 }
 
 /** The line holding `text`: at `from` if it's still there, else wherever it moved. */
+/** The language the `@` grammar is written in. */
+const uiLang = (): "fr" | "en" => (language().startsWith("fr") ? "fr" : "en");
+
 function findLine(doc: Text, from: number, text: string): Line | null {
   const at = from <= doc.length ? doc.lineAt(from) : null;
   if (at?.text === text) return at;

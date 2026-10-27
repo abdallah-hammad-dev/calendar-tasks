@@ -14,13 +14,16 @@ a.internal-link.ct-task-done {
   color: var(--text-muted);
 }
 
+/* After a task's link, in place of the space that follows it (spec §5.1): as wide as a space when empty. */
 .ct-task-chips {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 0.3em;
-  margin-inline-start: 0.4em;
+  margin-inline-start: 0.3em;
   vertical-align: middle;
 }
+
 
 .ct-chip {
   font-size: var(--font-ui-smaller);
@@ -33,7 +36,9 @@ a.internal-link.ct-task-done {
 }
 
 .ct-chip-due,
-.ct-chip-repeat {
+.ct-chip-repeat,
+.ct-chip-session,
+.ct-field-block {
   display: inline-flex;
   align-items: center;
   gap: 0.25em;
@@ -95,12 +100,70 @@ a.internal-link.ct-task-done {
   color: var(--text-normal);
 }
 
+/* Fields on a task line (spec §5.2): the `@` being typed is a field, labelled with its keyword ("🚩 Deadline", "#"
+   for a tag); every other `@` with its value is a block drawn as a chip. A first Backspace selects a block or a chip,
+   the second deletes it. */
+.ct-field {
+  background: hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.12);
+  border-radius: var(--radius-s);
+}
+
+.ct-field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  margin-inline: 0.15em 0.35em;
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  color: var(--text-accent);
+  vertical-align: baseline;
+}
+
+/* "#famille": the "#" reads as the tag's start. */
+.ct-field-label.is-tag {
+  margin-inline: 0.15em 0;
+  font-size: inherit;
+  font-weight: inherit;
+  color: var(--tag-color);
+}
+
+.ct-field-block {
+  cursor: pointer;
+  vertical-align: baseline;
+}
+
+.ct-field-block:hover {
+  color: var(--text-normal);
+}
+
+/* Selected by a first Backspace: the next one deletes it. Solid, so the editor's own selection doesn't show through. */
+.ct-chip.is-selected,
+.ct-chip.is-selected:hover {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+/* The chips before a field opened from one of them: the field is in that chip's place, a chip's gap away. */
+.ct-task-chips.is-before {
+  margin-inline-end: 0.15em;
+}
+
+/* Out of the line's flow: no gap between the chips and the cursor or what's typed after them. */
 .ct-chip-edit {
+  position: absolute;
+  inset-inline-start: calc(100% + 0.3em);
+  top: 50%;
+  transform: translateY(-50%);
   display: inline-flex;
   color: var(--text-faint);
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.1s ease-in-out;
+}
+
+/* The line being written: the pencil would cover what's typed after the chips. */
+.cm-line.cm-active .ct-chip-edit {
+  display: none;
 }
 
 .ct-chip-edit svg {

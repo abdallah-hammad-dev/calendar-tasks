@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { chipModel, pastLabel, dueLabel } from "../src/editor/chips";
-import { cutSpans, hasTaskMarker, linkLineEdit, parseTaskLine, planTask, plannedFrontmatter, typedAt } from "../src/editor/convert";
+import { cutSpans, hasTaskMarker, linkLine, linkLineEdit, parseTaskLine, planTask, plannedFrontmatter, typedAt } from "../src/editor/convert";
 import { TaskIndex } from "../src/tasks/task-index";
 import { FakeVault } from "./support/fake-vault";
 
@@ -61,12 +61,20 @@ describe("typedAt", () => {
   });
 });
 
+describe("linkLine", () => {
+  it("ends a task's line with a space for its chips, unless text follows the link", () => {
+    expect(linkLine("- [[Rapport]]")).toBe("- [[Rapport]] ");
+    expect(linkLine("- [[Rapport]]", "  ")).toBe("- [[Rapport]] ");
+    expect(linkLine("- [[Rapport]]", " voir Paul")).toBe("- [[Rapport]] voir Paul");
+  });
+});
+
 describe("linkLineEdit", () => {
   const today = { year: 2026, month: 10, day: 15 };
 
   it("reads @ tokens after the link of a converted line, and the line without them", () => {
     const res = linkLineEdit("- [[Rapport]] @ven", today)!;
-    expect(res).toMatchObject({ linkpath: "Rapport", rest: "- [[Rapport]]" });
+    expect(res).toMatchObject({ linkpath: "Rapport", rest: "- [[Rapport]] " });
     expect(res.found!.when.due).toBe("2026-10-16");
     expect(linkLineEdit("  * [[Projets/Rapport|R]] @session mar 14h-16h voir Paul", today)).toMatchObject({
       linkpath: "Projets/Rapport",
@@ -75,15 +83,15 @@ describe("linkLineEdit", () => {
   });
 
   it("reads an @ or a # right after the link", () => {
-    expect(linkLineEdit("- [[zzfez]]@demain", today)).toMatchObject({ rest: "- [[zzfez]]", found: { when: { due: "2026-10-16" } } });
-    expect(linkLineEdit("- [[zzfez]]#famille", today)).toMatchObject({ rest: "- [[zzfez]]", tags: ["famille"] });
+    expect(linkLineEdit("- [[zzfez]]@demain", today)).toMatchObject({ rest: "- [[zzfez]] ", found: { when: { due: "2026-10-16" } } });
+    expect(linkLineEdit("- [[zzfez]]#famille", today)).toMatchObject({ rest: "- [[zzfez]] ", tags: ["famille"] });
   });
 
   it("takes @tag and #tags after the link for the task", () => {
     const res = linkLineEdit("- [[Untitled task]] @tag Eejip #notes", today)!;
-    expect(res).toMatchObject({ rest: "- [[Untitled task]]", tags: ["notes"] });
+    expect(res).toMatchObject({ rest: "- [[Untitled task]] ", tags: ["notes"] });
     expect(res.found!.when.tags).toEqual(["Eejip"]);
-    expect(linkLineEdit("- [[Untitled task]] #Eejip", today)).toMatchObject({ rest: "- [[Untitled task]]", found: null, tags: ["Eejip"] });
+    expect(linkLineEdit("- [[Untitled task]] #Eejip", today)).toMatchObject({ rest: "- [[Untitled task]] ", found: null, tags: ["Eejip"] });
     expect(linkLineEdit("- [[Rapport]] @ven #famille voir Paul", today)).toMatchObject({ rest: "- [[Rapport]] voir Paul", tags: ["famille"] });
     expect(linkLineEdit("- [[Rapport]] #2026", today)).toBeNull();
   });
@@ -107,9 +115,16 @@ describe("planTask", () => {
       repeat: null,
       blocks: [],
       tags: ["olera"],
+      priority: null,
       parent: null,
       body: "",
     });
+  });
+
+  it("gives the task a priority, and it goes into the note", () => {
+    const p = plan("Rapport @priorité haute @demain")!;
+    expect(p).toMatchObject({ title: "Rapport", priority: "high", due: "2026-10-16" });
+    expect(plannedFrontmatter(p, (x) => x)).toMatchObject({ priority: "high" });
   });
 
   it("keeps time blocks apart: they become events, not note fields", () => {

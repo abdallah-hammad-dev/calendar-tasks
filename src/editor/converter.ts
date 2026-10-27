@@ -5,7 +5,7 @@ import { uniquePath } from "../tasks/notes";
 import type { ObsidianVault } from "../tasks/obsidian-vault";
 import type { TaskIndex } from "../tasks/task-index";
 import type { Block } from "./when";
-import { hasTaskMarker, parseTaskLine, planTask, plannedFrontmatter } from "./convert";
+import { hasTaskMarker, linkLine, parseTaskLine, planTask, plannedFrontmatter } from "./convert";
 
 /** A conversion decided but not written yet: the line can change at once, the note follows. */
 export interface PreparedTask {
@@ -57,7 +57,7 @@ export class TaskConverter {
       done: false,
       due: plan.due,
       repeat: plan.repeat,
-      priority: null,
+      priority: plan.priority,
       uid: null,
       tags: plan.tags,
       parentPath: plan.parent,
@@ -71,7 +71,7 @@ export class TaskConverter {
       this.reserved.delete(path);
     };
     return {
-      replacement: `${parts.indent}${parts.bullet} [[${this.vault.linkText(path, sourcePath)}]]`,
+      replacement: linkLine(`${parts.indent}${parts.bullet} [[${this.vault.linkText(path, sourcePath)}]]`),
       create: async () => {
         try {
           await this.vault.ensureFolder(folder);

@@ -4,6 +4,7 @@
  * Reproduces Obsidian's DOM helpers and the markup of Setting / Menu so that
  * Obsidian's real app.css styles our views the same way it does in the app.
  */
+import { StateField } from "@codemirror/state";
 import { createElement, icons } from "lucide";
 import { marked } from "marked";
 import type { SettingControl, SettingDefinitionGroup, SettingDefinitionItem, SettingGroup, SettingGroupItem } from "obsidian";
@@ -799,6 +800,8 @@ export class EditorSuggest<T> {
   constructor(public app: unknown) {}
   declare _t?: T;
 }
+/** The note an editor shows; a scenario sets it with `editorInfoField.init`. */
+export const editorInfoField = StateField.define<{ file: { path: string } | null }>({ create: () => ({ file: null }), update: (v) => v });
 export class WorkspaceLeaf {}
 export class MarkdownView {}
 export class FileView {}

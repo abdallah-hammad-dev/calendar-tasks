@@ -57,7 +57,9 @@ user at each one.
   (pure chip model: due label/overdue, tags, progress, sync state), `render.ts` (DOM), `live-preview.ts`
   (CM6 ViewPlugin decorations + "cursor left a line" listener, also on a blur inside Obsidian;
   `refreshTaskDecorations()`), `left-lines.ts` (pure: which task lines an update left, pasted lines included;
-  `cursorTaskLine` for a blur), `date-suggest.ts` (the `@` assistant, an
+  `cursorTaskLine` for a blur), `fields-state.ts` (pure CM state of the fields: the open field, blocks,
+  Backspace / Delete, padding, a chip's field `chipFieldText` / `openChipField`), `fields-view.ts` (draws them:
+  label and block widgets, atomic ranges, the keymap), `date-suggest.ts` (the `@` assistant, an
   `EditorSuggest` on `suggestAt`; also after the link of a converted line, to change that task),
   `date-picker.ts` (month-view date picker modal, replaces the system one), `reading-view.ts` (post-processor).
   `src/tasks/task-index.ts` — every task note's state, read by the decorations. `src/tasks/modals.ts` — the task
@@ -159,7 +161,35 @@ user at each one.
   `focusChanged` (reported 10 ms after the blur, so the focus is already where it went). Not when the whole window
   lost focus (`document.hasFocus()`: alt-tab mid-line), nor into a `.modal-container` or `.menu` (the `@`
   assistant's date picker is a modal, and the cursor comes back after). Clicking a chip opens `TaskModal` in edit
-  mode at that field.
+  mode at that field (now only the priority, the pencil, Reading view, and values the `@` can't say; see Fields).
+- **Fields and blocks** (2026-10-26, the user rejected Obsidian's tag menu for a tag chip, "pas vrm effaçable", and
+  asked for fields visible on the line that turn into blocks, erasable and editable; then approved: Backspace
+  twice, our own tag list): the file keeps the `@` grammar (`lineTokens` in when.ts); `fields-state.ts` holds the
+  open field (`openField`: opened by typing in an `@`, a cursor right after one, or `openFieldEffect`; closed once
+  the selection leaves its extent, which runs while `suggestAt` reads up to the cursor), `fields-view.ts` draws it
+  (`.ct-field` mark, the keyword replaced by a label widget) and every other complete `@` as an atomic block widget
+  with the chips' classes. Text stays `@tag` (not `#`): our `EditorSuggest` comes after Obsidian's built-ins, so a
+  typed `#` always opens Obsidian's tag menu. A chip click (`main.editChip`) writes `@word value` at the line end
+  with `replaces` (the chip isn't drawn meanwhile; `ChipMarks`), only if the value reads back the same
+  (`chipFieldText`: deadline, repetition, priority, a tag), else the form. A field closing on a link line, cursor still there, goes to the task at once
+  (`TaskLinkDeps.fieldClosed` → `main.applyField`: only when all its `@` are complete, `#tags` wait for the line);
+  a line left goes through `lineLeft` with `replaces` (a tag edited is swapped in `applyEdit`; `DateSuggest`
+  reads `replaces` from `editor.cm`). Backspace after the link selects the last chip (`chipSelection`) and the
+  second calls `removeChip`. A chip's field emptied (deleted by the user, or its keyword left alone: `erased` in
+  live-preview.ts; not the assistant cutting it once applied) calls `removeChip` too (2026-10-27, the user: the
+  deadline "impossible à supprimer": erasing the field brought the chip back). **A task's line ends with a space** (`linkLine`
+  in convert.ts: conversion, `linkLineEdit`, `applyField`), which the chips widget replaces (2026-10-27, the user:
+  the cursor showed after the title, then jumped; deleting a chip left "un saut de plusieurs espaces"): the line's
+  end is then a place after the chips, not against the link, where Obsidian shows the link's brackets for a focused
+  cursor and shifts everything. Elsewhere (no space, a link in prose) the chips are a point widget with `side: -1`.
+  An old `- [[Task]]` line gets its space on a click past its chips (`clickPastChips`, not in the undo history).
+  Chip-Backspace works only with the cursor at the line's end. A chip taken off is hidden at once (`removedChips`,
+  cleared by `refreshTaskDecorations`). A field opened from a chip splits the chips (`ChipMarks.part`): those
+  before it after the link, the rest after the field's extent. The pencil is out of the flow (absolute, hidden on
+  the active line), so it leaves no gap. The `task-fields`
+  preview has CodeMirror's `defaultKeymap` (`@codemirror/commands`, dev only: Obsidian has its own), without which
+  Backspace was the browser's and didn't cross the label widget. `EditorView.findFromDOM` wants the `.cm-editor` element, not one inside it. The
+  `task-fields` preview runs our extension in a real CodeMirror (`editorInfoField` stub) and types through it.
 - **No system dropdowns in forms** (the user found the blue Windows list ugly, 2026-10-17): `src/ui/menu-select.ts`
   opens Obsidian's `Menu` from a button; `named()` puts an icon before a setting's name. The settings tab keeps
   Obsidian's standard dropdowns (that's what every settings page uses).
@@ -273,7 +303,9 @@ user at each one.
   low` in the note (`PRIORITIES`, `PRIORITY_MARK` in constants.ts; `priorityOf` also reads the French words) ↔
   `PRIORITY` 1 / 5 / 9 (read 1–4 / 5 / 6–9), an owned field like `repeat` (an unknown value is left alone on the
   server). Drawn !!! / !! / ! in red / orange / blue on links, the note header, the Tasks panel (same deadline: the
-  most urgent first); a row in the form; Claude's create / set-dates tools take it. Not on calendar deadlines yet.
+  most urgent first); a row in the form; Claude's create / set-dates tools take it; `@priorité haute` /
+  `@priority low` in the `@` grammar (2026-10-27, asked: missing from the assistant; `aucune` / `none` takes it off;
+  `When.priority`, `Cleared` "priority", `TaskEdit.priority`, `PlannedTask.priority`), so its chip edits inline. Not on calendar deadlines yet.
 - **Compact forms** (2026-10-19): the new event form and an event's times are one `.ct-form-grid` (`formRow` in
   `src/ui/form-row.ts`: icon, name, field); `renderWhenFields` writes day + time fields (`readFields`) into it, not
   `datetime-local`. Inputs that show their name carry no `aria-label`: Obsidian shows it as a tooltip on hover.
@@ -405,7 +437,7 @@ user at each one.
   offers `main.knownTags` (cached until a note changes). A `#tag` on a task line does too (2026-10-26: left to
   Obsidian for a few hours, put back after the link; the user asked for both): out of the title, and off the line
   once applied. A `#tag` alone doesn't make a task (`hasTaskMarker` is `@` only). No inheritance (not from the note it's in, nor the
-  parent). Chips show tags in one chip,
+  parent). Chips show a chip per tag (one chip for all until 2026-10-26),
   less the containing note's (`getAllTags` in `main.noteTags`); the header shows them in one item (two pills
   wrapped the full header at 900 px). The form's Tags field is free text with `AbstractInputSuggest` (vault tags
   from `getAllTags` over every note, most used first; `metadataCache.getTags` isn't public); a pick sets the field

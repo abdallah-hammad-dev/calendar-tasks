@@ -8,18 +8,21 @@ import {
   type EditorSuggestTriggerInfo,
   type TFile,
 } from "obsidian";
+import { PRIORITY_MARK, type Priority } from "../constants";
 import { formatLocalDate, localZone, parseLocal, wallClock } from "../ical/time";
 import { language, t } from "../i18n";
 import { DatePickerModal } from "./date-picker";
 import { addDays } from "./date-token";
+import type { EditorView } from "@codemirror/view";
 import { linkLineEdit, parseLinkLine, parseTaskLine, typedAt } from "./convert";
+import { openField, type ChipKey } from "./fields-state";
 import { dateText, repeatLabel, slotText, suggestAt, type AtItem, type Block, type Feature, type When, type WhenToken } from "./when";
 
 type Item = AtItem | { kind: "pick"; text: string; label: string };
 
 const lang = (): "fr" | "en" => (language().startsWith("fr") ? "fr" : "en");
 const today = () => wallClock(new Date(), localZone());
-const fields = (task: EditedTask) => ({ due: !!task.due, repeat: !!task.repeat });
+const fields = (task: EditedTask) => ({ due: !!task.due, repeat: !!task.repeat, priority: !!task.priority });
 
 /** "ven. 23 oct. 14:00", or "aujourd'hui", "demain 9:00" when `relative`. */
 export function shortDay(value: string, relative = true): string {
@@ -39,7 +42,7 @@ export function shortDay(value: string, relative = true): string {
   return p.allDay ? day : `${day} ${String(p.wall.hour).padStart(2, "0")}:${String(p.wall.minute).padStart(2, "0")}`;
 }
 
-/** What a reading of `@…` means, as small icon + text parts: deadline, time blocks, repetition, tags. */
+/** What a reading of `@…` means, as small icon + text parts: deadline, time blocks, repetition, tags, priority. */
 export function renderWhen(el: HTMLElement, when: When): void {
   const part = (icon: string, text: string) => {
     const span = el.createSpan({ cls: "ct-when-part" });
@@ -48,10 +51,12 @@ export function renderWhen(el: HTMLElement, when: When): void {
   };
   if (when.clear?.includes("due")) part("circle-slash", t("suggest.noDeadline"));
   else if (when.clear?.includes("repeat")) part("circle-slash", t("suggest.noRepeat"));
+  else if (when.clear?.includes("priority")) part("circle-slash", t("suggest.noPriority"));
   if (when.due) part("flag", shortDay(when.due, false));
   for (const b of when.blocks) part("clock", blockLabel(b));
   if (when.repeat) part("repeat", repeatLabel(when.repeat, lang()) ?? t("suggest.customRepeat"));
   for (const tag of when.tags ?? []) part("tag", `#${tag}`);
+  if (when.priority) el.createSpan({ cls: `ct-when-part ct-chip-priority is-${when.priority}`, text: PRIORITY_MARK[when.priority] });
 }
 
 /** A time block, or "chaque mardi 14:00–16:00" for one that comes back. */
@@ -83,13 +88,14 @@ export interface EditedTask {
   path: string;
   due: string | null;
   repeat: string | null;
+  priority: Priority | null;
 }
 
 export interface DateSuggestDeps {
   /** The task note a link points to, from a note. */
   task(linkpath: string, sourcePath: string): EditedTask | null;
   /** Applies a line's `@` tokens and `#tags` to that task. */
-  edit(path: string, found: WhenToken | null, tags: string[]): void;
+  edit(path: string, found: WhenToken | null, tags: string[], replaces?: ChipKey): void;
   /** The vault's tags, most used first (offered after `@tag`). */
   knownTags(): string[];
 }
@@ -208,9 +214,11 @@ export class DateSuggest extends EditorSuggest<Item> {
     const line = editor.getLine(n);
     const res = linkLineEdit(line, today());
     if (!res) return;
+    // The chip the field was opened from, read before the field closes with the line's change.
+    const replaces = (editor as unknown as { cm?: EditorView }).cm?.state.field(openField, false)?.replaces;
     editor.replaceRange(res.rest, { line: n, ch: 0 }, { line: n, ch: line.length });
     editor.setCursor({ line: n, ch: res.rest.length });
-    this.deps.edit(task.path, res.found, res.tags);
+    this.deps.edit(task.path, res.found, res.tags, replaces);
   }
 
   /**

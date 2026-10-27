@@ -1,6 +1,7 @@
 import { setIcon, setTooltip } from "obsidian";
 import { PRIORITY_MARK, type Priority } from "../constants";
 import type { ChipModel } from "./chips";
+import type { ChipKey } from "./fields-state";
 
 export interface RenderLabels {
   due: string;
@@ -31,49 +32,98 @@ export function renderCheckbox(model: ChipModel, labels: RenderLabels, onToggle:
 }
 
 /**
- * Priority (!!!, !!, !), deadline, repetition, tags, progress and sync state, drawn after a task link. Clicking a chip (or the pencil
- * shown on hover) opens the task's form there.
+ * How the chips of a line are drawn: one marked by a first Backspace, those not drawn (the one whose field is open,
+ * those just taken off), and which part this is when a field opened from a chip splits them (the chips before it
+ * after the link, the rest after the field: the field stands in the chip's place).
  */
-export function renderChips(model: ChipModel, labels: RenderLabels, onEdit: (path: string, focus: EditFocus) => void): HTMLElement {
+export interface ChipMarks {
+  selected: ChipKey | null;
+  hidden: ChipKey[];
+  part?: { at: ChipKey; side: "before" | "after" };
+}
+
+/**
+ * Priority (!!!, !!, !), deadline, repetition, tags (a chip each), progress and sync state, drawn after a task link.
+ * Clicking a chip (or the pencil shown on hover) edits the task there: `key` is the chip (null for the pencil), `el`
+ * what was clicked.
+ */
+export function renderChips(
+  model: ChipModel,
+  labels: RenderLabels,
+  onEdit: (path: string, focus: EditFocus, el: HTMLElement, key: ChipKey | null) => void,
+  marks?: ChipMarks,
+): HTMLElement {
   const wrap = createSpan({ cls: "ct-task-chips" });
-  const clickable = (el: HTMLElement, focus: EditFocus, tooltip: string) => {
+  const clickable = (el: HTMLElement, focus: EditFocus, tooltip: string, key: ChipKey | null) => {
     el.addClass("is-clickable");
+    if (key) el.dataset.key = key;
+    if (key && key === marks?.selected) el.addClass("is-selected");
     setTooltip(el, tooltip);
     // Keep the editor from moving the cursor into the link (which would reveal its source).
     el.addEventListener("mousedown", (e) => e.preventDefault());
     el.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      onEdit(model.path, focus);
+      onEdit(model.path, focus, el, key);
     });
   };
-  if (model.priority) {
-    const chip = wrap.createSpan({ cls: `ct-chip ct-chip-priority is-${model.priority}`, text: PRIORITY_MARK[model.priority] });
-    clickable(chip, "priority", `${labels.priority[model.priority]} · ${labels.edit}`);
+  const chips: { key: ChipKey; draw: () => void }[] = [];
+  const priority = model.priority;
+  if (priority) {
+    chips.push({
+      key: "priority",
+      draw: () => clickable(wrap.createSpan({ cls: `ct-chip ct-chip-priority is-${priority}`, text: PRIORITY_MARK[priority] }), "priority", `${labels.priority[priority]} · ${labels.edit}`, "priority"),
+    });
   }
-  if (model.due) {
-    const chip = wrap.createSpan({ cls: `ct-chip ct-chip-due${model.due.overdue ? " is-overdue" : ""}` });
-    setIcon(chip.createSpan({ cls: "ct-chip-icon" }), "flag");
-    chip.appendText(model.due.text);
-    clickable(chip, "due", `${labels.due} · ${labels.edit}`);
+  const due = model.due;
+  if (due) {
+    chips.push({
+      key: "due",
+      draw: () => {
+        const chip = wrap.createSpan({ cls: `ct-chip ct-chip-due${due.overdue ? " is-overdue" : ""}` });
+        setIcon(chip.createSpan({ cls: "ct-chip-icon" }), "flag");
+        chip.appendText(due.text);
+        clickable(chip, "due", `${labels.due} · ${labels.edit}`, "due");
+      },
+    });
   }
-  if (model.repeat) {
-    const chip = wrap.createSpan({ cls: "ct-chip ct-chip-repeat" });
-    setIcon(chip.createSpan({ cls: "ct-chip-icon" }), "repeat");
-    chip.appendText(model.repeat);
-    clickable(chip, "repeat", labels.edit);
+  const repeat = model.repeat;
+  if (repeat) {
+    chips.push({
+      key: "repeat",
+      draw: () => {
+        const chip = wrap.createSpan({ cls: "ct-chip ct-chip-repeat" });
+        setIcon(chip.createSpan({ cls: "ct-chip-icon" }), "repeat");
+        chip.appendText(repeat);
+        clickable(chip, "repeat", labels.edit, "repeat");
+      },
+    });
   }
-  if (model.tags.length) clickable(wrap.createSpan({ cls: "ct-chip ct-chip-tags", text: model.tags.map((tag) => `#${tag}`).join(" ") }), "tags", labels.edit);
+  for (const tag of model.tags) {
+    const key: ChipKey = `tag:${tag}`;
+    chips.push({ key, draw: () => clickable(wrap.createSpan({ cls: "ct-chip ct-chip-tags", text: `#${tag}` }), "tags", labels.edit, key) });
+  }
+  const part = marks?.part;
+  const split = part ? chips.findIndex((c) => c.key === part.at) : -1;
+  chips.forEach((c, i) => {
+    if (marks?.hidden.includes(c.key)) return;
+    if (part && split >= 0 && (part.side === "before" ? i >= split : i <= split)) return;
+    c.draw();
+  });
+  if (part?.side === "before") {
+    wrap.addClass("is-before");
+    return wrap; // the rest is drawn after the field
+  }
   if (model.progress) wrap.createSpan({ cls: "ct-chip ct-chip-progress", text: model.progress });
   if (model.sync) {
     const icon = wrap.createSpan({ cls: `ct-sync ct-sync-${model.sync}` });
     setIcon(icon, model.sync === "pending" ? "cloud-upload" : "cloud-off");
     setTooltip(icon, model.sync === "pending" ? labels.pending : labels.local);
   }
-  if (!model.done) {
+  if (!model.done && !part) {
     const pencil = wrap.createSpan({ cls: "ct-chip-edit" });
     setIcon(pencil, "pencil");
-    clickable(pencil, null, labels.edit);
+    clickable(pencil, null, labels.edit, null);
   }
   return wrap;
 }

@@ -71,6 +71,12 @@ export function withTags(value: unknown, add: string[]): unknown[] | null {
   return [...(Array.isArray(value) ? (value as unknown[]) : have), ...missing];
 }
 
+/** The `tags` property without this tag (the others kept as written). */
+export function withoutTag(value: unknown, tag: string): unknown[] {
+  const list = Array.isArray(value) ? (value as unknown[]) : tagsOf(value);
+  return list.filter((v) => !(typeof v === "string" && sameTag(v.trim().replace(/^#+/, ""), tag)));
+}
+
 /** Same tags, in any order and case. */
 export function sameTags(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((x) => b.some((y) => sameTag(x, y)));

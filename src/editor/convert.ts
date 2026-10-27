@@ -1,4 +1,4 @@
-import { NOTE_TYPE, PROP } from "../constants";
+import { NOTE_TYPE, PROP, type Priority } from "../constants";
 import { isTaskNote, sanitizeTitle } from "../tasks/notes";
 import { findTags, tagsOf } from "../tasks/tags";
 import type { VaultPort } from "../tasks/TaskSync";
@@ -52,7 +52,15 @@ export function linkLineEdit(
   const found = findWhen(tail, today);
   const tagged = findTags(tail);
   if (!found && !tagged.tags.length) return null;
-  return { linkpath: link.linkpath, rest: line.slice(0, link.end) + cutSpans(tail, [...(found?.spans ?? []), ...tagged.spans]), found, tags: tagged.tags };
+  return { linkpath: link.linkpath, rest: linkLine(line.slice(0, link.end), cutSpans(tail, [...(found?.spans ?? []), ...tagged.spans])), found, tags: tagged.tags };
+}
+
+/**
+ * A task's line: its link, then what's written after it, else one space. The chips take that space's place, so the
+ * line's end is after them and not against the link (where Obsidian would show the link's brackets, moving all).
+ */
+export function linkLine(link: string, tail = ""): string {
+  return tail.trim() ? link + tail : `${link} `;
 }
 
 /** `text` without these spans, each with the space before it. */
@@ -82,6 +90,8 @@ export interface PlannedTask {
   blocks: Block[];
   /** Its tags, written `@tag famille` or `#famille` on the line. */
   tags: string[];
+  /** `@priorité haute`. */
+  priority: Priority | null;
   /** Parent task note path, when the line is written in a task note. */
   parent: string | null;
   /** The original text, kept as the note's first line when it held links. */
@@ -118,6 +128,7 @@ export function planTask(text: string, ctx: PlanContext): PlannedTask | null {
     repeat: marker?.when.repeat ?? null,
     blocks: marker?.when.blocks ?? [],
     tags: tagsOf([...(marker?.when.tags ?? []), ...tagged.tags]),
+    priority: marker?.when.priority ?? null,
     parent: isTaskNote(source?.frontmatter ?? null) ? ctx.sourcePath : null,
     body: links ? text : "",
   };
@@ -129,6 +140,7 @@ export function plannedFrontmatter(plan: PlannedTask, link: (path: string) => st
   if (plan.due) fm[PROP.due] = plan.due;
   if (plan.repeat) fm[PROP.repeat] = repeatToNote(plan.repeat);
   if (plan.tags.length) fm[PROP.tags] = plan.tags;
+  if (plan.priority) fm[PROP.priority] = plan.priority;
   if (plan.parent) fm[PROP.parent] = `[[${link(plan.parent)}]]`;
   return fm;
 }

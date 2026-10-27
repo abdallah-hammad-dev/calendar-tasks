@@ -2,10 +2,12 @@ import ICAL from "ical.js";
 import { formatLocalDate, formatLocalDateTime, parseLocal } from "../ical/time";
 import { addDays, fold, resolveDate, suggestDates, WEEKDAYS, weekdayOf, type Ymd } from "./date-token";
 import { isTag, sameTag } from "../tasks/tags";
+import type { Priority } from "../constants";
 
 /**
  * The `@` grammar (spec §5.2). Each `@` adds one thing to the task, named by a keyword, then its value:
- * `@deadline ven 14h`, `@session mar 14h-16h`, `@répéter chaque lundi`, `@tag famille`, `@tâche` (the task alone). Shortcuts: a
+ * `@deadline ven 14h`, `@session mar 14h-16h`, `@répéter chaque lundi`, `@tag famille`, `@priorité haute`, `@tâche` (the task
+ * alone). Shortcuts: a
  * day straight after `@` is a deadline (`@demain`), a repetition is a repetition (`@chaque lundi`), and `@` alone
  * is `@tâche`. On a task already made, the same `@` changes it (`@deadline jamais`, `@répéter jamais` take things
  * off). French and English.
@@ -21,9 +23,11 @@ export interface When {
   clear?: Cleared[];
   /** Tags to give it (`@tag famille`), as written, without "#". */
   tags?: string[];
+  /** `@priorité haute`. */
+  priority?: Priority;
 }
 
-export type Cleared = "due" | "repeat";
+export type Cleared = "due" | "repeat" | "priority";
 
 /** A time slot: local values, end exclusive; all-day slots are dates. */
 export interface Block {
@@ -33,7 +37,7 @@ export interface Block {
   repeat?: string;
 }
 
-export type Feature = "due" | "block" | "repeat" | "tag";
+export type Feature = "due" | "block" | "repeat" | "tag" | "priority";
 
 /** Keywords naming what an `@` adds (folded). */
 const FEATURE_WORDS: Record<string, Feature> = {
@@ -41,7 +45,12 @@ const FEATURE_WORDS: Record<string, Feature> = {
   session: "block",
   repeter: "repeat", repete: "repeat", repetition: "repeat", repeat: "repeat",
   tag: "tag", tags: "tag",
+  priorite: "priority", priority: "priority", prio: "priority",
 };
+
+/** A priority's words (folded); `aucune` / `none` (or `jamais`) takes it off a task. */
+const PRIORITY_WORDS: Record<string, Priority> = { haute: "high", high: "high", moyenne: "medium", medium: "medium", basse: "low", low: "low" };
+const NO_PRIORITY = new Set(["aucune", "none"]);
 
 export const NO_WHEN: When = { due: null, repeat: null, blocks: [] };
 
@@ -334,11 +343,12 @@ interface Token {
   repeat: string | null;
   /** `@tag famille`: one tag (folded here; `findWhen` puts back its spelling). */
   tag: string | null;
+  priority: Priority | null;
 }
 
 /** One `@`'s words (folded), read as far as they make sense. */
 export function parseToken(f: string[], today: Ymd): Token {
-  const none: Token = { feature: null, clear: [], used: 0, valueUsed: 0, moment: null, block: null, repeat: null, tag: null };
+  const none: Token = { feature: null, clear: [], used: 0, valueUsed: 0, moment: null, block: null, repeat: null, tag: null, priority: null };
   if (TASK_WORDS.has(f[0] ?? "")) return { ...none, used: 1 };
   let feature: Feature | undefined = FEATURE_WORDS[f[0] ?? ""];
   const i = feature ? 1 : 0;
@@ -370,6 +380,10 @@ export function parseToken(f: string[], today: Ymd): Token {
     // One tag per `@tag`: any word could be one, so a second would eat the title.
     const tag = (f[i] ?? "").replace(/^#+/, "");
     if (i && isTag(tag)) [tok.tag, tok.valueUsed] = [tag, 1];
+  } else if (feature === "priority") {
+    const w = f[i] ?? "";
+    if (w in PRIORITY_WORDS) [tok.priority, tok.valueUsed] = [PRIORITY_WORDS[w]!, 1];
+    else if (NO_PRIORITY.has(w) || NEVER.has(w)) [tok.clear, tok.valueUsed] = [["priority"], 1];
   } else if (i && NEVER.has(f[i] ?? "")) {
     [tok.clear, tok.valueUsed] = [["due", "repeat"], 1];
   } else {
@@ -408,7 +422,7 @@ function readTokens(tokens: Token[], today: Ymd): { when: When; dueGiven: boolea
     if (t.feature === "block" && t.block) when.blocks.push(t.block);
     else if (t.feature === "tag" && t.tag) {
       if (!tags.some((x) => sameTag(x, t.tag!))) tags.push(t.tag);
-    }
+    } else if (t.feature === "priority" && t.priority) when.priority ??= t.priority;
     else if (t.feature === "repeat" && t.repeat && !when.repeat) {
       when.repeat = t.repeat;
       if (t.moment?.day && !when.due) when.due = at(t.moment.day, t.moment.time);
@@ -440,8 +454,15 @@ export interface WhenToken {
  * lone `@`. An `@` inside a word (an email) or before an unknown word (`@quelquechose`) isn't one.
  */
 export function findWhen(line: string, today: Ymd): WhenToken | null {
-  const spans: { start: number; end: number }[] = [];
-  const tokens: Token[] = [];
+  const found = scan(line, today);
+  if (!found.length) return null;
+  const tokens = found.flatMap((f) => (f.tok ? [f.tok] : []));
+  return { spans: found.map((f) => ({ start: f.start, end: f.end })), ...readTokens(tokens, today) };
+}
+
+/** Every `@` of a line that is a token (see `findWhen`): where it is, where its keyword ends, its reading. */
+function scan(line: string, today: Ymd): { start: number; end: number; valueStart: number; tok: Token | null }[] {
+  const out: { start: number; end: number; valueStart: number; tok: Token | null }[] = [];
   for (const m of line.matchAll(/(^|\s)@/g)) {
     const atPos = m.index + m[1]!.length;
     const rest = line.slice(atPos + 1);
@@ -452,13 +473,60 @@ export function findWhen(line: string, today: Ymd): WhenToken | null {
     );
     if (tok.used > 0) {
       if (tok.tag) tok.tag = line.slice(ws[1]!.start, ws[1]!.end).replace(/^#+/, ""); // as written: "Été", not "ete"
-      spans.push({ start: atPos, end: ws[tok.used - 1]!.end });
-      tokens.push(tok);
+      const keyword = !!FEATURE_WORDS[ws[0]!.f] || TASK_WORDS.has(ws[0]!.f);
+      out.push({ start: atPos, end: ws[tok.used - 1]!.end, valueStart: keyword ? ws[0]!.end : atPos + 1, tok });
     } else if (!rest || /^\s/.test(rest)) {
-      spans.push({ start: atPos, end: atPos + 1 });
+      out.push({ start: atPos, end: atPos + 1, valueStart: atPos + 1, tok: null });
     }
   }
-  return spans.length ? { spans, ...readTokens(tokens, today) } : null;
+  return out;
+}
+
+/** One `@` of a line (spec §5.2): a field while it's typed, a block once it has its value. */
+export interface LineToken {
+  /** The "@". */
+  start: number;
+  /** After its last word (a lone `@`: right after it). */
+  end: number;
+  /** After its keyword (`@deadline`), else right after the "@" (`@demain`). */
+  valueStart: number;
+  /** What it adds; null for `@tâche` or a lone `@` (the task alone). */
+  feature: Feature | null;
+  /** It has its value (`@deadline ven`, `@demain`, `@tag famille`, `@répéter jamais`): not a keyword alone. */
+  complete: boolean;
+  /** What it says alone. */
+  when: When;
+  /** A deadline's or a repetition's time was given (`@répéter chaque lundi 7h`). */
+  timed: boolean;
+}
+
+/** The `@` tokens of a line, one by one. */
+export function lineTokens(line: string, today: Ymd): LineToken[] {
+  return scan(line, today).map(({ start, end, valueStart, tok }) => ({
+    start,
+    end,
+    valueStart,
+    feature: tok?.feature ?? null,
+    complete: !!tok && (tok.valueUsed > 0 || tok.clear.length > 0),
+    when: tok ? readTokens([tok], today).when : NO_WHEN,
+    timed: !!tok?.moment?.time,
+  }));
+}
+
+/** The keyword that names a feature, as the assistant writes it. */
+export function featureWord(feature: Feature, lang: "fr" | "en"): string {
+  return L[lang].features.find((f) => f[0] === feature)![1];
+}
+
+/** The word the `@` reads for a priority ("haute"). */
+export function priorityWord(priority: Priority, lang: "fr" | "en"): string {
+  return L[lang].priorities.find((p) => p[0] === priority)![1];
+}
+
+/** Its name and icon in the assistant ("Deadline", "flag"). */
+export function featureName(feature: Feature, lang: "fr" | "en"): { name: string; icon: string } {
+  const f = L[lang].features.find((x) => x[0] === feature)!;
+  return { name: f[2], icon: f[3] };
 }
 
 /** Changes to make to a task: `undefined` leaves a field as it is, `null` takes it off. */
@@ -470,6 +538,7 @@ export interface TaskEdit {
   blocks: Block[];
   /** Tags to add (those it has stay). */
   tags?: string[];
+  priority?: Priority | null;
 }
 
 /**
@@ -480,6 +549,8 @@ export function taskEdit(found: Pick<WhenToken, "when" | "dueGiven">, current: {
   const { when, dueGiven } = found;
   const edit: TaskEdit = { blocks: when.blocks };
   if (when.tags) edit.tags = when.tags;
+  if (when.priority) edit.priority = when.priority;
+  else if (when.clear?.includes("priority")) edit.priority = null;
   const clearsDue = !!when.clear?.includes("due");
   if (clearsDue) edit.due = null;
   if (when.clear?.includes("repeat")) edit.repeat = null;
@@ -723,6 +794,8 @@ interface Words {
   clearDue: [string, string];
   clearRepeat: string;
   never: string;
+  /** high, medium, low, then none (taking it off a task): word and label. */
+  priorities: [Priority | null, string, string][];
   more: string;
   days: string[];
   times: string[];
@@ -741,11 +814,13 @@ const L: Record<"fr" | "en", Words> = {
       ["block", "session", "Session", "clock", "mar 14h-16h"],
       ["repeat", "répéter", "Répéter", "repeat", "chaque lundi"],
       ["tag", "tag", "Tag", "tag", ""],
+      ["priority", "priorité", "Priorité", "chevrons-up", "haute"],
     ],
     task: ["tâche", "Créer la tâche"],
     clearDue: ["Retirer la deadline", "Retirer la deadline et la répétition"],
     clearRepeat: "Ne plus répéter",
     never: "jamais",
+    priorities: [["high", "haute", "Haute"], ["medium", "moyenne", "Moyenne"], ["low", "basse", "Basse"], [null, "aucune", "Retirer la priorité"]],
     more: "Autre chose (session, tag…)",
     days: ["aujourd'hui", "demain", "après-demain", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"],
     times: ["matin", "midi", "14h", "18h"],
@@ -762,11 +837,13 @@ const L: Record<"fr" | "en", Words> = {
       ["block", "session", "Session", "clock", "tue 2pm-4pm"],
       ["repeat", "repeat", "Repeat", "repeat", "every monday"],
       ["tag", "tag", "Tag", "tag", ""],
+      ["priority", "priority", "Priority", "chevrons-up", "high"],
     ],
     task: ["task", "Create the task"],
     clearDue: ["Remove the deadline", "Remove the deadline and the repeat"],
     clearRepeat: "Stop repeating",
     never: "never",
+    priorities: [["high", "high", "High"], ["medium", "medium", "Medium"], ["low", "low", "Low"], [null, "none", "Remove the priority"]],
     more: "Something else (session, tag…)",
     days: ["today", "tomorrow", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"],
     times: ["morning", "noon", "2pm", "6pm"],
@@ -792,7 +869,7 @@ export function suggestAt(
   typed: string,
   today: Ymd,
   lang: "fr" | "en",
-  editing?: { due: boolean; repeat: boolean },
+  editing?: { due: boolean; repeat: boolean; priority?: boolean },
   knownTags: string[] = [],
 ): { from: number; items: AtItem[]; wantsDay: boolean; feature?: Feature } | null {
   const v = L[lang];
@@ -879,6 +956,16 @@ export function suggestAt(
     if (!parsed.block && tail) candidates.push(...everyDay, v.repeats[0]!, v.repeats[1]!, v.repeats[4]!);
   } else if (feature === "tag") {
     if (!parsed.tag) candidates.push(...knownTags);
+  } else if (feature === "priority") {
+    if (!parsed.priority && !parsed.clear.length) {
+      for (const [level, word, label] of v.priorities) {
+        if (level === null && !editing?.priority) continue;
+        if (fold(word).startsWith(tail) && fold(word) !== tail && items.length < 11) {
+          // Its marks on the right, in its color (as on the chip).
+          items.push(level ? { kind: "insert", text: word, label, when: { ...NO_WHEN, priority: level } } : { kind: "insert", text: word, label, icon: "circle-slash" });
+        }
+      }
+    }
   } else if (feature === "repeat") {
     if (editing?.repeat && !parsed.repeat) candidates.push(v.never);
     candidates.push(...everyDay);
