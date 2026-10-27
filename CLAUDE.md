@@ -60,7 +60,9 @@ user at each one.
   `cursorTaskLine` for a blur), `fields-state.ts` (pure CM state of the fields: the open field, blocks,
   Backspace / Delete, padding, a chip's field `chipFieldText` / `openChipField`), `fields-view.ts` (draws them:
   label and block widgets, atomic ranges, the keymap), `date-suggest.ts` (the `@` assistant, an
-  `EditorSuggest` on `suggestAt`; also after the link of a converted line, to change that task),
+  `EditorSuggest` on `suggestAt`; also after the link of a converted line, to change that task; its rows, like
+  `RepeatPickerModal`'s, are `.ct-date-suggestion`: a subgrid of the list, `:has()` making Obsidian's `.suggestion`
+  / `.prompt-results` two columns, so labels and readings line up; an `AtItem.hint` is drawn "ex. …"),
   `date-picker.ts` (month-view date picker modal, replaces the system one), `reading-view.ts` (post-processor).
   `src/tasks/task-index.ts` — every task note's state, read by the decorations. `src/tasks/modals.ts` — the task
   form (`TaskModal`: new, or `edit` from a chip click) and the day / slot pickers (`dayChoices` / `parseDate` in
@@ -169,23 +171,41 @@ user at each one.
   the selection leaves its extent, which runs while `suggestAt` reads up to the cursor), `fields-view.ts` draws it
   (`.ct-field` mark, the keyword replaced by a label widget) and every other complete `@` as an atomic block widget
   with the chips' classes. Text stays `@tag` (not `#`): our `EditorSuggest` comes after Obsidian's built-ins, so a
-  typed `#` always opens Obsidian's tag menu. A chip click (`main.editChip`) writes `@word value` at the line end
-  with `replaces` (the chip isn't drawn meanwhile; `ChipMarks`), only if the value reads back the same
-  (`chipFieldText`: deadline, repetition, priority, a tag), else the form. A field closing on a link line, cursor still there, goes to the task at once
+  typed `#` always opens Obsidian's tag menu. A chip click (`main.editChip`) writes `@word ` at the line end with
+  `replaces` and `was` (the chip isn't drawn meanwhile, `ChipMarks`; `was` shows faint, `PlaceholderWidget`) and
+  asks `DateSuggest.show` for the list (Obsidian's `EditorSuggest.trigger` gives up on a selection, so the value
+  isn't selected any more, 2026-10-27), only if the value reads back the same (`chipFieldText`: deadline,
+  repetition, priority, a tag), else the form. A single-valued field typed after a task's link that has that value
+  gets the same `replaces` / `was` itself (`openField`, `auto`, through `FieldConfig.chipValue`). On a link line a
+  pick that leaves only ✓ and "something else" to offer finishes the edit (`DateSuggest.carryOn`). Obsidian's list
+  takes Escape before the editor, so `DateSuggest.onEscapeKey` (not in the API) closes the field too; a list opened
+  by code (`reopen`) is made the workspace's current one (`editorSuggest.setCurrentSuggest`), else Obsidian never
+  closes it when the `@` goes. `applyEdit`
+  patches the index before writing (`writeShown` → `TaskIndex.patch`) so chips don't show the old value meanwhile.
+  The `.ct-field` mark stops at its value, not the space after it. A field closing on a link line, cursor still there, goes to the task at once
   (`TaskLinkDeps.fieldClosed` → `main.applyField`: only when all its `@` are complete, `#tags` wait for the line);
   a line left goes through `lineLeft` with `replaces` (a tag edited is swapped in `applyEdit`; `DateSuggest`
   reads `replaces` from `editor.cm`). Backspace after the link selects the last chip (`chipSelection`) and the
-  second calls `removeChip`. A chip's field emptied (deleted by the user, or its keyword left alone: `erased` in
-  live-preview.ts; not the assistant cutting it once applied) calls `removeChip` too (2026-10-27, the user: the
-  deadline "impossible à supprimer": erasing the field brought the chip back). **A task's line ends with a space** (`linkLine`
+  second calls `removeChip`. A chip's field deleted by the user (`erased` in live-preview.ts; not the assistant
+  cutting it once applied) calls `removeChip` too (2026-10-27, the user: the deadline "impossible à supprimer");
+  left with its keyword alone or half typed, `applyField` cuts it and the chip stays. **A task's line ends with a space** (`linkLine`
   in convert.ts: conversion, `linkLineEdit`, `applyField`), which the chips widget replaces (2026-10-27, the user:
   the cursor showed after the title, then jumped; deleting a chip left "un saut de plusieurs espaces"): the line's
   end is then a place after the chips, not against the link, where Obsidian shows the link's brackets for a focused
   cursor and shifts everything. Elsewhere (no space, a link in prose) the chips are a point widget with `side: -1`.
   An old `- [[Task]]` line gets its space on a click past its chips (`clickPastChips`, not in the undo history).
   Chip-Backspace works only with the cursor at the line's end. A chip taken off is hidden at once (`removedChips`,
-  cleared by `refreshTaskDecorations`). A field opened from a chip splits the chips (`ChipMarks.part`): those
-  before it after the link, the rest after the field's extent. The pencil is out of the flow (absolute, hidden on
+  cleared by `refreshTaskDecorations`). The cursor's place among the chips is `chipGap` (2026-10-27, asked): the
+  real cursor stays at the line's end and the chips are split around it (`ChipMarks.part`: a gap index over those
+  drawn, `around` cursor or field), ← → / Backspace / Delete in `moveAmongChips` / `chipKey`; a press in the gap
+  reaches the editor because `ChipsWidget.ignoreEvent` lets it (`clickBetweenChips`). Chips standing for the line's space
+  (`ChipMarks.spaced`, `.is-spaced`) end with half a gap, so the cursor after them isn't against the last one (the
+  user read it as a cursor twice as thick, 2026-10-27); it's padding, as are the halves around a gap: Chrome draws
+  the cursor at the end of the box before it, its margin left out (`task-fields` finds the cursor in the pixels). A field opened from a chip
+  splits them the same way, those before it after the link, the rest after the field's extent. A field that stood
+  for a value (`was`: a chip's or a block's; any field after a task's link) closing without a new one is undone in
+  the same transaction (`restoreField`, a transaction filter): a chip's text goes, a block's value comes back. A
+  block click opens like a chip's (`openBlockField`, `FieldViewDeps.openList`). The pencil is out of the flow (absolute, hidden on
   the active line), so it leaves no gap. The `task-fields`
   preview has CodeMirror's `defaultKeymap` (`@codemirror/commands`, dev only: Obsidian has its own), without which
   Backspace was the browser's and didn't cross the label widget. `EditorView.findFromDOM` wants the `.cm-editor` element, not one inside it. The

@@ -1,5 +1,5 @@
-import { getAllTags, getLanguage, MarkdownView, Menu, Notice, Platform, Plugin, TFile, type Editor } from "obsidian";
-import type { Line, Text } from "@codemirror/state";
+import { editorInfoField, getAllTags, getLanguage, MarkdownView, Menu, Notice, Platform, Plugin, TFile, type Editor } from "obsidian";
+import type { EditorState, Line, Text } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { ItemCatalog } from "./calendar/catalog";
 import { wholeDevicePixels } from "./calendar/device-pixels";
@@ -80,6 +80,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
   private warnedNoTaskCalendar = false;
   private index!: TaskIndex;
   private converter!: TaskConverter;
+  private dateSuggest: DateSuggest | null = null;
   /** Time blocks of task notes waiting for their reminder's UID (see `createBlocks`). */
   private pendingBlocks = new Map<string, Block[]>();
   /** The date format event notes were last named with (a change renames them). */
@@ -246,19 +247,27 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
         fieldClosed: (view, from, text, path, replaces) => void this.applyField(view, from, text, path, replaces),
         chipKeys: (text, path) => this.chipKeys(text, path),
         removeChip: (text, path, key) => void this.removeChip(text, path, key),
-        fields: { today: () => wallClock(new Date(), localZone()), lang: uiLang, knownTags: () => this.knownTags() },
+        openList: (view) => this.openList(view),
+        fields: {
+          today: () => wallClock(new Date(), localZone()),
+          lang: uiLang,
+          knownTags: () => this.knownTags(),
+          chipValue: (state, lineText, key) => this.chipValue(state, lineText, key),
+        },
       }),
     );
     this.registerEditorSuggest(
-      new DateSuggest(this.app, {
+      (this.dateSuggest = new DateSuggest(this.app, {
         task: (linkpath, sourcePath) => {
           const file = this.app.metadataCache.getFirstLinkpathDest(linkpath, sourcePath);
           return (file && this.index.get(file.path)) ?? null;
         },
         edit: (path, found, tags, replaces) => void this.applyEdit(path, found, tags, replaces),
         knownTags: () => this.knownTags(),
-      }),
+      })),
     );
+    // Unloaded with its list open, the list would stay on screen.
+    this.register(() => this.dateSuggest?.close());
     this.registerMarkdownPostProcessor((el, ctx) => decorateRendered(el, ctx, deps));
     this.register(this.index.onChange(() => this.scheduleRedraw()));
     this.registerEvent(this.app.workspace.on("file-open", () => this.updateNoteHeaders()));
@@ -392,14 +401,14 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
   }
 
   /**
-   * A click on a chip: its field opens on the line, its value selected (priority, deadline, repetition, a tag).
+   * A click on a chip: its field opens on the line with the choices for it (priority, deadline, repetition, a tag).
    * The form opens instead for the pencil, in reading view, or for a value the `@` can't say the same way.
    */
   private editChip(path: string, focus: EditFocus, el: HTMLElement, key: ChipKey | null): void {
     if (!key || !this.editInline(path, el, key)) this.editTask(path, focus);
   }
 
-  /** Writes `@deadline 30/10/2026` (…) at the end of the chip's line and opens it as a field, in place of the chip. */
+  /** Writes `@deadline ` (…) at the end of the chip's line and opens it as a field, in place of the chip, its list open. */
   private editInline(path: string, el: HTMLElement, key: ChipKey): boolean {
     // findFromDOM wants the editor's own element, not one inside it.
     const root = el.closest<HTMLElement>(".cm-editor");
@@ -411,7 +420,25 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     if (!parseLinkLine(view.state.doc.lineAt(pos).text)) return false;
     view.dispatch(openChipField(view.state, pos, key, text));
     view.focus();
+    this.openList(view);
     return true;
+  }
+
+  /** The assistant's list for a field opened by code (a chip's, a block's): it isn't typing. */
+  private openList(view: EditorView): void {
+    const info = view.state.field(editorInfoField, false);
+    if (info?.editor) this.dateSuggest?.show(info.editor, info.file);
+  }
+
+  /** A chip's value of the task linked on a line, as its field says it (`FieldConfig.chipValue`). */
+  private chipValue(state: EditorState, lineText: string, key: ChipKey): { text: string | null } | null {
+    const link = parseLinkLine(lineText);
+    const source = state.field(editorInfoField, false)?.file;
+    const file = link && source && this.app.metadataCache.getFirstLinkpathDest(link.linkpath, source.path);
+    const task = file && this.index.get(file.path);
+    const has = task && (key === "priority" ? task.priority : key === "due" ? task.due : key === "repeat" ? task.repeat : null);
+    if (!task || !has) return null;
+    return { text: chipFieldText(task, key, uiLang(), wallClock(new Date(), localZone()))?.value ?? null };
   }
 
   /** The chip keys of the task linked on a line, in their order on screen (Backspace takes the last first). */
@@ -431,14 +458,17 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
   private async removeChip(lineText: string, sourcePath: string, key: ChipKey): Promise<void> {
     const link = parseLinkLine(lineText);
     const file = link && this.app.metadataCache.getFirstLinkpathDest(link.linkpath, sourcePath);
-    if (!file || !this.index.get(file.path)) return;
+    const task = file && this.index.get(file.path);
+    if (!file || !task) return;
     // As `@deadline jamais` / `@répéter jamais` / `@priorité aucune` would.
     if (!key.startsWith("tag:")) return this.applyEdit(file.path, { spans: [], when: { ...NO_WHEN, clear: [key as Cleared] }, dueGiven: false }, []);
-    await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
-      const left = withoutTag(fm[PROP.tags], key.slice(4));
-      if (left.length) fm[PROP.tags] = left;
-      else delete fm[PROP.tags];
-    });
+    await this.writeShown(file.path, { tags: task.tags.filter((x) => !sameTag(x, key.slice(4))) }, () =>
+      this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
+        const left = withoutTag(fm[PROP.tags], key.slice(4));
+        if (left.length) fm[PROP.tags] = left;
+        else delete fm[PROP.tags];
+      }),
+    );
   }
 
   /** The task form on a task already made (clicking its chips), starting at `focus`. */
@@ -522,19 +552,43 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     const addTags = tags.some((tag) => !task.tags.some((x) => sameTag(x, tag)));
     const priority = edit.priority !== undefined && edit.priority !== task.priority;
     if (edit.due !== undefined || edit.repeat !== undefined || addTags || drop || priority) {
-      await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
-        if (edit.due === null) delete fm[PROP.due];
-        else if (edit.due) fm[PROP.due] = edit.due;
-        if (edit.priority === null) delete fm[PROP.priority];
-        else if (edit.priority) fm[PROP.priority] = edit.priority;
-        if (edit.repeat === null) delete fm[PROP.repeat];
-        else if (edit.repeat) fm[PROP.repeat] = repeatToNote(edit.repeat);
-        const kept = drop ? withoutTag(fm[PROP.tags], drop) : fm[PROP.tags];
-        const withThem = withTags(kept, tags) ?? (drop ? kept : null);
-        if (withThem) fm[PROP.tags] = withThem;
-      });
+      const shown = {
+        ...(edit.due !== undefined ? { due: edit.due } : {}),
+        ...(edit.priority !== undefined ? { priority: edit.priority } : {}),
+        ...(edit.repeat !== undefined ? { repeat: edit.repeat } : {}),
+        tags: [...task.tags.filter((x) => !drop || !sameTag(x, drop)), ...tags.filter((tag) => !task.tags.some((x) => sameTag(x, tag)))],
+      };
+      await this.writeShown(path, shown, () =>
+        this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
+          if (edit.due === null) delete fm[PROP.due];
+          else if (edit.due) fm[PROP.due] = edit.due;
+          if (edit.priority === null) delete fm[PROP.priority];
+          else if (edit.priority) fm[PROP.priority] = edit.priority;
+          if (edit.repeat === null) delete fm[PROP.repeat];
+          else if (edit.repeat) fm[PROP.repeat] = repeatToNote(edit.repeat);
+          const kept = drop ? withoutTag(fm[PROP.tags], drop) : fm[PROP.tags];
+          const withThem = withTags(kept, tags) ?? (drop ? kept : null);
+          if (withThem) fm[PROP.tags] = withThem;
+        }),
+      );
     }
     if (edit.blocks.length) await this.blockTime(path, edit.blocks);
+  }
+
+  /**
+   * Writes a change to a task note and draws it at once: its chips don't show the old value again while Obsidian
+   * reads the note back (2026-10-27, the user: "y'a l'ancien qui s'affiche puis le nouveau remplace"). Redrawn after
+   * the editor's current update, which can't dispatch another; if the write fails, the note's state comes back.
+   */
+  private async writeShown(path: string, change: Partial<Pick<TaskInfo, "due" | "repeat" | "priority" | "tags">>, write: () => Promise<void>): Promise<void> {
+    this.index.patch(path, change);
+    queueMicrotask(refreshTaskDecorations);
+    try {
+      await write();
+    } catch (e) {
+      this.index.refresh(path);
+      throw e;
+    }
   }
 
   /** The task a command acts on: one linked on the cursor's line, else the note itself if it is a task. */
@@ -640,7 +694,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     const tail = text.slice(link.end);
     const today = wallClock(new Date(), localZone());
     const found = findWhen(tail, today);
-    const blank = !tail.trim(); // a chip's field emptied: the line goes back to its link and its space
+    const blank = !tail.trim(); // the line goes back to its link and its space
     if (blank ? tail === " " : !found || !lineTokens(tail, today).every((x) => x.complete)) return;
     await Promise.resolve(); // we're called from inside an editor update, which can't dispatch another
     const line = findLine(view.state.doc, from, text);

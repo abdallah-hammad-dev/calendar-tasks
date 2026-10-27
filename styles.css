@@ -127,6 +127,11 @@ a.internal-link.ct-task-done {
   color: var(--tag-color);
 }
 
+/* A chip's value while its field waits for a new one (left as it is, it stays). */
+.ct-field-placeholder {
+  color: var(--text-faint);
+}
+
 .ct-field-block {
   cursor: pointer;
   vertical-align: baseline;
@@ -143,12 +148,27 @@ a.internal-link.ct-task-done {
   color: var(--text-on-accent);
 }
 
-/* The chips before a field opened from one of them: the field is in that chip's place, a chip's gap away. */
+/* In the space after a task's link: what follows (the cursor at the line's end, a field typed there) is half a gap
+   away, as between two chips; against the last chip, the cursor looked twice as thick (2026-10-27). Padding, not
+   margin: Chrome draws the cursor at the end of the box before it, margin left out. The chips before a field opened
+   from one of them: the field is in that chip's place, a chip's gap away. */
+.ct-task-chips.is-spaced,
 .ct-task-chips.is-before {
-  margin-inline-end: 0.15em;
+  padding-inline-end: 0.15em;
 }
 
-/* Out of the line's flow: no gap between the chips and the cursor or what's typed after them. */
+/* None before it (the field of the first chip): only the link's gap. */
+.ct-task-chips.is-before:empty {
+  padding-inline-end: 0;
+}
+
+/* Split by the cursor: the chips' own gap, the cursor in its middle. */
+.ct-task-chips.is-after.is-around-cursor {
+  margin-inline-start: 0;
+  padding-inline-start: 0.15em;
+}
+
+/* Out of the line's flow: it puts nothing between the chips and the cursor or what's typed after them. */
 .ct-chip-edit {
   position: absolute;
   inset-inline-start: calc(100% + 0.3em);
@@ -159,6 +179,11 @@ a.internal-link.ct-task-done {
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.1s ease-in-out;
+}
+
+/* A chip's gap after the last one, the padding included. */
+.ct-task-chips.is-spaced > .ct-chip-edit {
+  inset-inline-start: calc(100% + 0.15em);
 }
 
 /* The line being written: the pencil would cover what's typed after the chips. */
@@ -877,30 +902,43 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-task-tags-input 
   display: inline-flex;
   align-items: center;
   gap: 0.25em;
-  margin-inline-start: 0.6em;
+  white-space: nowrap;
 }
 
 /* Day picker after @ in a task line */
-.ct-date-suggestion {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--size-4-4);
+/* Our lists (the @ assistant's popup, the repetition picker) are two columns, the labels and what they mean,
+   each starting at the same place on every row (2026-10-27, the user: readings pushed to the right, each from
+   where its width put it, looked uneven). */
+:is(.suggestion, .prompt-results):has(> .ct-date-suggestion) {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  align-content: start;
+  column-gap: var(--size-4-4);
+}
+
+:is(.suggestion, .prompt-results) > .ct-date-suggestion {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
 }
 
 .ct-date-suggestion-label {
-  display: inline-flex;
-  flex-shrink: 0;
+  display: flex;
   align-items: center;
   gap: 0.4em;
   white-space: nowrap;
 }
 
+/* A row with nothing beside its label doesn't widen the labels' column. */
+.ct-date-suggestion-label:last-child {
+  grid-column: 1 / -1;
+}
+
 .ct-date-suggestion-day {
-  display: inline-flex;
+  display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
-  text-align: end;
+  gap: 0 0.6em;
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
 }

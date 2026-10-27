@@ -33,13 +33,15 @@ export function renderCheckbox(model: ChipModel, labels: RenderLabels, onToggle:
 
 /**
  * How the chips of a line are drawn: one marked by a first Backspace, those not drawn (the one whose field is open,
- * those just taken off), and which part this is when a field opened from a chip splits them (the chips before it
- * after the link, the rest after the field: the field stands in the chip's place).
+ * those just taken off), and which part this is when they are split after `gap` of those drawn: around a field (one
+ * opened from a chip stands in its place) or the cursor (`chipGap`). The first part after the link, the rest after.
+ * `spaced`: they stand for the space after the link of a task's own line, so the line goes on after them.
  */
 export interface ChipMarks {
   selected: ChipKey | null;
   hidden: ChipKey[];
-  part?: { at: ChipKey; side: "before" | "after" };
+  part?: { gap: number; side: "before" | "after"; around: "field" | "cursor" };
+  spaced?: boolean;
 }
 
 /**
@@ -104,16 +106,14 @@ export function renderChips(
     chips.push({ key, draw: () => clickable(wrap.createSpan({ cls: "ct-chip ct-chip-tags", text: `#${tag}` }), "tags", labels.edit, key) });
   }
   const part = marks?.part;
-  const split = part ? chips.findIndex((c) => c.key === part.at) : -1;
-  chips.forEach((c, i) => {
-    if (marks?.hidden.includes(c.key)) return;
-    if (part && split >= 0 && (part.side === "before" ? i >= split : i <= split)) return;
-    c.draw();
-  });
-  if (part?.side === "before") {
-    wrap.addClass("is-before");
-    return wrap; // the rest is drawn after the field
-  }
+  chips
+    .filter((c) => !marks?.hidden.includes(c.key))
+    .forEach((c, i) => {
+      if (!part || (part.side === "before" ? i < part.gap : i >= part.gap)) c.draw();
+    });
+  if (part) wrap.addClass(`is-${part.side}`, `is-around-${part.around}`);
+  if (marks?.spaced) wrap.addClass("is-spaced");
+  if (part?.side === "before") return wrap; // the rest is drawn after the field or the cursor
   if (model.progress) wrap.createSpan({ cls: "ct-chip ct-chip-progress", text: model.progress });
   if (model.sync) {
     const icon = wrap.createSpan({ cls: `ct-sync ct-sync-${model.sync}` });

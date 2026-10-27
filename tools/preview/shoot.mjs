@@ -211,8 +211,12 @@ async function taskFields(page, errors, theme) {
   await shot("selected");
   await page.keyboard.press("Backspace");
   if ((await line(2)) !== "- [ ] Appeler mamie @deadline demain pour") errors.push(`the second Backspace should delete the block: "${await line(2)}"`);
+  // A block's field opens as a chip's: its value faint, back if none comes (2026-10-27, asked).
   await page.locator(".ct-field-block.ct-chip-due").click();
-  if (!(await count(".ct-field")) || (await selected()) !== "demain") errors.push(`a click on a block should open its field, value selected ("${await selected()}")`);
+  if ((await line(2)) !== "- [ ] Appeler mamie @deadline  pour" || (await text(".ct-field-placeholder")) !== "demain") errors.push(`a click on a block should open its field, its value faint: "${await line(2)}" (${await text(".ct-field-placeholder")})`);
+  await page.keyboard.press("Escape");
+  if ((await line(2)) !== "- [ ] Appeler mamie @deadline demain pour") errors.push(`Escape should give the block its value back: "${await line(2)}"`);
+  await page.locator(".ct-field-block.ct-chip-due").click();
   await page.keyboard.type("ven");
   if ((await line(2)) !== "- [ ] Appeler mamie @deadline ven pour") errors.push(`typing should replace the value: "${await line(2)}"`);
   await page.keyboard.press("Escape");
@@ -221,31 +225,71 @@ async function taskFields(page, errors, theme) {
   // The cursor at the line's end is drawn after the chips, as after text.
   const after = await page.evaluate(() => window.getSelection().getRangeAt(0).comparePoint(document.querySelector(".ct-task-chips"), 0) < 0);
   if (!after) errors.push("the cursor at the line's end is drawn before the chips");
+  // Not against the last chip: half a gap away, as between two chips. The caret has no box: found in the pixels.
+  const caretGap = async (sel) => {
+    const box = await page.evaluate((sel) => {
+      const line = document.querySelectorAll(".cm-line")[2];
+      const [r, l] = [[...line.querySelectorAll(`${sel} .ct-chip[data-key]`)].at(-1).getBoundingClientRect(), line.getBoundingClientRect()];
+      return { x: Math.floor(r.right), y: Math.floor(l.top), width: 24, height: Math.ceil(l.height), right: r.right };
+    }, sel);
+    for (let i = 0; i < 4; i++) {
+      const png = (await page.screenshot({ clip: box, caret: "initial" })).toString("base64");
+      const col = await page.evaluate(async ([png, w, h]) => {
+        const img = new Image();
+        img.src = `data:image/png;base64,${png}`;
+        await img.decode();
+        const ctx = Object.assign(document.createElement("canvas"), { width: img.width, height: img.height }).getContext("2d");
+        ctx.drawImage(img, 0, 0);
+        const d = ctx.getImageData(0, 0, img.width, img.height).data;
+        const bg = d.slice((img.width - 1) * 4, (img.width - 1) * 4 + 3);
+        // The first column inked over most of the line's height.
+        for (let x = 0; x < img.width; x++) {
+          let ink = 0;
+          for (let y = 0; y < img.height; y++) if (Math.max(...[0, 1, 2].map((c) => Math.abs(d[(y * img.width + x) * 4 + c] - bg[c]))) > 96) ink++;
+          if (ink > img.height / 2) return (x * w) / img.width;
+        }
+        return null;
+      }, [png, box.width, box.height]);
+      if (col !== null) return Math.round((box.x + col - box.right) * 10) / 10;
+      await page.waitForTimeout(300); // blinking
+    }
+    return null;
+  };
+  const endGap = await caretGap(".ct-task-chips");
   await page.keyboard.press("Backspace");
   if ((await page.locator(".ct-task-chips .ct-chip.is-selected").getAttribute("data-key").catch(() => null)) !== "tag:urgent") errors.push("Backspace after a task's link should select its last chip");
   await page.keyboard.press("Backspace");
   // At once, before the note is read again.
   if ((await fields()).removed.join() !== "tag:urgent" || (await count(".ct-task-chips [data-key='tag:urgent']"))) errors.push(`the second Backspace should take #urgent off at once (${(await fields()).removed})`);
   if ((await line(3)) !== "- [[Rapport]] ") errors.push(`the task's line should stay as it is: "${await line(3)}"`);
+  // Left as it opened, a chip's field changes nothing.
   await page.locator(".ct-task-chips .ct-chip-due").first().click();
-  if ((await line(3)) !== "- [[Rapport]] @deadline 16/10/2026 9h30") errors.push(`a click on the deadline chip should open its field: "${await line(3)}"`);
-  if ((await selected()) !== "16/10/2026 9h30") errors.push(`the chip's value should be selected ("${await selected()}")`);
-  // In the chip's place: after the priority, before #famille.
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(50);
+  if ((await line(3)) !== "- [[Rapport]] " || (await text(".ct-task-chips .ct-chip-due")) !== "Demain 09:30" || (await fields()).removed.length !== 1) {
+    errors.push(`Escape on a chip's field left as it was should keep the chip: "${await line(3)}", ${await text(".ct-task-chips .ct-chip-due")}, ${(await fields()).removed}`);
+  }
+  await page.locator(".ct-task-chips .ct-chip-due").first().click();
+  if ((await line(3)) !== "- [[Rapport]] @deadline " || (await selected()) !== "") errors.push(`a click on the deadline chip should open its field, waiting: "${await line(3)}" ("${await selected()}")`);
+  if ((await text(".ct-field-placeholder")) !== "16/10/2026 9h30") errors.push(`the chip's value should show faint in its field (${await text(".ct-field-placeholder")})`);
+  // In the chip's place: after the priority, before #famille; the faint value after the cursor, the chips after it.
   const place = await page.evaluate(() => {
     const x = (sel) => document.querySelectorAll(".cm-line")[2].querySelector(sel)?.getBoundingClientRect();
-    return { priority: x(".ct-chip-priority")?.right, label: x(".ct-field-label")?.left, end: x(".ct-field")?.right, tag: x(".ct-chip-tags")?.left, due: !!x(".ct-task-chips .ct-chip-due") };
+    const caret = window.getSelection().getRangeAt(0).comparePoint(document.querySelector(".ct-field-placeholder"), 0) > 0;
+    return { priority: x(".ct-chip-priority")?.right, label: x(".ct-field-label")?.left, end: x(".ct-field-placeholder")?.right, tag: x(".ct-chip-tags")?.left, due: !!x(".ct-task-chips .ct-chip-due"), caret };
   });
-  if (place.due || !(place.priority < place.label && place.end < place.tag)) errors.push(`the field should stand in the chip's place: ${JSON.stringify(place)}`);
+  if (place.due || !place.caret || !(place.priority < place.label && place.end < place.tag)) errors.push(`the field should stand in the chip's place: ${JSON.stringify(place)}`);
+  await shot("chip-open");
   await page.keyboard.type("lun");
+  if (await count(".ct-field-placeholder")) errors.push("the faint value should go once something is typed");
   await shot("chip");
   await page.keyboard.press("Escape");
   const closed = (await fields()).closed;
   if (closed.at(-1) !== "- [[Rapport]] @deadline lun|due") errors.push(`Escape should hand the field to the task, in the chip's place (${closed})`);
   await page.waitForTimeout(50);
   if ((await line(3)) !== "- [[Rapport]] " || !/19 oct/.test((await text(".ct-task-chips .ct-chip-due")) ?? "")) errors.push(`the new deadline should be the chip's: "${await line(3)}", ${await text(".ct-task-chips .ct-chip-due")}`);
-  // A chip's field emptied (its value, then its label): the value goes from the task, as two Backspaces would.
+  // A chip's field deleted: the value goes from the task, as two Backspaces on the chip would.
   await page.locator(".ct-task-chips .ct-chip-due").first().click();
-  await page.keyboard.press("Backspace");
   await page.keyboard.press("Backspace");
   await page.waitForTimeout(50);
   if ((await fields()).removed.join() !== "tag:urgent,due") errors.push(`emptying the deadline's field should take the deadline off (${(await fields()).removed})`);
@@ -255,13 +299,41 @@ async function taskFields(page, errors, theme) {
   await page.mouse.click(last.x, last.y);
   const head = await page.evaluate(() => window.__view.state.selection.main.head === window.__view.state.doc.length);
   if ((await line(5)) !== "- [[Rapport]] " || !head) errors.push(`a click past an old line's chips should give it its space, cursor at its end: "${await line(5)}"`);
-  // The priority's chip too (2026-10-27, asked): `@priorité moyenne`, its level selected.
+  // The cursor among the chips (2026-10-27, asked): ← goes between them, Backspace picks the one before it.
+  await cursorAt(3);
+  await page.keyboard.press("ArrowLeft");
+  const between = await page.evaluate(() => {
+    const r = window.getSelection().getRangeAt(0);
+    const line = document.querySelectorAll(".cm-line")[2];
+    return r.comparePoint(line.querySelector(".ct-chip-priority"), 0) < 0 && r.comparePoint(line.querySelector(".ct-chip-tags"), 0) > 0;
+  });
+  if (!between) errors.push("← at a task's line end should put the cursor between its chips");
+  const gapGap = await caretGap(".ct-task-chips.is-before");
+  if (endGap === null || gapGap === null || Math.abs(endGap - gapGap) > 0.5) errors.push(`the cursor after the last chip should be as far from it as in a gap between two (${endGap} / ${gapGap} px)`);
+  await shot("gap");
+  await page.keyboard.press("Backspace");
+  if ((await page.locator(".cm-line:nth-child(3) .ct-chip.is-selected").getAttribute("data-key").catch(() => null)) !== "priority") errors.push("Backspace in the gap should pick the chip before the cursor");
+  await page.keyboard.press("ArrowRight");
+  if (await count(".cm-line:nth-child(3) .ct-task-chips.is-before")) errors.push("→ past the last chip should put the cursor after them all");
+  // The priority's chip too (2026-10-27, asked).
   await page.locator(".ct-task-chips .ct-chip-priority").first().click();
-  if ((await line(3)) !== "- [[Rapport]] @priorité moyenne" || (await selected()) !== "moyenne") errors.push(`a click on the priority chip should open its field: "${await line(3)}" ("${await selected()}")`);
+  if ((await line(3)) !== "- [[Rapport]] @priorité " || (await text(".ct-field-placeholder")) !== "moyenne") errors.push(`a click on the priority chip should open its field: "${await line(3)}" (${await text(".ct-field-placeholder")})`);
   if ((await text(".ct-field-label")) !== "Priorité") errors.push(`the priority's field is labelled "${await text(".ct-field-label")}"`);
-  await page.keyboard.type("haute");
+  // The space after a value isn't the field's.
+  await page.keyboard.type("haute ");
+  const field = await page.evaluate(() => [...document.querySelectorAll(".cm-line")[2].querySelectorAll(".ct-field")].map((x) => x.textContent).join("|"));
+  if (/\s$/.test(field)) errors.push(`the field should end with its value: "${field}"`);
   await page.keyboard.press("Escape");
-  if ((await fields()).closed.at(-1) !== "- [[Rapport]] @priorité haute|priority") errors.push(`Escape should hand the priority to the task (${(await fields()).closed.at(-1)})`);
+  if ((await fields()).closed.at(-1) !== "- [[Rapport]] @priorité haute |priority") errors.push(`Escape should hand the priority to the task (${(await fields()).closed.at(-1)})`);
+  await page.waitForTimeout(50);
+  // Typed after the link of a task that has one, `@priorité` opens that one, in its place.
+  await cursorAt(3);
+  await page.keyboard.type("@priorité ");
+  if ((await count(".cm-line:nth-child(3) .ct-task-chips .ct-chip-priority")) || (await text(".ct-field-placeholder")) !== "moyenne") {
+    errors.push(`@priorité typed should stand in for the priority's chip (${await count(".cm-line:nth-child(3) .ct-task-chips .ct-chip-priority")}, ${await text(".ct-field-placeholder")})`);
+  }
+  await shot("typed-existing");
+  await page.keyboard.press("Escape");
   if ((await fields()).form.length) errors.push(`no chip should open the form now (${(await fields()).form})`);
 }
 

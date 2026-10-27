@@ -4,6 +4,7 @@ import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, typ
 import { editorInfoField } from "obsidian";
 import { parseLinkLine } from "./convert";
 import {
+  chipGap,
   chipSelection,
   clearRemovedEffect,
   closeFieldEffect,
@@ -13,6 +14,7 @@ import {
   openField,
   removedChips,
   removedOn,
+  setChipGapEffect,
   tokensAt,
   type ChipKey,
   type FieldConfig,
@@ -81,6 +83,10 @@ class ChipsWidget extends WidgetType {
   toDOM(): HTMLElement {
     return this.make(this.model, this.marks);
   }
+  /** A press in a gap between chips is the editor's (`clickBetweenChips`); the chips handle their own. */
+  override ignoreEvent(e: Event): boolean {
+    return !(e.type === "mousedown" && e.target instanceof HTMLElement && e.target.classList.contains("ct-task-chips"));
+  }
 }
 
 /** Code spans and blocks are left alone. */
@@ -116,17 +122,27 @@ function build(view: EditorView, deps: TaskLinkDeps): DecorationSet {
       // On the task's own line the chips take the space after the link: the line's end is after them, a place of
       // its own, like after text (2026-10-27, the user: the cursor showed before the chips, then jumped as
       // Obsidian showed the link's brackets for a cursor against it). Elsewhere they sit right after the link.
-      const at = (w: ChipsWidget) =>
-        ownLine && state.doc.sliceString(end, end + 1) === " "
-          ? Decoration.replace({ widget: w }).range(end, end + 1)
-          : Decoration.widget({ widget: w, side: -1 }).range(end);
-      const ext = ownLine && open?.replaces && open.at > line.from && open.at <= line.to ? fieldExtent(state, open.at) : null;
+      const spaced = ownLine && state.doc.sliceString(end, end + 1) === " ";
+      const at = (m: ChipMarks) =>
+        spaced
+          ? Decoration.replace({ widget: chips({ ...m, spaced }) }).range(end, end + 1)
+          : Decoration.widget({ widget: chips(m), side: -1 }).range(end);
+      const ext = ownLine && open && open.at > line.from && open.at <= line.to ? fieldExtent(state, open.at) : null;
+      const split = (gap: number, hidden: ChipKey[], around: "field" | "cursor", after: number) => {
+        out.push(at({ ...marks, hidden, part: { gap, side: "before", around } }));
+        // Side 2: after the cursor, and after a chip's value shown faint in an empty field (side 1).
+        out.push(Decoration.widget({ widget: chips({ ...marks, hidden, part: { gap, side: "after", around } }), side: 2 }).range(after));
+      };
+      const keys = spaced ? deps.chipKeys(line.text, file.path) : [];
+      const gap = spaced ? state.field(chipGap, false) : null;
       if (ext && open?.replaces) {
         // A field opened from a chip, in its place: the chips before it, the field, the rest.
-        const hidden = [...marks.hidden, open.replaces];
-        out.push(at(chips({ ...marks, hidden, part: { at: open.replaces, side: "before" } })));
-        out.push(Decoration.widget({ widget: chips({ ...marks, hidden, part: { at: open.replaces, side: "after" } }), side: 1 }).range(Math.max(ext.to, ext.from + 1)));
-      } else out.push(at(chips(marks)));
+        const before = keys.slice(0, keys.indexOf(open.replaces)).filter((k) => !marks.hidden.includes(k)).length;
+        split(before, [...marks.hidden, open.replaces], "field", Math.max(ext.to, ext.from + 1));
+      } else if (gap?.line === line.from) {
+        // The cursor among the chips (`chipGap`), or a field typed there.
+        split(gap.gap, marks.hidden, ext ? "field" : "cursor", ext ? Math.max(ext.to, ext.from + 1) : line.to);
+      } else out.push(at(marks));
     }
   }
   return Decoration.set(out, true);
@@ -156,6 +172,25 @@ function clickPastChips(view: EditorView, e: MouseEvent, deps: TaskLinkDeps): bo
   return true;
 }
 
+/** A click in the gap between two chips of a task's line puts the cursor there (`chipGap`). */
+function clickBetweenChips(view: EditorView, e: MouseEvent): boolean {
+  const target = e.target instanceof HTMLElement ? e.target : null;
+  const strip = target?.closest(".ct-task-chips");
+  if (!strip || target?.closest(".ct-chip, .ct-chip-edit, .ct-sync") || e.button !== 0) return false;
+  const file = view.state.field(editorInfoField, false)?.file;
+  const lineEl = strip.closest(".cm-line");
+  if (!file || !lineEl) return false;
+  const line = view.state.doc.lineAt(view.posAtDOM(lineEl));
+  const link = parseLinkLine(line.text);
+  if (!link || line.text.slice(link.end) !== " ") return false;
+  const shown = [...lineEl.querySelectorAll<HTMLElement>(".ct-task-chips .ct-chip[data-key]")];
+  const gap = shown.filter((c) => c.getBoundingClientRect().right <= e.clientX).length;
+  e.preventDefault();
+  view.dispatch({ selection: { anchor: line.to }, effects: setChipGapEffect.of(gap >= shown.length ? null : { line: line.from, gap }) });
+  view.focus();
+  return true;
+}
+
 /**
  * The editor lost focus to something else in Obsidian (another note, a sidebar, the note's header): its cursor's
  * line is left too. Not when the whole window lost it (alt-tab with a line half written), nor for a modal or a
@@ -168,12 +203,11 @@ function focusStayedInObsidian(view: EditorView): boolean {
 }
 
 /**
- * The field that was at `at` is gone, deleted (not cut by the assistant once applied), or left with its keyword
- * alone and nothing after it.
+ * The field that was at `at` is gone, deleted (not cut by the assistant once applied). Left with its keyword alone,
+ * it was let be: the chip stays (`applyField` cuts it).
  */
-function erased(u: ViewUpdate, at: number, lineEnd: number): boolean {
-  const token = tokensAt(u.state, at).find((t) => t.start === at);
-  if (token) return !token.complete && !u.state.sliceDoc(token.end, lineEnd).trim();
+function erased(u: ViewUpdate, at: number): boolean {
+  if (tokensAt(u.state, at).some((t) => t.start === at)) return false;
   return u.transactions.some((tr) => tr.isUserEvent("delete"));
 }
 
@@ -197,7 +231,8 @@ export function taskEditorExtension(deps: TaskLinkDeps): Extension {
           u.startState.field(chipSelection, false) !== u.state.field(chipSelection, false) ||
           u.startState.field(removedChips, false) !== u.state.field(removedChips, false) ||
           u.startState.field(openField, false)?.replaces !== open?.replaces ||
-          (u.selectionSet && !!open?.replaces); // the field reaches as far as the cursor while the assistant reads
+          u.startState.field(chipGap, false) !== u.state.field(chipGap, false) ||
+          (u.selectionSet && !!open); // the field reaches as far as the cursor while the assistant reads
         if (u.docChanged || u.viewportChanged || refreshed || marked) this.decorations = build(u.view, deps);
       }
       destroy(): void {
@@ -225,7 +260,7 @@ export function taskEditorExtension(deps: TaskLinkDeps): Extension {
       const at = Math.min(u.changes.mapPos(was.at, 1), u.state.doc.length);
       if (fieldLine(u.state, at)?.link) {
         const line = u.state.doc.lineAt(at);
-        if (was.replaces && erased(u, at, line.to)) {
+        if (was.replaces && erased(u, at)) {
           // The field of a chip, emptied: its value goes, as two Backspaces on the chip would.
           deps.removeChip(line.text, file.path, was.replaces);
           closed = { from: line.from };
@@ -247,6 +282,6 @@ export function taskEditorExtension(deps: TaskLinkDeps): Extension {
     removedChips,
     decorations,
     leave,
-    EditorView.domEventHandlers({ mousedown: (e, view) => clickPastChips(view, e, deps) }),
+    EditorView.domEventHandlers({ mousedown: (e, view) => clickBetweenChips(view, e) || clickPastChips(view, e, deps) }),
   ];
 }

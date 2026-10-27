@@ -12,13 +12,18 @@ import { PRIORITY_MARK, type Priority } from "../constants";
 import { formatLocalDate, localZone, parseLocal, wallClock } from "../ical/time";
 import { language, t } from "../i18n";
 import { DatePickerModal } from "./date-picker";
-import { addDays } from "./date-token";
+import { addDays, fold } from "./date-token";
 import type { EditorView } from "@codemirror/view";
 import { linkLineEdit, parseLinkLine, parseTaskLine, typedAt } from "./convert";
-import { openField, type ChipKey } from "./fields-state";
+import { closeFieldEffect, openField, type ChipKey } from "./fields-state";
 import { dateText, repeatLabel, slotText, suggestAt, type AtItem, type Block, type Feature, type When, type WhenToken } from "./when";
 
 type Item = AtItem | { kind: "pick"; text: string; label: string };
+
+/** Obsidian's list inside an `EditorSuggest` (not in its API). */
+type Chooser = { suggestions?: { setSelectedItem?(index: number, evt: null): void } };
+
+const cm = (editor: Editor) => (editor as unknown as { cm?: EditorView }).cm;
 
 const lang = (): "fr" | "en" => (language().startsWith("fr") ? "fr" : "en");
 const today = () => wallClock(new Date(), localZone());
@@ -143,18 +148,38 @@ export class DateSuggest extends EditorSuggest<Item> {
     this.feature = res.feature;
     const items: Item[] = [...res.items];
     if (res.wantsDay) items.push({ kind: "pick", text: "", label: t("suggest.pickDate") });
+    // A chip's field: its value comes highlighted (Obsidian highlights the first item once the list is drawn).
+    const was = cm(context.editor)?.state.field(openField, false)?.was;
+    const current = was ? items.findIndex((i) => i.kind === "insert" && fold(i.text.trim()) === fold(was)) : -1;
+    if (current > 0) queueMicrotask(() => (this as unknown as Chooser).suggestions?.setSelectedItem?.(current, null));
     return items;
+  }
+
+  /**
+   * Escape closes the field as well as the list: Obsidian's list takes the key before the editor does (2026-10-27:
+   * a chip's field stayed open). Obsidian calls this; it isn't in its API.
+   */
+  onEscapeKey(): void {
+    const view = this.context ? cm(this.context.editor) : undefined;
+    this.close();
+    if (view?.state.field(openField, false)) view.dispatch({ effects: closeFieldEffect.of(null) });
+  }
+
+  /** Shows the list for the `@` at the cursor, which code wrote (a chip's field): it isn't typing. */
+  show(editor: Editor, file: TFile | null): void {
+    this.reopen(editor, file);
   }
 
   renderSuggestion(item: Item, el: HTMLElement): void {
     el.addClass("ct-date-suggestion");
     const label = el.createSpan({ cls: "ct-date-suggestion-label" });
-    const right = el.createSpan({ cls: "ct-date-suggestion-day" });
     const icon = item.kind === "pick" ? "calendar-search" : item.icon;
     if (icon) setIcon(label.createSpan({ cls: "ct-chip-icon" }), icon);
     label.appendText(item.label);
-    if (item.kind !== "pick" && item.when) renderWhen(right, item.when);
-    else if (item.kind !== "pick" && item.hint) right.setText(item.hint);
+    if (item.kind === "pick") return;
+    // Beside it, in a column of its own: what it would mean, or an example said to be one.
+    if (item.when) renderWhen(el.createSpan({ cls: "ct-date-suggestion-day" }), item.when);
+    else if (item.hint) el.createSpan({ cls: "ct-date-suggestion-day", text: t("suggest.example", { text: item.hint }) });
   }
 
   selectSuggestion(item: Item, evt: MouseEvent | KeyboardEvent): void {
@@ -174,7 +199,7 @@ export class DateSuggest extends EditorSuggest<Item> {
       return;
     }
     if (item.kind === "pick") {
-      this.pickDay(editor, tailFrom, end, file);
+      this.pickDay(editor, start, tailFrom, end, file);
       return;
     }
     if (item.kind === "more") {
@@ -189,8 +214,25 @@ export class DateSuggest extends EditorSuggest<Item> {
     const text = item.text.endsWith(" ") ? item.text : `${item.text} `;
     editor.replaceRange(text, tailFrom, end);
     editor.setCursor({ line: tailFrom.line, ch: tailFrom.ch + text.length });
-    this.reopen(editor, file);
+    this.carryOn(editor, start, file);
     void evt;
+  }
+
+  /**
+   * After a value went in: on a task already made, one with nothing left to choose after it (a priority, a tag, a
+   * time) is the answer and applies; else the list moves on.
+   */
+  private carryOn(editor: Editor, at: EditorPosition, file: TFile | null): void {
+    const task = this.editing;
+    if (task) {
+      const typed = editor.getRange({ line: at.line, ch: at.ch + 1 }, editor.getCursor());
+      const next = suggestAt(typed, today(), lang(), fields(task), this.deps.knownTags());
+      if (next?.items.some((i) => i.kind === "accept") && next.items.every((i) => i.kind !== "insert") && !next.wantsDay) {
+        this.finishEdit(editor, at.line, task);
+        return;
+      }
+    }
+    this.reopen(editor, file);
   }
 
   /** Ends the line the way Enter would (a new `- [ ]` below), so the task converts at once. */
@@ -215,7 +257,7 @@ export class DateSuggest extends EditorSuggest<Item> {
     const res = linkLineEdit(line, today());
     if (!res) return;
     // The chip the field was opened from, read before the field closes with the line's change.
-    const replaces = (editor as unknown as { cm?: EditorView }).cm?.state.field(openField, false)?.replaces;
+    const replaces = cm(editor)?.state.field(openField, false)?.replaces;
     editor.replaceRange(res.rest, { line: n, ch: 0 }, { line: n, ch: line.length });
     editor.setCursor({ line: n, ch: res.rest.length });
     this.deps.edit(task.path, res.found, res.tags, replaces);
@@ -225,14 +267,14 @@ export class DateSuggest extends EditorSuggest<Item> {
    * A calendar to pick the day and the time (deadline) or the hours (time block); it goes in as `15/10/2027 14h`
    * or `15/10/2027 14h-16h` and the assistant carries on.
    */
-  private pickDay(editor: Editor, from: EditorPosition, to: EditorPosition, file: TFile | null): void {
+  private pickDay(editor: Editor, at: EditorPosition, from: EditorPosition, to: EditorPosition, file: TFile | null): void {
     this.close();
     const put = (value: string) => {
       const text = `${value} `;
       editor.replaceRange(text, from, to);
       editor.setCursor({ line: from.line, ch: from.ch + text.length });
       editor.focus();
-      this.reopen(editor, file);
+      this.carryOn(editor, at, file);
     };
     const picker =
       this.feature === "block"
@@ -244,8 +286,12 @@ export class DateSuggest extends EditorSuggest<Item> {
   /** Inserting by code doesn't count as typing: ask for the list again so the next step shows up. */
   private reopen(editor: Editor, file: TFile | null): void {
     window.setTimeout(() => {
-      const self = this as unknown as { trigger?: (e: Editor, f: TFile | null, open: boolean) => void };
+      const self = this as unknown as { trigger?: (e: Editor, f: TFile | null, open: boolean) => void; isOpen?: boolean };
       self.trigger?.(editor, file, true);
+      // Obsidian closes the list it knows is open once the cursor leaves the `@`: this one, opened by code (else a
+      // chip's field deleted left its list up, 2026-10-27).
+      const lists = (this.app.workspace as unknown as { editorSuggest?: { setCurrentSuggest?(s: unknown): void } }).editorSuggest;
+      if (self.isOpen) lists?.setCurrentSuggest?.(this);
     }, 0);
   }
 }

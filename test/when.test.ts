@@ -225,9 +225,9 @@ describe("suggestions while typing after @", () => {
         i.kind === "accept" ? `✓${i.label}` : i.kind === "more" ? "+" : i.label,
       ) ?? null;
     expect(tags("tag ")).toEqual(["#famille", "#Été", "#urgent", "#projets/factures"]);
-    // Its example is the vault's most used tag, none without one: never a word of ours.
-    expect(suggestAt("", TODAY, "fr", undefined, ["olera", "famille"])!.items.find((i) => i.label === "Tag")!.hint).toBe("olera");
-    expect(suggestAt("", TODAY, "fr")!.items.find((i) => i.label === "Tag")!.hint).toBeUndefined();
+    // No example where the next list offers every choice: it would read as the task's own value.
+    const first = suggestAt("", TODAY, "fr", undefined, ["olera", "famille"])!.items;
+    expect(first.filter((i) => i.hint).map((i) => i.label)).toEqual(["Deadline", "Session", "Répéter"]);
     expect(suggestAt("tag ", TODAY, "fr")!.wantsDay).toBe(false);
     expect(tags("tag e")).toEqual(["✓@tag e", "#Été", "+"]);
     expect(tags("tag #fa")).toEqual(["✓@tag #fa", "#famille", "+"]);

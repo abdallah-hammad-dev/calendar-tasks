@@ -1,4 +1,4 @@
-import { EditorSelection, EditorState, Prec, type Extension, type Range } from "@codemirror/state";
+import { EditorSelection, EditorState, Facet, Prec, type Extension, type Range } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, keymap, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { editorInfoField, setIcon } from "obsidian";
 import { PRIORITY_MARK } from "../constants";
@@ -8,13 +8,16 @@ import { dueLabel } from "./chips";
 import { blockLabel } from "./date-suggest";
 import {
   backspaceBlock,
+  chipGap,
   chipSelection,
   closeFieldEffect,
   deleteBlock,
   fieldExtent,
+  moveAmongChips,
+  openBlockField,
   openField,
-  openFieldEffect,
   padTyping,
+  restoreField,
   tokensAt,
   type ChipActions,
   type ChipKey,
@@ -27,7 +30,11 @@ export interface FieldViewDeps {
   /** The chips Backspace can take off the task linked at the start of this line, in their order on screen. */
   chipKeys(lineText: string, sourcePath: string): ChipKey[];
   removeChip(lineText: string, sourcePath: string, key: ChipKey): void;
+  /** Shows the assistant's list for the field at the cursor, which code opened (it isn't typing). */
+  openList(view: EditorView): void;
 }
+
+const listOpener = Facet.define<(view: EditorView) => void, ((view: EditorView) => void) | null>({ combine: (v) => v[0] ?? null });
 
 const lang = (): "fr" | "en" => (language().startsWith("fr") ? "fr" : "en");
 const hm = (value: string) => value.slice(11, 16);
@@ -49,14 +56,15 @@ function blockLook(token: LineToken): { cls: string; icon: string | null; text: 
   return { cls: `ct-chip-due${due.overdue ? " is-overdue" : ""}`, icon: "flag", text: due.text };
 }
 
-/** Opens the field of the `@` a block stands for, its value selected: typing replaces it. */
+/** Opens the field of the `@` a block stands for, with the assistant's list, as a chip's (2026-10-27, asked). */
 function editBlock(view: EditorView, el: HTMLElement): void {
   const pos = view.posAtDOM(el);
   const token = tokensAt(view.state, pos).find((x) => x.start === pos);
-  if (!token) return;
-  const from = view.state.doc.sliceString(token.valueStart, token.valueStart + 1) === " " ? token.valueStart + 1 : token.valueStart;
-  view.dispatch({ selection: EditorSelection.range(from, token.end), effects: openFieldEffect.of({ at: token.start }) });
+  const spec = token && openBlockField(view.state, token);
+  if (!spec) return;
+  view.dispatch(spec);
   view.focus();
+  view.state.facet(listOpener)?.(view);
 }
 
 class BlockWidget extends WidgetType {
@@ -105,6 +113,19 @@ class LabelWidget extends WidgetType {
   }
 }
 
+/** A chip's value, faint where its field's new one is typed (`OpenField.was`). */
+class PlaceholderWidget extends WidgetType {
+  constructor(private readonly text: string) {
+    super();
+  }
+  override eq(other: PlaceholderWidget): boolean {
+    return other.text === this.text;
+  }
+  toDOM(): HTMLElement {
+    return createSpan({ cls: "ct-field-placeholder", text: this.text });
+  }
+}
+
 function build(view: EditorView): { decorations: DecorationSet; atomic: DecorationSet } {
   const { state } = view;
   const open = state.field(openField, false);
@@ -128,13 +149,18 @@ function build(view: EditorView): { decorations: DecorationSet; atomic: Decorati
       if (!open || open.at < line.from || open.at > line.to) continue;
       const ext = fieldExtent(state, open.at);
       if (!ext) continue;
-      marks.push(Decoration.mark({ class: "ct-field", inclusiveEnd: true }).range(ext.from, Math.max(ext.to, ext.from + 1)));
       const token = ext.token;
-      if (token?.feature && token.valueStart > token.start + 1) {
-        const end = state.doc.sliceString(token.valueStart, token.valueStart + 1) === " " ? token.valueStart + 1 : token.valueStart;
-        const label = Decoration.replace({ widget: new LabelWidget(token.feature) }).range(token.start, end);
+      const labelled = !!token?.feature && token.valueStart > token.start + 1;
+      const labelEnd = !token || !labelled ? ext.from + 1 : state.doc.sliceString(token.valueStart, token.valueStart + 1) === " " ? token.valueStart + 1 : token.valueStart;
+      // The space after a value is the line's, not the field's (2026-10-27, the user: the purple went on past
+      // "moyenne"); with no value yet the field reaches the cursor, which types in it.
+      const end = Math.max(labelEnd, ext.from + state.doc.sliceString(ext.from, ext.to).trimEnd().length);
+      marks.push(Decoration.mark({ class: "ct-field", inclusiveEnd: true }).range(ext.from, Math.max(end, ext.from + 1)));
+      if (token?.feature && labelled) {
+        const label = Decoration.replace({ widget: new LabelWidget(token.feature) }).range(token.start, labelEnd);
         marks.push(label);
         atomic.push(label);
+        if (open.was && ext.to <= labelEnd) marks.push(Decoration.widget({ widget: new PlaceholderWidget(open.was), side: 1 }).range(labelEnd));
       }
     }
   }
@@ -165,14 +191,18 @@ function chipActions(view: EditorView, deps: FieldViewDeps): ChipActions | undef
 
 export function fieldsExtension(deps: FieldViewDeps): Extension {
   return [
+    listOpener.of((view) => deps.openList(view)),
     openField,
     chipSelection,
+    chipGap,
     fieldsPlugin,
     EditorView.atomicRanges.of((view) => view.plugin(fieldsPlugin)?.atomic ?? Decoration.none),
     Prec.highest(
       keymap.of([
         { key: "Backspace", run: (view) => backspaceBlock(view, chipActions(view, deps)) },
-        { key: "Delete", run: (view) => deleteBlock(view) },
+        { key: "Delete", run: (view) => deleteBlock(view, chipActions(view, deps)) },
+        { key: "ArrowLeft", run: (view) => moveAmongChips(view, chipActions(view, deps), -1) },
+        { key: "ArrowRight", run: (view) => moveAmongChips(view, chipActions(view, deps), 1) },
         {
           key: "Escape",
           run: (view) => {
@@ -182,6 +212,11 @@ export function fieldsExtension(deps: FieldViewDeps): Extension {
         },
       ]),
     ),
+    // A field closing without a new value: what it stood for comes back, in the same transaction.
+    EditorState.transactionFilter.of((tr) => {
+      const back = restoreField(tr);
+      return back ? [tr, back] : tr;
+    }),
     EditorState.transactionFilter.of((tr) => {
       if (!tr.docChanged || !tr.isUserEvent("input.type")) return tr;
       const changes: { from: number; to: number; text: string }[] = [];

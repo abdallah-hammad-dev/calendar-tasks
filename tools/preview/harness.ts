@@ -336,6 +336,7 @@ function taskFields(): void {
             });
           },
           chipKeys: () => keys(),
+          openList: () => undefined,
           removeChip: (_text, _path, key) => {
             log.removed.push(key);
             if (key === "priority") task = { ...task, priority: null };
@@ -343,7 +344,15 @@ function taskFields(): void {
             else task = { ...task, tags: task.tags.filter((tag) => `tag:${tag}` !== key) };
             queueMicrotask(refreshTaskDecorations);
           },
-          fields: { today: () => today, lang: () => "fr", knownTags: () => KNOWN_TAGS },
+          fields: {
+            today: () => today,
+            lang: () => "fr",
+            knownTags: () => KNOWN_TAGS,
+            chipValue: (_state, _line, key) => {
+              const has = key === "priority" ? task.priority : key === "due" ? task.due : key === "repeat" ? task.repeat : null;
+              return has ? { text: chipFieldText(task, key, "fr", today)?.value ?? null } : null;
+            },
+          },
         }),
       ],
     }),
@@ -636,9 +645,9 @@ function dateSuggest(): void {
     Object.assign(line.style, { position: "absolute", left: `${left}px`, top: "12px" });
     line.setText(edit ? `- [[Sport]] @${typed}` : `- [ ] Rendre le rapport @${typed}`);
     const box = document.body.createDiv({ cls: "suggestion-container" });
-    Object.assign(box.style, { position: "absolute", left: `${left}px`, top: "48px", width: "400px" });
+    Object.assign(box.style, { position: "absolute", left: `${left}px`, top: "48px", maxWidth: "400px" }); // as wide as it needs, as in Obsidian
     const list = box.createDiv({ cls: "suggestion" });
-    popup.getSuggestions({ query: typed } as never).forEach((s, i) => {
+    popup.getSuggestions({ query: typed, editor: {} } as never).forEach((s, i) => {
       const item = list.createDiv({ cls: i === 0 ? "suggestion-item is-selected" : "suggestion-item" });
       popup.renderSuggestion(s, item);
     });

@@ -57,6 +57,14 @@ export class TaskIndex {
     this.emit();
   }
 
+  /** A change being written to a task note, known before Obsidian has read it back; the next `refresh` replaces it. */
+  patch(path: string, change: Partial<TaskInfo>): void {
+    const info = this.byPath.get(path);
+    if (!info) return;
+    this.byPath.set(path, { ...info, ...change });
+    this.emit();
+  }
+
   remove(path: string): void {
     if (this.byPath.delete(path)) this.emit();
   }

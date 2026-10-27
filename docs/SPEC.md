@@ -279,12 +279,22 @@ desktop and mobile:
 same assistant and fields as §5.2; once the field closes (✓, Escape, the title going on, the cursor leaving it)
 it applies and the `@` words leave the line. `@tag famille` or `#famille` adds a tag (those it has stay; Obsidian's
 own menu completes a `#tag`; a `#tag` applies when the line is left, one may still be typed). **A click on a
-chip** (priority, deadline, repetition, a tag) opens its field at the end of the line in the chip's place, its value
-selected (`@deadline 30/10/2026 14h`, `@tag famille`), drawn between the chips around it: typing replaces it, and the new value replaces the old (a
-tag edited is swapped); emptying it (its value, then its label) takes that value off the task. A value the `@` can't say the same way (a rule it has no words for) and the
+chip** (priority, deadline, repetition, a tag) opens its field at the end of the line in the chip's place, drawn
+between the chips around it, with the assistant's list of choices at once and the chip's value faint in the field
+(`@priorité ` + "basse"; its item highlighted when the list has it) (2026-10-27, the user: a list rather than the
+value selected, which looked odd). Typing or picking gives the new value, which replaces the old (a tag edited is
+swapped); left without one (Escape, a click away), the chip stays as it was; deleting the field (Backspace on its
+label) takes that value off the task. On a task already made, a pick with nothing left to choose after it (a
+priority, a tag, a deadline's time) applies at once, without the ✓ step. **Typing** `@priorité`, `@deadline` or
+`@répéter` after the link of a task that has one opens that one the same way, in its chip's place (2026-10-27,
+asked: it used to add a second field after the chip). The new value shows on its chip at once, not the old one
+again while the note is read back (2026-10-27, asked). A value the `@` can't say the same way (a rule it has no words for) and the
 pencil open the task form (§5.3) at that field, as does a chip in Reading view. **Backspace** at the end of the line
-(nothing typed after the link; the cursor is drawn after the chips, 2026-10-27) selects the last chip, a second one takes it off the task at once (a deadline goes as with
-`@deadline jamais`), and so on from the last.
+(nothing typed after the link; the cursor is drawn after the chips, 2026-10-27) selects the chip before the cursor, a second one takes it off the task at once (a deadline goes as with
+`@deadline jamais`), and so on; Delete the same with the chip after it. **The cursor goes between the chips**
+(2026-10-27, asked: to take the deadline off and not the tag after it, as with blocks): ← and → at the line's end
+pass them one by one (→ at the end of the link stops before the first), a click in the gap between two puts it
+there; what's typed there opens its field in that place.
 **Leaving the line** is the cursor moving to another line, or the editor losing focus to something else in
 Obsidian (another note, a sidebar, the note's header): a click elsewhere used to leave the line as it was. Not
 when the whole window loses focus (alt-tab with a line half written), nor for a modal or a menu (the date picker,
@@ -315,8 +325,12 @@ Implementation: CodeMirror 6 view plugin (Live Preview) + `registerMarkdownPostP
   typing `@` in a checklist line first offers *what* to add: Deadline, Time block, Repeat, Tag, Priority, Create the task
   (2026-10-25, the user: "Transformer en tâche · sans date pour l'instant" made it sound like a lesser task, when
   tracking it is the point; it now says "Créer la tâche", with no hint ("la suivre dans tes tâches" read oddly), and writes `@tâche`). Beside each, a short example of what to type
-  after it (`ven 14h`, `mar 14h-16h`, `chaque lundi`); what needs nothing typed has none, its effect is in its name
-  (2026-10-25: hints of every kind and length, examples, descriptions, side effects, read oddly).
+  after it, said to be one: `ex. ven 14h`, `ex. mar 14h-16h`, `ex. chaque lundi`; what needs nothing typed has none,
+  its effect is in its name (2026-10-25: hints of every kind and length, examples, descriptions, side effects, read
+  oddly). Tag and Priority have none either: their next list offers every choice, and "haute" beside Priorité read
+  as the task's own priority (2026-10-27, asked). The assistant's lists are two columns, the labels and what they
+  mean (or the example) each starting at the same place on every row (2026-10-27, the user: readings pushed to the
+  right, each from where its width put it, looked uneven).
   Picking one writes its keyword and the list moves on to values for it (days, then times or time ranges; or
   repetitions), showing what they mean (🚩 / 🕒 / 🔁 / 📅). The ✓ item takes what's typed and ends the line, so the
   task converts at once; "Something else" starts another `@` on the same line; "Pick a date…" opens a month view
@@ -332,7 +346,9 @@ Implementation: CodeMirror 6 view plugin (Live Preview) + `registerMarkdownPostP
   grammar; what the line shows: the `@` being typed is a **field**, tinted, its keyword drawn as a label ("🚩
   Deadline", "🔁 Répéter", "#" for a tag: `@tag fam` reads `#fam`); it stays open while the assistant still reads
   what's typed. Every other `@` with its value is a **block** drawn like the chips (`🚩 Demain`, `#famille`, `🔁
-  chaque lundi`, `🕒` for a session). A click on a block opens its field, value selected. Backspace against a block
+  chaque lundi`, `🕒` for a session). A click on a block opens its field as a chip's does
+  (2026-10-27, asked): its value faint, the assistant's list at once; left without a new value, the block gets its
+  value back (a shortcut like `@demain` comes back as `@deadline demain`). Backspace against a block
   selects it, a second one deletes it (with its space); Delete the same forwards. Text typed against a block gets a
   space between. The `#` of a tag is only drawn: a typed `#` is Obsidian's (its tag menu), so `@tag` is what the
   field writes. On phones, Backspace may take a block off in one go (the keyboard deletes it whole).

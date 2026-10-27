@@ -107,9 +107,9 @@ plain `- [ ]` line stays an ordinary checklist item that lives only in its note.
 block, tags, sub-task progress. Click any of them to change it. The raw properties (ids and such) are hidden; the
 list icon in the bar shows them.
 
-**Changing a task**: click its priority, deadline, repetition or a tag: its field opens on the line with the value selected,
-type the new one (Escape or leaving the field applies it). Backspace right after the link selects its last chip,
-a second one takes it off the task. The pencil (shown when you hover the line) opens the task's form. Or type `@` after its link: `- [[Write the report]] @mon` moves the deadline, `@session thu 10am-12pm` adds
+**Changing a task**: click its priority, deadline, repetition or a tag: its field opens on the line with a list of
+choices; pick one or type it (Escape keeps the old value; Backspace on the field's name takes the value off). Backspace right after the link selects the chip before
+the cursor, a second one takes it off the task; ← and → (or a click between two chips) move the cursor among them. The pencil (shown when you hover the line) opens the task's form. Or type `@` after its link: `- [[Write the report]] @mon` moves the deadline, `@session thu 10am-12pm` adds
 a time block, `@repeat never` stops the repetition, `@deadline never` removes the deadline, `@tag family` or
 `#family` adds a tag; it applies once the field closes (a `#tag` when you leave the line) and cleans the line.
 
