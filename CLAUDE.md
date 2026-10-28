@@ -87,6 +87,12 @@ user at each one.
   transport. `test/fixtures/` — real Davis and Radicale responses.
 
 ## Decisions
+- **Claude module** (`src/claude/`, spec §8): `plugin: { id: "calendar-tasks" }`, so claude-workspace lists it under
+  "Calendar & Tasks <version>" (its rule since 2026-10-25: every module is about a plugin or Obsidian).
+  `main.watchClaudeWorkspace` checks claude-workspace's API every 2 s and registers again when it changes: a reload
+  of claude-workspace (a BRAT update) left it without our module until Obsidian restarted, and our own reload was
+  refused ("already registered") while our previous copy was leaving (2026-10-28). The integration test runs the
+  module in claude-workspace's own `ModuleRegistry` and MCP SDK; run it after a claude-workspace API change.
 - **Cache in IndexedDB, per device** (`calendar-tasks/<vault name>`), never in the vault: sync tokens describe one
   client's state, so a synced cache file would mix devices. Holds calendars, items (raw iCalendar + etag) and the
   queue of unpushed changes.

@@ -44,6 +44,8 @@ export interface WorkspaceModule {
   name: string;
   description?: string;
   platforms?: ("desktop" | "mobile")[];
+  /** The plugin the module is about: claude-workspace lists it under that plugin's name and version. */
+  plugin?: { id: string; minVersion?: string };
   isAvailable?(app: App): boolean;
   enabledByDefault?: boolean;
   onload(ctx: ModuleContext): void | Promise<void>;

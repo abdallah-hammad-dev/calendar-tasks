@@ -172,6 +172,7 @@ export function createCalendarModule(s: CalendarServices): WorkspaceModule {
   return {
     id: "calendar",
     name: "Calendar & Tasks",
+    plugin: { id: "calendar-tasks" },
     description: "Claude reads and changes the CalDAV calendar and task notes of the Calendar & Tasks extension.",
     platforms: ["desktop"],
     onload(ctx) {

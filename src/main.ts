@@ -77,6 +77,8 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
   private syncTimer: number | null = null;
   private noteTimers = new Map<string, number>();
   private restarting: Promise<void> = Promise.resolve();
+  /** claude-workspace's API our module is registered with, and how to take it back. */
+  private claude: { api: object; unregister: () => void } | null = null;
   private calendarsShown = "";
   private warnedNoTaskCalendar = false;
   private index!: TaskIndex;
@@ -226,7 +228,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       this.index.rebuild();
       this.eventNotes.rebuild();
       void this.restart();
-      this.registerClaudeModule();
+      this.watchClaudeWorkspace();
     });
   }
 
@@ -1432,11 +1434,29 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
 
   // —— Claude (claude-workspace module, desktop) ——
 
-  private registerClaudeModule(retried = false): void {
+  /**
+   * Keeps the module registered with claude-workspace, whenever that plugin is there: turned on later, or reloaded
+   * by an update (its new instance knows no module of ours; 2026-10-28: the module was gone until Obsidian
+   * restarted). Obsidian has no plugin event, so its API is checked every 2 s, like claude-workspace checks plugins.
+   */
+  private watchClaudeWorkspace(): void {
     if (!Platform.isDesktopApp) return;
-    const api = claudeWorkspaceApi(this.app);
-    if (api) this.register(api.registerModule(createCalendarModule(this.claudeServices())));
-    else if (!retried) window.setTimeout(() => this.registerClaudeModule(true), 5_000);
+    const check = () => {
+      const api = claudeWorkspaceApi(this.app);
+      if (api === (this.claude?.api ?? null)) return;
+      this.claude?.unregister();
+      this.claude = null;
+      if (!api) return;
+      try {
+        this.claude = { api, unregister: api.registerModule(createCalendarModule(this.claudeServices())) };
+      } catch (e) {
+        // Our copy from before a reload of this plugin is still leaving: the next check registers this one.
+        console.debug("[calendar-tasks] Claude module not registered yet:", e instanceof Error ? e.message : e);
+      }
+    };
+    check();
+    this.registerInterval(window.setInterval(check, 2_000));
+    this.register(() => this.claude?.unregister());
   }
 
   private claudeServices(): CalendarServices {

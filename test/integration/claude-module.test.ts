@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createCalendarModule, type CalendarServices } from "../../src/claude/module";
-import type { ContextProvider, ToolDef } from "../../src/claude/workspace-api";
+import type { ContextProvider, ToolDef, WorkspaceModule } from "../../src/claude/workspace-api";
 import type * as Mcp from "@modelcontextprotocol/sdk/server/mcp.js";
 import type * as McpClient from "@modelcontextprotocol/sdk/client/index.js";
 import type * as McpMemory from "@modelcontextprotocol/sdk/inMemory.js";
@@ -120,5 +120,56 @@ describe.skipIf(!available)("Claude module through claude-workspace's MCP SDK", 
     expect(refused).toMatchObject({ isError: true, content: [{ text: expect.stringContaining("not among") }] });
 
     await client.close();
+  });
+});
+
+/** claude-workspace's own module registry (its source), what `plugin.api.registerModule` adds to. */
+const REGISTRY = new URL("../../../claude-workspace/src/core/ModuleRegistry.ts", import.meta.url);
+
+interface Registry {
+  add(mod: WorkspaceModule): () => void;
+  start(): Promise<void>;
+  list(): { id: string; status: string; origin: { kind: string }; plugin?: { id: string; name?: string; version?: string } }[];
+  getTools(): { def: { name: string } }[];
+  getSkills(): { name: string }[];
+}
+
+describe.skipIf(!existsSync(REGISTRY))("Claude module in claude-workspace's registry", () => {
+  it("loads under this plugin's name, and registers again once its previous copy has left", async () => {
+    const { ModuleRegistry } = (await import(REGISTRY.href)) as { ModuleRegistry: new (host: object) => Registry };
+    const registry = new ModuleRegistry({
+      app: {}, // the module uses neither
+      plugin: {},
+      platform: "desktop",
+      isDebug: () => false,
+      isModuleEnabled: () => undefined,
+      setModuleEnabled: async () => undefined,
+      loadModuleData: () => undefined,
+      saveModuleData: async () => undefined,
+      getActiveContext: async () => ({ activeFile: null, providers: {}, openTabs: [] }),
+      getActiveView: () => null,
+      notifyContextChanged: () => undefined,
+      getPlugin: (id: string) => (id === "calendar-tasks" ? { id, name: "Calendar & Tasks", version: "0.2.0" } : null),
+    });
+    await registry.start();
+    const off = registry.add(createCalendarModule(services));
+    await vi.waitFor(() =>
+      expect(registry.list()[0]).toMatchObject({
+        id: "calendar",
+        status: "loaded",
+        origin: { kind: "plugin" },
+        plugin: { id: "calendar-tasks", name: "Calendar & Tasks", version: "0.2.0" }, // its section: "Calendar & Tasks 0.2.0"
+      }),
+    );
+    expect(registry.getTools().map((t) => t.def.name)).toContain("calendar_list");
+    expect(registry.getSkills().map((s) => s.name)).toEqual(["calendar-tasks"]);
+
+    // This plugin reloaded (an update): its new copy comes while the old one is still leaving, and is refused;
+    // `watchClaudeWorkspace` tries again 2 s later.
+    off();
+    expect(() => registry.add(createCalendarModule(services))).toThrow(/already registered/);
+    await vi.waitFor(() => expect(registry.list()).toEqual([]));
+    registry.add(createCalendarModule(services));
+    await vi.waitFor(() => expect(registry.list()[0]?.status).toBe("loaded"));
   });
 });

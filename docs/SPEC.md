@@ -674,7 +674,9 @@ tasks this note links to (uses `this` in embedded bases; verify the exact filter
 Registered by this extension through claude-workspace's `plugin.api.registerModule` when that plugin is present and
 `Platform.isDesktopApp`. Module id `calendar`, so tools are `calendar_*` (the registry enforces the prefix). See
 `claude-workspace/docs/module-api.md`. **The input schemas use zod; use the same major version as claude-workspace
-(v4) and check the first tool round-trips through its MCP server.**
+(v4) and check the first tool round-trips through its MCP server.** The module declares `plugin: { id: "calendar-tasks" }` (listed under
+this plugin in claude-workspace's settings), and is registered again whenever claude-workspace comes back (turned on
+later, or reloaded by an update).
 
 | Tool | Purpose |
 |---|---|
