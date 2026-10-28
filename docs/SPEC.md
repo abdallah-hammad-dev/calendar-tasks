@@ -488,6 +488,8 @@ its raw properties ("I don't want to see the id; if I want to, I can open the pr
 - **Incremental sync** with sync-tokens (RFC 6578); full resync if the token is invalid.
 - **Local changes are queued** and pushed with `If-Match: <etag>`. A `412` refetches the item. If the same field
   changed on both sides, the server wins for time fields and a notice tells me. Nothing is silently overwritten.
+  A change refused for good (`4xx`: invalid, too big, forbidden) leaves the queue with a notice and stays on this
+  device; server errors and the network keep it for the next sync (2026-10-28).
 - **When:** at startup, every N minutes (setting), when Obsidian regains focus, and right after a local change.
 - **Note → CalDAV** changes are detected from `metadataCache` changes on notes with `caldav_uid`.
 - **A token echoed back unchanged while the server's current token differs** means the server can't serve it
@@ -509,7 +511,9 @@ create / rename / delete.
 ### 6.4 Deletion (implemented as proposed in M2)
 
 - Server-side deletion never deletes a note: an event note stays as is (its header says the event is deleted and
-  offers to delete the note, §4.3); a task note gets `done: true` and loses its `caldav_uid`.
+  offers to delete the note, §4.3); a task note gets `done: true` and loses its `caldav_uid`. Nothing is sent for it
+  again while it's done (2026-10-28: its next change made a new reminder, and a repeating one moved on and came back
+  active on the phone); unticked, it gets a new reminder.
 - Deleting a task note deletes its `VTODO`. Deleting an event note deletes nothing on the server (event notes are
   optional).
 

@@ -80,6 +80,8 @@ describe("titles", () => {
     expect(sanitizeTitle("Rapport: v2/final? #urgent")).toBe("Rapport v2 final urgent");
     expect(sanitizeTitle("   ")).toBe("Untitled task");
     expect(sanitizeTitle("x".repeat(200))).toHaveLength(120);
+    // Cut between characters, never inside an emoji (half of one can't be a file name).
+    expect(sanitizeTitle(`${"x".repeat(119)}🎉 fête`)).toBe(`${"x".repeat(119)}🎉`);
   });
 
   it("recognizes a note named after a summary, duplicates included", () => {

@@ -75,6 +75,8 @@ export class TaskSync {
    * just behind (moved on the phone): the note follows.
    */
   private known = new Map<string, string>();
+  /** path → the UID just given to its note, until the note reads with it (Obsidian re-parses it later). */
+  private made = new Map<string, string>();
 
   constructor(private readonly d: TaskSyncDeps) {}
 
@@ -233,6 +235,9 @@ export class TaskSync {
   noteRenamed(oldPath: string, newPath: string): Promise<void> {
     return this.serial(async () => {
       for (const [uid, p] of this.notes) if (p === oldPath) this.notes.set(uid, newPath);
+      const made = this.made.get(oldPath);
+      this.made.delete(oldPath);
+      if (made) this.made.set(newPath, made);
       await this.pushNote(newPath);
     });
   }
@@ -240,6 +245,7 @@ export class TaskSync {
   /** A task note was deleted: its VTODO goes too (spec §6.4). */
   noteDeleted(path: string, frontmatter: Record<string, unknown> | null): Promise<void> {
     return this.serial(async () => {
+      this.made.delete(path);
       const uid = readNote(frontmatter)?.uid ?? [...this.notes].find(([, p]) => p === path)?.[0];
       if (!uid || this.notes.get(uid) !== path) return;
       this.notes.delete(uid);
@@ -399,6 +405,14 @@ export class TaskSync {
     const note = this.d.vault.getNote(path);
     let state = note && readNote(note.frontmatter);
     if (!note || !state) return;
+    // Given its reminder a moment ago, read before Obsidian re-parsed it: a second reminder would be made. The
+    // re-parse is a change too, and pushes it.
+    const made = this.made.get(path);
+    if (made && !state.uid && this.items.has(made)) return;
+    this.made.delete(path);
+    // Done and not on the server (its reminder deleted there, or ticked before it got there): nothing to send. A new
+    // reminder, or a repeating one moved on, would bring back what was deleted on the phone. Unticked, it's created.
+    if (state.done && !state.uid) return;
     // Pushed from the new state, not re-read: Obsidian parses the edited frontmatter later.
     if (state.done && state.repeat) state = (await this.moveOn(path, note.basename, state, this.now())) ?? state;
     // When it was ticked, if the tick didn't say (Bases, the properties): now when the reminder isn't done yet (a tick
@@ -514,6 +528,7 @@ export class TaskSync {
     this.items.set(uid, { url, calendarUrl });
     this.uidOfUrl.set(url, uid);
     this.notes.set(uid, note.path);
+    this.made.set(note.path, uid);
     const collection = this.calendarName(calendarUrl);
     if (collection) this.known.set(uid, collection);
     await this.d.vault.editFrontmatter(note.path, (fm) => {

@@ -1,4 +1,4 @@
-import type { CalDavApi, CalendarChanges, CalendarInfo, Discovery, NewCalendar, RemoteItem } from "../caldav/client";
+import { refusalStatus, type CalDavApi, type CalendarChanges, type CalendarInfo, type Discovery, type NewCalendar, type RemoteItem } from "../caldav/client";
 import { emptySnapshot, type CacheSnapshot, type CacheStore, type CachedCalendar, type CachedItem, type PendingOp } from "./store";
 
 /** Items that changed on the server (never emitted for the caller's own `put` / `delete`). */
@@ -17,9 +17,16 @@ export interface Conflict {
   server: RemoteItem | null;
 }
 
+/** A local change the server refused for good (invalid, too big, forbidden): dropped from the queue, kept here. */
+export interface Refusal {
+  op: PendingOp;
+  status: number;
+}
+
 export interface SyncListener {
   onChange?(change: CalendarChange): void;
   onConflict?(conflict: Conflict): void;
+  onRefused?(refusal: Refusal): void;
 }
 
 export interface SyncReport {
@@ -43,6 +50,11 @@ export class SyncEngine {
   private rerun = false;
   /** Calendars whose last full listing came back empty while we held items (see `pull`). */
   private emptySeen = new Set<string>();
+  /**
+   * The op being pushed. Deleted meanwhile, a creation must still be deleted on the server: it's on its way there
+   * (the deletion takes its place and gets the new etag, as an edit does).
+   */
+  private inFlight: PendingOp | null = null;
 
   constructor(
     private readonly api: CalDavApi,
@@ -177,7 +189,7 @@ export class SyncEngine {
     this.writable(cal.info.url);
     const i = this.snap.pending.findIndex((o) => o.url === url);
     const prev = i >= 0 ? this.snap.pending[i] : undefined;
-    if (prev && prev.kind === "put" && prev.baseEtag === undefined) {
+    if (prev && prev.kind === "put" && prev.baseEtag === undefined && prev !== this.inFlight) {
       this.snap.pending.splice(i, 1); // created and deleted before ever reaching the server
     } else {
       const op: PendingOp = { kind: "delete", url, calendarUrl: cal.info.url, baseEtag: prev ? prev.baseEtag : cal.items[url]?.etag };
@@ -198,12 +210,13 @@ export class SyncEngine {
     const report: SyncReport = { ok: true, calendars: 0, pulled: 0, pushed: 0, conflicts: 0, pending: 0 };
     const changes: CalendarChange[] = [];
     const conflicts: Conflict[] = [];
+    const refusals: Refusal[] = [];
     try {
       this.snap.discovery ??= await this.api.discover();
       const infos = await this.api.listCalendars(this.snap.discovery.homeUrl);
       this.reconcile(infos, changes);
       report.calendars = infos.length;
-      await this.flush(report, conflicts);
+      await this.flush(report, conflicts, refusals);
       for (const cal of this.calendars()) report.pulled += await this.pull(cal, changes);
       this.snap.lastSync = Date.now();
     } catch (e) {
@@ -215,6 +228,7 @@ export class SyncEngine {
     // push refused because it left, is told. Refused pushes first: the merge must see the local change before the
     // server's version is applied.
     for (const c of conflicts) this.listener.onConflict?.(c);
+    for (const r of refusals) this.listener.onRefused?.(r);
     for (const c of changes) this.listener.onChange?.(c);
     report.pending = this.snap.pending.length;
     await this.store.save(this.snap);
@@ -238,12 +252,14 @@ export class SyncEngine {
     }
   }
 
-  private async flush(report: SyncReport, conflicts: Conflict[]): Promise<void> {
+  private async flush(report: SyncReport, conflicts: Conflict[], refusals: Refusal[]): Promise<void> {
     for (const op of [...this.snap.pending]) {
       const cal = this.snap.calendars[op.calendarUrl];
       if (!cal) continue;
       if (op.kind === "put") {
-        const res = await this.api.put(op.url, op.data, op.baseEtag);
+        this.inFlight = op;
+        const res = await this.send(op, this.api.put(op.url, op.data, op.baseEtag), refusals).finally(() => (this.inFlight = null));
+        if (!res) continue;
         if (res.kind === "ok") {
           this.done(op);
           const newer = this.snap.pending.find((o) => o.url === op.url);
@@ -265,13 +281,30 @@ export class SyncEngine {
           await this.conflict(op, cal, report, conflicts);
         }
       } else {
-        const res = await this.api.delete(op.url, op.baseEtag);
+        const res = await this.send(op, this.api.delete(op.url, op.baseEtag), refusals);
+        if (!res) continue;
         if (res === "conflict") await this.conflict(op, cal, report, conflicts);
         else {
           this.done(op);
           report.pushed++;
         }
       }
+    }
+  }
+
+  /**
+   * Sends one change; null when the server refused it for good. It leaves the queue: sent again, it would be
+   * refused again, and hold up every change queued after it and every pull (2026-10-28).
+   */
+  private async send<T>(op: PendingOp, call: Promise<T>, refusals: Refusal[]): Promise<T | null> {
+    try {
+      return await call;
+    } catch (e) {
+      const status = refusalStatus(e);
+      if (status === null) throw e;
+      this.done(op);
+      refusals.push({ op, status });
+      return null;
     }
   }
 

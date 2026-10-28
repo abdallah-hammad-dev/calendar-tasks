@@ -19,6 +19,22 @@ describe("events", () => {
     expect(o).toMatchObject({ kind: "event", start: "2026-10-19T15:00", allDay: false, recurring: false, recurrenceId: null });
   });
 
+  it("shows an occurrence moved into the week from a later week", () => {
+    const data = cal(
+      "BEGIN:VEVENT\r\nUID:weekly\r\nSUMMARY:Point\r\nDTSTART;TZID=Europe/Paris:20261005T100000\r\n" +
+        "DTEND;TZID=Europe/Paris:20261005T110000\r\nRRULE:FREQ=WEEKLY\r\nEND:VEVENT\r\n" +
+        "BEGIN:VEVENT\r\nUID:weekly\r\nRECURRENCE-ID;TZID=Europe/Paris:20261102T100000\r\nSUMMARY:Point (avancé)\r\n" +
+        "DTSTART;TZID=Europe/Paris:20261023T140000\r\nDTEND;TZID=Europe/Paris:20261023T150000\r\nEND:VEVENT\r\n",
+    );
+    // The week of the 19th: Monday's, and the one of 2 November brought forward to Friday.
+    const week = expand(data, "2026-10-18T22:00:00Z", "2026-10-25T23:00:00Z");
+    expect(week.map((o) => [o.start, o.title])).toEqual([
+      ["2026-10-19T10:00", "Point"],
+      ["2026-10-23T14:00", "Point (avancé)"],
+    ]);
+    expect(expand(data, "2026-11-01T23:00:00Z", "2026-11-08T23:00:00Z")).toEqual([]); // not in its old week
+  });
+
   it("expands a weekly series with an exception and a moved occurrence", () => {
     const data = cal(
       "BEGIN:VEVENT\r\nUID:weekly\r\nSUMMARY:Point Olera\r\nDTSTART;TZID=Europe/Paris:20261005T100000\r\n" +

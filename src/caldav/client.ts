@@ -64,6 +64,16 @@ export class DavError extends Error {
   }
 }
 
+/**
+ * The status of a change the server refuses for good (sent again, it would be refused again: invalid data, too
+ * big, forbidden), else null. Wrong credentials, rate limits, timeouts and server errors pass.
+ */
+export function refusalStatus(e: unknown): number | null {
+  if (!(e instanceof DavError) || e.status === undefined) return null;
+  const s = e.status;
+  return s >= 400 && s < 500 && ![401, 407, 408, 423, 425, 429].includes(s) ? s : null;
+}
+
 /** What the sync engine needs from a server; `CalDavClient` is the real one, tests use fakes. */
 export interface CalDavApi {
   discover(): Promise<Discovery>;

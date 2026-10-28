@@ -8,7 +8,7 @@ describe("itemInfo", () => {
     const data = cal(
       "BEGIN:VTIMEZONE\r\nTZID:Europe/Paris\r\nEND:VTIMEZONE\r\nBEGIN:VTODO\r\nUID:task-1\r\nSUMMARY:x\r\nEND:VTODO\r\n",
     );
-    expect(itemInfo(data)).toEqual({ uid: "task-1", kind: "VTODO", recurrenceIds: [] });
+    expect(itemInfo(data)).toEqual({ uid: "task-1", kind: "VTODO", summary: expect.any(String), recurrenceIds: [] });
   });
 
   it("lists overridden occurrences", () => {

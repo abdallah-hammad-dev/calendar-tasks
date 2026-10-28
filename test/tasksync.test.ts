@@ -135,6 +135,34 @@ describe("from the server to notes", () => {
     expect(vault.fm("Tâches/A.md")).toEqual({ type: "task", done: true });
   });
 
+  it("doesn't bring a reminder deleted on the phone back when its note changes or Obsidian restarts", async () => {
+    server.externalPut(`${calendar}a.ics`, vtodo("a", "SUMMARY:A\r\n"));
+    server.externalPut(`${calendar}r.ics`, vtodo("r", "SUMMARY:R\r\nDTSTART;VALUE=DATE:20261020\r\nDUE;VALUE=DATE:20261020\r\nRRULE:FREQ=WEEKLY\r\n"));
+    await start();
+    server.externalDelete(`${calendar}a.ics`);
+    server.externalDelete(`${calendar}r.ics`);
+    await cycle();
+    await tasks.noteChanged("Tâches/A.md"); // what the unlinking write triggers in Obsidian
+    await tasks.noteChanged("Tâches/R.md");
+    await tasks.pushAll(); // next startup
+    await cycle();
+    expect(server.stored(`${calendar}new-1.ics`)).toBeUndefined();
+    expect(vault.fm("Tâches/R.md")).toMatchObject({ done: true, due: "2026-10-20" }); // not moved on
+    expect(vault.fm("Tâches/R.md")!.caldav_uid).toBeUndefined();
+  });
+
+  it("gives a deleted reminder's note a new reminder when it's unticked", async () => {
+    server.externalPut(`${calendar}a.ics`, vtodo("a", "SUMMARY:A\r\n"));
+    await start();
+    server.externalDelete(`${calendar}a.ics`);
+    await cycle();
+    await vault.editFrontmatter("Tâches/A.md", (fm) => (fm.done = false));
+    await tasks.noteChanged("Tâches/A.md");
+    await tasks.whenIdle();
+    await engine.sync();
+    expect(onServer("new-1")).toMatchObject({ summary: "A", done: false });
+  });
+
   it("keeps the note when the reminder moves to another list (and back), whichever list is read first", async () => {
     const other = server.addCalendar("zz-other"); // read after "tasks"
     server.externalPut(`${calendar}a.ics`, vtodo("a", "SUMMARY:A\r\n"));
@@ -200,6 +228,20 @@ describe("from notes to the server", () => {
     expect(vault.fm("Tâches/Préparer slides.md")!.caldav_uid).toBe("new-1");
     await cycle();
     expect(onServer("new-1")).toMatchObject({ summary: "Préparer slides", due: "2026-10-20T14:00", done: false });
+  });
+
+  it("creates one reminder when a new note is pushed again before Obsidian re-read it", async () => {
+    await start();
+    vault.add("Tâches/Rapport.md", { type: "task", done: false });
+    vault.lag("Tâches/Rapport.md"); // reads without its UID until Obsidian parses what's written
+    await tasks.noteChanged("Tâches/Rapport.md");
+    await tasks.noteChanged("Tâches/Rapport.md");
+    vault.catchUp("Tâches/Rapport.md");
+    await tasks.noteChanged("Tâches/Rapport.md");
+    await cycle();
+    expect(vault.fm("Tâches/Rapport.md")!.caldav_uid).toBe("new-1");
+    expect(server.stored(`${calendar}new-2.ics`)).toBeUndefined();
+    expect(created).toEqual(["Tâches/Rapport.md:new-1"]);
   });
 
   it("dates a new task note, here and on the server; a note that says when it was made keeps it", async () => {

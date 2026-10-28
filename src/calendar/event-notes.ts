@@ -1,5 +1,5 @@
 import { NOTE_TYPE, PROP } from "../constants";
-import { sanitizeTitle, titleMatches, uniquePath } from "../tasks/notes";
+import { nameMatches, sanitizeTitle, uniquePath } from "../tasks/notes";
 import type { VaultPort } from "../tasks/TaskSync";
 import type { Occurrence } from "./expand";
 
@@ -111,7 +111,7 @@ export class EventNotes {
           else delete f[PROP.end];
         });
       }
-      if (!eventNoteNames(occ, this.d.dateFormat()).some((n) => titleMatches(n, note.basename))) {
+      if (!eventNoteNames(occ, this.d.dateFormat()).some((n) => nameMatches(n, note.basename))) {
         const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
         const newPath = this.freePath(dir, occ);
         await this.d.vault.rename(path, newPath);

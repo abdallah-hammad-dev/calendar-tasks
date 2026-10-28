@@ -66,6 +66,15 @@ describe("EventNotes", () => {
     expect(vault.exists("Calendrier/17-10-2026 Point Olera v2.md")).toBe(true);
   });
 
+  it("leaves the note of an event with a long title where it is", async () => {
+    const long = occ({ title: "Réunion ".repeat(16).trim() });
+    const path = await notes.ensure(long);
+    await notes.update(() => long);
+    expect(vault.exists(path)).toBe(true);
+    await notes.update(() => long);
+    expect(vault.exists(path)).toBe(true);
+  });
+
   it("writes the day as set, and renames the notes when that changes", async () => {
     const path = await notes.ensure(occ());
     format = "DD.MM.YYYY";

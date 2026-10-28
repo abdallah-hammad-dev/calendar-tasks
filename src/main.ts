@@ -76,6 +76,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
   private syncFailed = false;
   private syncTimer: number | null = null;
   private noteTimers = new Map<string, number>();
+  private restarting: Promise<void> = Promise.resolve();
   private calendarsShown = "";
   private warnedNoTaskCalendar = false;
   private index!: TaskIndex;
@@ -876,18 +877,56 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     this.refreshSettingsIfCalendarsChanged();
   }
 
-  /** (Re)creates the sync engine from the settings: at startup and when the connection settings change. */
+  /**
+   * (Re)creates the sync engine from the settings: at startup and when the connection settings change. One at a
+   * time: two at once (settings typed, then *Test the connection*) gave one engine two task syncs, each making a
+   * reminder for the same new note.
+   */
   private async restart(): Promise<void> {
+    const setUp = this.restarting.then(() => this.connect());
+    this.restarting = setUp.catch(() => undefined);
+    await setUp;
+    this.schedule();
+    await this.syncNow(false);
+    await this.tasks?.pullAll();
+    this.catalog.invalidate();
+    await this.updateEventNotes();
+    this.refreshViews();
+    await this.ensureBaseFile();
+  }
+
+  /** The engine and the task sync, local edits pushed to its cache; the network comes after. */
+  private async connect(): Promise<void> {
+    await this.tasks?.whenIdle();
     this.connection = this.connectionKey();
     this.tasks = null;
     this.syncFailed = false;
     const client = this.client();
-    this.sync = client
+    // The previous engine's sync may still answer: only this one's reaches the task notes.
+    const engine: SyncEngine | null = client
       ? new SyncEngine(client, this.store, `${this.settings.serverUrl}|${this.settings.username}`, {
-          onChange: (c) => void this.tasks?.onServerChange(c),
-          onConflict: (c) => void this.tasks?.onConflict(c),
+          onChange: (c) => {
+            if (this.sync === engine) void this.tasks?.onServerChange(c);
+          },
+          onConflict: (c) => {
+            if (this.sync !== engine) return;
+            void this.tasks?.onConflict(c);
+            // An event has no merge: the server's version stays, so say that the change made here didn't.
+            const info = c.op.kind === "put" ? itemInfo(c.op.data) : null;
+            if (info?.kind === "VEVENT") new Notice(t("events.clash", { name: info.summary }));
+          },
+          onRefused: ({ op, status }) => {
+            if (this.sync !== engine) return;
+            console.warn(`[calendar-tasks] the server refused ${op.kind} ${op.url} (HTTP ${status})`);
+            new Notice(
+              op.kind === "put"
+                ? t("sync.refused", { name: itemInfo(op.data)?.summary || "?", status })
+                : t("sync.refusedDelete", { status }),
+            );
+          },
         })
       : null;
+    this.sync = engine;
     if (this.sync) {
       await this.sync.init();
       this.tasks = new TaskSync({
@@ -908,13 +947,6 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       this.tasks.rebuild();
       await this.tasks.pushAll(); // edits made while Obsidian was closed, before pulling over them
     }
-    this.schedule();
-    await this.syncNow(false);
-    await this.tasks?.pullAll();
-    this.catalog.invalidate();
-    await this.updateEventNotes();
-    this.refreshViews();
-    await this.ensureBaseFile();
   }
 
   // —— calendar ——

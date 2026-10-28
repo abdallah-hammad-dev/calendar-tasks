@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { DavError } from "../src/caldav/client";
 import { SyncEngine, type CalendarChange, type Conflict } from "../src/sync/engine";
 import { MemoryStore } from "../src/sync/store";
 import { FakeServer } from "./support/fake-server";
@@ -10,12 +11,14 @@ let server: FakeServer;
 let store: MemoryStore;
 let changes: CalendarChange[];
 let conflicts: Conflict[];
+let refused: { url: string; status: number }[];
 let tasks: string;
 
 function engine(account = "acct"): SyncEngine {
   return new SyncEngine(server, store, account, {
     onChange: (c) => changes.push(c),
     onConflict: (c) => conflicts.push(c),
+    onRefused: (r) => refused.push({ url: r.op.url, status: r.status }),
   });
 }
 
@@ -31,6 +34,7 @@ beforeEach(() => {
   store = new MemoryStore();
   changes = [];
   conflicts = [];
+  refused = [];
   tasks = server.addCalendar("tasks");
 });
 
@@ -189,6 +193,38 @@ describe("pushing", () => {
     expect(conflicts.map((c) => c.op.kind)).toEqual(["delete"]);
   });
 
+  it("drops a change the server refuses for good, says so, and goes on with the rest", async () => {
+    server.externalPut(`${tasks}a.ics`, ics("a"));
+    const e = await started();
+    server.beforePut = (url) => {
+      if (url.endsWith("bad.ics")) throw new DavError("Write failed (HTTP 415)", 415);
+    };
+    await e.putItem(tasks, `${tasks}bad.ics`, ics("bad"));
+    await e.putItem(tasks, `${tasks}good.ics`, ics("good"));
+    server.externalPut(`${tasks}a.ics`, ics("a", "changed on the iPhone"));
+    expect(await e.sync()).toMatchObject({ ok: true, pending: 0 });
+    expect(refused).toEqual([{ url: `${tasks}bad.ics`, status: 415 }]);
+    expect(server.stored(`${tasks}good.ics`)).toBeDefined();
+    expect(e.item(`${tasks}a.ics`)?.data).toContain("changed on the iPhone");
+    expect(e.item(`${tasks}bad.ics`)?.data).toContain("bad"); // kept here
+    expect((await e.sync()).ok).toBe(true); // not sent again
+    expect(refused).toHaveLength(1);
+  });
+
+  it("keeps a change the server can't take right now for the next sync", async () => {
+    const e = await started();
+    let down = true;
+    server.beforePut = () => {
+      if (down) throw new DavError("Write failed (HTTP 503)", 503);
+    };
+    await e.putItem(tasks, `${tasks}a.ics`, ics("a"));
+    expect(await e.sync()).toMatchObject({ ok: false, pending: 1 });
+    down = false;
+    expect(await e.sync()).toMatchObject({ ok: true, pending: 0 });
+    expect(server.stored(`${tasks}a.ics`)).toBeDefined();
+    expect(refused).toEqual([]);
+  });
+
   it("never sends an item created and deleted before syncing", async () => {
     const e = await started();
     const url = e.newItemUrl(tasks, "temp");
@@ -229,6 +265,20 @@ describe("pushing", () => {
     await e.sync();
     expect(conflicts).toEqual([]);
     expect(server.stored(`${tasks}a.ics`)?.data).toContain("second");
+  });
+
+  it("deletes an item deleted while its creation is in flight", async () => {
+    const e = await started();
+    await e.putItem(tasks, `${tasks}n.ics`, ics("n"));
+    server.beforePut = async () => {
+      server.beforePut = undefined;
+      await e.deleteItem(`${tasks}n.ics`);
+    };
+    await e.sync(); // creates it; the deletion is queued during the request
+    expect(e.item(`${tasks}n.ics`)).toBeUndefined();
+    await e.sync();
+    expect(server.stored(`${tasks}n.ics`)).toBeUndefined();
+    expect(conflicts).toEqual([]);
   });
 
   it("refuses to write to a read-only calendar", async () => {

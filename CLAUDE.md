@@ -108,7 +108,11 @@ user at each one.
   stacks very likely too, not checked) and then appends `-gzip` to the `ETag` header, which If-Match refuses (412).
   ETags in multistatus bodies are untouched. The integration test "even over 512 bytes" fails with a GET.
 - **Task sync rules** (TaskSync): tasks already completed when first seen get no note; a VTODO deleted on the
-  server leaves its note `done: true` without `caldav_uid`; a whole calendar vanishing leaves notes alone; deleting
+  server leaves its note `done: true` without `caldav_uid`, and `pushNote` sends nothing for a done note without one
+  (2026-10-28: its own change event, or `pushAll` at the next start, made a new reminder; a repeating one moved on
+  and came back active; unticked, it gets a new one); a note just given its reminder (`made`) is not pushed again
+  until it reads with its UID (2026-10-28: a second push before Obsidian re-parsed it made a second reminder, the
+  first left on the phone); a whole calendar vanishing leaves notes alone; deleting
   a task note deletes its VTODO; a refused push is merged field by field against `baseData` (server wins where
   both sides changed a field, with a notice). Every write is equality-checked, so echoes are no-ops.
 - **Startup order**: load cache → push local note edits (made while closed) → sync → pull every VTODO into notes →
@@ -125,7 +129,13 @@ user at each one.
   pulls over a queued change, and a refused push is merged. Without this, ticking a task right before a sync that
   brings a phone edit of the same reminder lost the tick.
 - **Connection settings restart the engine 1.5 s after typing stops** (`scheduleRestart`), not on every keystroke
-  (a half-typed URL is another account: empty cache, lost pending ops).
+  (a half-typed URL is another account: empty cache, lost pending ops). Restarts set up one at a time
+  (`main.restarting`, up to `pushAll`; the network after): two at once gave one engine two task syncs, each making
+  a reminder for the same new note (2026-10-28). Only the current engine's changes reach `TaskSync`.
+- **A change the server refuses for good leaves the queue** (`refusalStatus`: 4xx but 401/407/408/423/425/429;
+  `engine.send`, `onRefused` → a Notice; the data stays in the cache). It used to throw on every sync and hold up
+  every later push and every pull, forever (2026-10-28; a proxy's 413 or Davis's 415 is enough). Server errors
+  and the network still keep the change for the next sync.
 - **An empty full listing for a calendar we hold items for is believed only on the second sync in a row**
   (`emptySeen`): otherwise one bad server answer marks every task note done and unlinked.
 - **Known limitation**: a brand-new task note reaching a second device through vault sync before its `caldav_uid` was

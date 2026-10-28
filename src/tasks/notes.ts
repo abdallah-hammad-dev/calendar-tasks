@@ -108,13 +108,18 @@ const MAX_TITLE = 120;
 /** A task title as a file name: forbidden characters become spaces; never empty. */
 export function sanitizeTitle(summary: string): string {
   const s = summary.replace(FORBIDDEN, " ").replace(/\s+/g, " ").trim().replace(/^\.+/, "");
-  return (s || "Untitled task").slice(0, MAX_TITLE).trim();
+  // By characters: a cut inside an emoji leaves half of it, which can't be a file name.
+  return [...(s || "Untitled task")].slice(0, MAX_TITLE).join("").trim();
 }
 
 /** Whether a note's file name stands for this summary (including the " (2)" we add for duplicates). */
 export function titleMatches(summary: string, basename: string): boolean {
-  const t = sanitizeTitle(summary);
-  return basename === t || new RegExp(`^${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\(\\d+\\)$`).test(basename);
+  return nameMatches(sanitizeTitle(summary), basename);
+}
+
+/** Whether a note's file name is `name`, or `name (2)`…: a name already made, not cut again. */
+export function nameMatches(name: string, basename: string): boolean {
+  return basename === name || new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\(\\d+\\)$`).test(basename);
 }
 
 /** `folder/base.md`, or `folder/base (2).md`… if taken. */

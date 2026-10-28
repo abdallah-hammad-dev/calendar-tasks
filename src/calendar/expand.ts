@@ -118,7 +118,7 @@ export function expandItem(itemUrl: string, calendarUrl: string, data: string, o
 
   const parsed = parseEvent(cal);
   if (!parsed) return out;
-  const { master, event } = parsed;
+  const { master, event, exceptions } = parsed;
   const take = (o: Occurrence | null) => {
     if (!o) return;
     const s = instant(o.start, opts.tz);
@@ -131,9 +131,17 @@ export function expandItem(itemUrl: string, calendarUrl: string, data: string, o
     return out;
   }
   const it = event.iterator();
-  for (let n = 0, next = it.next(); next && n < MAX_OCCURRENCES; n++, next = it.next()) {
-    if (next.toJSDate().getTime() >= to + 86_400_000) break;
+  let next = it.next();
+  for (let n = 0; next && n < MAX_OCCURRENCES && next.toJSDate().getTime() < to + 86_400_000; n++, next = it.next()) {
     const d = event.getOccurrenceDetails(next);
+    take(build(itemUrl, calendarUrl, event, d.item.component, d.startDate, d.endDate, ridOf(d.recurrenceId), opts));
+  }
+  // Occurrences brought forward from a slot not reached (a later week's meeting moved into this one).
+  const unread = next ? next.toJSDate().getTime() : Infinity;
+  for (const ex of exceptions) {
+    const rid = ex.getFirstPropertyValue("recurrence-id") as Time | null;
+    if (!rid || rid.toJSDate().getTime() < unread) continue;
+    const d = event.getOccurrenceDetails(rid);
     take(build(itemUrl, calendarUrl, event, d.item.component, d.startDate, d.endDate, ridOf(d.recurrenceId), opts));
   }
   return out;
@@ -175,13 +183,13 @@ export function findOccurrence(
   return null;
 }
 
-function parseEvent(cal: Comp): { master: Comp; event: InstanceType<typeof ICAL.Event> } | null {
+function parseEvent(cal: Comp): { master: Comp; exceptions: Comp[]; event: InstanceType<typeof ICAL.Event> } | null {
   const vevents = cal.getAllSubcomponents("vevent");
   if (!vevents.length) return null;
   registerZones(cal);
   const master = vevents.find((v) => !v.hasProperty("recurrence-id")) ?? vevents[0]!;
   const exceptions = vevents.filter((v) => v !== master && v.hasProperty("recurrence-id"));
-  return { master, event: new ICAL.Event(master, { exceptions, strictExceptions: false }) };
+  return { master, exceptions, event: new ICAL.Event(master, { exceptions, strictExceptions: false }) };
 }
 
 function build(

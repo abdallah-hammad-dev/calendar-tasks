@@ -5,6 +5,8 @@ export type ItemKind = "VEVENT" | "VTODO" | "VJOURNAL" | "OTHER";
 export interface ItemInfo {
   uid: string;
   kind: ItemKind;
+  /** Its title ("" when it has none). */
+  summary: string;
   /** `RECURRENCE-ID`s of overridden occurrences stored in the same resource. */
   recurrenceIds: string[];
 }
@@ -24,7 +26,8 @@ export function itemInfo(data: string): ItemInfo | null {
       .map((c) => c.getFirstPropertyValue("recurrence-id"))
       .filter((v): v is NonNullable<typeof v> => v !== null && v !== undefined)
       .map((v) => v.toString());
-    return { uid, kind, recurrenceIds };
+    const summary = first.getFirstPropertyValue("summary");
+    return { uid, kind, summary: typeof summary === "string" ? summary : "", recurrenceIds };
   } catch {
     return null;
   }
