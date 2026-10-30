@@ -1,7 +1,7 @@
 {
   "id": "calendar-tasks",
   "name": "Calendar & Tasks",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "minAppVersion": "1.13.2",
   "description": "Your CalDAV calendar and tasks in Obsidian: a note for every event and task, a calendar view and a Bases task list. Works alongside Apple Calendar and Reminders.",
   "author": "Abdallah Hammad",
