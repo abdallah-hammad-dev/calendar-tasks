@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { linkpathOf, normalizeDue, readNote, sanitizeTitle, titleMatches } from "../src/tasks/notes";
+import { linkpathOf, normalizeDue, noteUid, readNote, sanitizeTitle, titleMatches } from "../src/tasks/notes";
 import { taskBaseFile } from "../src/tasks/base-file";
 
 describe("task note frontmatter", () => {
@@ -120,5 +120,17 @@ describe("taskBaseFile", () => {
     // Done, the last ones done first.
     expect(yaml).toContain(`- 'done == true'\n    order:\n      - done\n      - file.name\n      - completed`);
     expect(yaml).toContain("- property: completed\n        direction: DESC");
+  });
+});
+
+describe("noteUid", () => {
+  it("is the same for the same vault and path, UUID-shaped, and differs otherwise", () => {
+    const uid = noteUid("abd-vault", "Tasks/Courses.md");
+    expect(uid).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(noteUid("abd-vault", "Tasks/Courses.md")).toBe(uid);
+    expect(noteUid("abd-vault", "Tasks/Course.md")).not.toBe(uid);
+    expect(noteUid("other", "Tasks/Courses.md")).not.toBe(uid);
+    // A path spelled with combining accents (as some file systems give it) is the same note.
+    expect(noteUid("abd-vault", "Tâches/Été.md".normalize("NFD"))).toBe(noteUid("abd-vault", "Tâches/Été.md"));
   });
 });

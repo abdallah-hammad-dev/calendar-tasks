@@ -4,7 +4,7 @@ import type { CalendarChange, Conflict, SyncEngine } from "../sync/engine";
 import type { CachedCalendar } from "../sync/store";
 import { formatLocalDate, formatLocalDateTime, fromWall, parseLocal, wallClock } from "../ical/time";
 import { nextOccurrence, repeatToNote } from "../editor/when";
-import { normalizeDue, readNote, sanitizeTitle, titleMatches, uniquePath, type NoteState } from "./notes";
+import { normalizeDue, noteUid, readNote, sanitizeTitle, titleMatches, uniquePath, type NoteState } from "./notes";
 import { categoriesFor, sameTags, tagsFromCategories } from "./tags";
 import { newTask, readTask, sameFields, taskLink, writeTask, type ReadTask, type TaskFields } from "./vtodo";
 
@@ -215,6 +215,41 @@ export class TaskSync {
   }
 
   /**
+   * Writes a new task note with its reminder already made: `caldav_uid` is in the note's first version. Written
+   * first and given its UID a moment later, it reached the other device without it (LiveSync syncs within a
+   * second), which made a second reminder (2026-10-30). Without a collection for it, the note is written as it
+   * is and gets its reminder like any note (`createItem`).
+   */
+  createNote(path: string, frontmatter: Record<string, unknown>, body: string): Promise<void> {
+    return this.serial(async () => {
+      const basename = path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/, "");
+      const note: NoteRef = { path, basename, frontmatter };
+      const state = readNote(frontmatter);
+      const calendarUrl = state && !state.uid && !state.done ? this.calendarFor(note, state) : null;
+      if (!state || !calendarUrl) {
+        await this.d.vault.create(path, frontmatter, body);
+        return;
+      }
+      const uid = this.d.newUid();
+      const fm = await this.putNew(note, state, calendarUrl, uid);
+      try {
+        await this.d.vault.create(path, { ...frontmatter, ...fm }, body);
+      } catch (e) {
+        // Not written (a note there already): no reminder either.
+        const url = this.items.get(uid)!.url;
+        await this.d.engine.deleteItem(url);
+        this.items.delete(uid);
+        this.uidOfUrl.delete(url);
+        this.notes.delete(uid);
+        this.known.delete(uid);
+        throw e;
+      }
+      this.d.created?.(path, uid);
+      this.d.requestSync();
+    });
+  }
+
+  /**
    * A deadline set from the calendar (dragged, or picked): the reminder changes at once, since the calendar is drawn
    * from it, then the note. Through the note alone it waited for the note's debounce, and a redraw meanwhile put
    * the deadline back where it was for a moment (2026-10-19: "ça revient puis ça se redéplace").
@@ -289,8 +324,12 @@ export class TaskSync {
       path = undefined;
     }
 
+    if (!path && task.done && !force) return; // already finished when first seen: no note
+    // Its note may be here already: brought by LiveSync a moment ago and not seen yet, or made by hand on the other
+    // device, which made this reminder from it (`noteUid`) before writing the UID in it. That note, not a second one.
+    if (!path) path = (await this.linkUnseen(uid)) ?? undefined;
+
     if (!path) {
-      if (task.done && !force) return; // already finished when first seen: no note
       const folder = this.d.settings().tasksFolder;
       path = this.uniquePath(folder, sanitizeTitle(task.summary));
       const fm: Record<string, unknown> = { [PROP.type]: NOTE_TYPE.task, [PROP.done]: task.done };
@@ -511,13 +550,35 @@ export class TaskSync {
     return data ? readTask(data, this.d.tz()) : null;
   }
 
+  /** A task note made outside the plugin (by hand, from a template), or given back its reminder: it's made now. */
   private async createItem(note: NoteRef, state: NoteState): Promise<void> {
     const calendarUrl = this.calendarFor(note, state);
     if (!calendarUrl) {
       this.d.notify("", "no-task-calendar");
       return;
     }
-    const uid = this.d.newUid();
+    // The UID every device gives this note, unless another note has it (this one was renamed from there).
+    let uid = noteUid(this.d.vaultName, note.path);
+    const owner = this.notePath(uid);
+    if (owner && owner !== note.path) uid = this.d.newUid();
+    else if (this.serverTask(uid)) {
+      // Made from this note on the other device first: it's this note's reminder.
+      this.notes.set(uid, note.path);
+      this.made.set(note.path, uid);
+      await this.d.vault.editFrontmatter(note.path, (fm) => (fm[PROP.uid] = uid));
+      await this.applyItem(uid);
+      this.d.created?.(note.path, uid);
+      return;
+    }
+    const fm = await this.putNew(note, state, calendarUrl, uid);
+    this.made.set(note.path, uid);
+    await this.d.vault.editFrontmatter(note.path, (f) => Object.assign(f, fm));
+    this.d.created?.(note.path, uid);
+    this.d.requestSync();
+  }
+
+  /** Queues a new task's VTODO and indexes it; returns what its note says of it (UID, collection, when it was made). */
+  private async putNew(note: NoteRef, state: NoteState, calendarUrl: string, uid: string): Promise<Record<string, unknown>> {
     const url = this.d.engine.newItemUrl(calendarUrl, uid);
     const fields = this.fieldsFromNote(note, state, null);
     // Made now, unless the note already says when (e.g. a note unlinked from its reminder, then reopened).
@@ -528,16 +589,32 @@ export class TaskSync {
     this.items.set(uid, { url, calendarUrl });
     this.uidOfUrl.set(url, uid);
     this.notes.set(uid, note.path);
-    this.made.set(note.path, uid);
+    const fm: Record<string, unknown> = { [PROP.uid]: uid };
     const collection = this.calendarName(calendarUrl);
-    if (collection) this.known.set(uid, collection);
-    await this.d.vault.editFrontmatter(note.path, (fm) => {
-      fm[PROP.uid] = uid;
-      if (collection) fm[PROP.collection] = collection;
-      if (state.created === null) fm[PROP.created] = formatLocalDateTime(wallClock(created, tz));
-    });
-    this.d.created?.(note.path, uid);
-    this.d.requestSync();
+    if (collection) {
+      this.known.set(uid, collection);
+      fm[PROP.collection] = collection;
+    }
+    if (state.created === null) fm[PROP.created] = formatLocalDateTime(wallClock(created, tz));
+    return fm;
+  }
+
+  /**
+   * A task's note the index doesn't know yet: one holding its UID, or one made by hand without it whose UID it is
+   * (`noteUid`), which gets it. Indexed, and returned.
+   */
+  private async linkUnseen(uid: string): Promise<string | null> {
+    for (const n of this.d.vault.allNotes()) {
+      const s = readNote(n.frontmatter);
+      if (!s || (s.uid ? s.uid !== uid : s.done || noteUid(this.d.vaultName, n.path) !== uid)) continue;
+      this.notes.set(uid, n.path);
+      if (!s.uid) {
+        this.made.set(n.path, uid);
+        await this.d.vault.editFrontmatter(n.path, (fm) => (fm[PROP.uid] = uid));
+      }
+      return n.path;
+    }
+    return null;
   }
 
   private fieldsFromNote(note: NoteRef, state: NoteState, current: ReadTask | null): TaskFields {

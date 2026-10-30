@@ -123,6 +123,30 @@ export function nameMatches(name: string, basename: string): boolean {
 }
 
 /** `folder/base.md`, or `folder/base (2).md`… if taken. */
+/**
+ * The UID of the reminder of a task note made outside the plugin (by hand, from a template): the same on every
+ * device, so two devices seeing the new note before either wrote its UID make one reminder, not two. A UUID's
+ * shape, from a 128-bit hash (cyrb128) of the vault's name and the note's path.
+ */
+export function noteUid(vault: string, path: string): string {
+  const key = `${vault}/${path}`.normalize("NFC");
+  let [a, b, c, d] = [1779033703, 3144134277, 1013904242, 2773480762];
+  for (let i = 0; i < key.length; i++) {
+    const k = key.charCodeAt(i);
+    a = b ^ Math.imul(a ^ k, 597399067);
+    b = c ^ Math.imul(b ^ k, 2869860233);
+    c = d ^ Math.imul(c ^ k, 951274213);
+    d = a ^ Math.imul(d ^ k, 2716044179);
+  }
+  a = Math.imul(c ^ (a >>> 18), 597399067);
+  b = Math.imul(d ^ (b >>> 22), 2869860233);
+  c = Math.imul(a ^ (c >>> 17), 951274213);
+  d = Math.imul(b ^ (d >>> 19), 2716044179);
+  a ^= b ^ c ^ d;
+  const h = [a, b ^ a, c ^ a, d ^ a].map((x) => (x >>> 0).toString(16).padStart(8, "0")).join("");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
 export function uniquePath(exists: (path: string) => boolean, folder: string, base: string): string {
   const prefix = folder ? `${folder}/` : "";
   let path = `${prefix}${base}.md`;

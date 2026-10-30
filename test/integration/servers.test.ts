@@ -191,6 +191,46 @@ for (const srv of SERVERS) {
       await engine.sync();
     });
 
+    it("makes one reminder when two devices see a new note before either wrote its UID", async () => {
+      const own = await engine.createCalendar(`it-two-${Date.now()}`, { displayName: "Deux appareils — test", color: "#0090FF", components: ["VTODO"] });
+      try {
+        const devices = [0, 1].map((i) => {
+          const vault = new FakeVault();
+          // Only this test's collection: the account's others are the bench's (and the phone's) reminders.
+          const eng = new SyncEngine(client, new MemoryStore(), `it-device-${i}`, {
+            onChange: (c) => void (c.calendarUrl === own && ts.onServerChange(c)),
+            onConflict: (c) => void ts.onConflict(c),
+          });
+          const ts = new TaskSync({
+            vault,
+            engine: eng,
+            settings: () => ({ tasksFolder: "Tâches", reminderNoteLink: true, defaultCalendar: own }),
+            vaultName: "Test vault",
+            tz: () => "Europe/Paris",
+            newUid: () => `it-two-${i}-${Date.now()}`,
+            requestSync: () => undefined,
+            notify: () => undefined,
+          });
+          return { vault, eng, ts };
+        });
+        for (const d of devices) {
+          await d.eng.init();
+          await d.eng.sync();
+          d.ts.rebuild();
+          d.vault.add("Tâches/Deux appareils.md", { type: "task", done: false, due: "2026-11-02" });
+          await d.ts.noteChanged("Tâches/Deux appareils.md");
+        }
+        expect(await devices[0]!.eng.sync()).toMatchObject({ ok: true, pushed: 1, conflicts: 0 });
+        expect(await devices[1]!.eng.sync()).toMatchObject({ ok: true, pushed: 0, conflicts: 1 }); // the server has it: refused, merged
+        await devices[1]!.ts.whenIdle();
+        const uid = devices[0]!.vault.fm("Tâches/Deux appareils.md")!.caldav_uid as string;
+        expect(devices[1]!.vault.fm("Tâches/Deux appareils.md")!.caldav_uid).toBe(uid);
+        expect(await client.listEtags(own)).toEqual([expect.objectContaining({ url: engine.newItemUrl(own, uid) })]);
+      } finally {
+        await engine.deleteCalendar(own);
+      }
+    });
+
     it("moves a task to another collection when its note names it", async () => {
       const other = await engine.createCalendar(`it-move-${Date.now()}`, { displayName: "Pro — test", color: "#0090FF", components: ["VEVENT", "VTODO"] });
       const vault = new FakeVault();

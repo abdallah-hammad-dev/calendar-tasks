@@ -17,8 +17,8 @@ export interface PreparedTask {
 }
 
 /**
- * Turns a `- [ ] …` line into a task note and the line that replaces it (`- [[Task]]`). The new note has no
- * `caldav_uid`: TaskSync sees it appear and creates its VTODO.
+ * Turns a `- [ ] …` line into a task note and the line that replaces it (`- [[Task]]`). The plugin writes the note
+ * (`write`): with its reminder and `caldav_uid` when there's a server (`TaskSync.createNote`).
  */
 export class TaskConverter {
   private inFlight = new Set<string>();
@@ -30,8 +30,8 @@ export class TaskConverter {
     private readonly vault: ObsidianVault,
     private readonly settings: () => CalendarTasksSettings,
     private readonly index: Pick<TaskIndex, "prime" | "remove">,
-    /** Time blocks asked on the line (`@session …`), for the plugin to create once the task has its reminder. */
-    private readonly onBlocks: (path: string, blocks: Block[]) => void = () => undefined,
+    /** Writes the note; `blocks`: time blocks asked on the line (`@session …`), made once the task has its reminder. */
+    private readonly write: (path: string, frontmatter: Record<string, unknown>, body: string, blocks: Block[]) => Promise<void>,
   ) {}
 
   /**
@@ -76,8 +76,7 @@ export class TaskConverter {
       create: async () => {
         try {
           await this.vault.ensureFolder(folder);
-          await this.vault.create(path, plannedFrontmatter(plan, (target) => this.vault.linkText(target, path)), plan.body);
-          if (plan.blocks.length) this.onBlocks(path, plan.blocks);
+          await this.write(path, plannedFrontmatter(plan, (target) => this.vault.linkText(target, path)), plan.body, plan.blocks);
         } catch (e) {
           this.index.remove(path);
           throw e;

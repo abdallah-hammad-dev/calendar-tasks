@@ -492,6 +492,11 @@ its raw properties ("I don't want to see the id; if I want to, I can open the pr
   device; server errors and the network keep it for the next sync (2026-10-28).
 - **When:** at startup, every N minutes (setting), when Obsidian regains focus, and right after a local change.
 - **Note → CalDAV** changes are detected from `metadataCache` changes on notes with `caldav_uid`.
+- **One reminder per task note, whatever the number of devices** (vault sync delivers a new note within a second,
+  2026-10-30). A task note the extension makes is written with its `caldav_uid` (and its VTODO queued) from its first
+  version. A task note made otherwise (by hand, a template) gets a UID computed from the vault's name and its path,
+  the same on every device: the second device's `PUT` (`If-None-Match: *`) is refused and merged, or, if it pulled
+  the VTODO first, it links that note to it rather than making a second one.
 - **A token echoed back unchanged while the server's current token differs** means the server can't serve it
   (sabre/dav answers "no changes" to unknown tokens with its own prefix): full resync. Tested against Davis.
 - **Edit items in place, never regenerate them.** Change only the properties the extension owns and keep everything

@@ -197,8 +197,9 @@ or task. It also sees which task or event note you're looking at, and gets a ski
 - A task already completed the first time the extension sees it gets no note (it'd flood the vault with old
   reminders). Opening it from the phone still creates its note.
 - Moving a whole recurring series is done on the phone; the calendar view moves one occurrence at a time.
-- If your vault sync delivers a brand-new task note to a second device before the first one wrote its
-  `caldav_uid`, the second device may create a duplicate reminder.
+- With several devices (vault sync such as LiveSync), give them the same vault name: a task note made by hand (not
+  through the extension) gets the same reminder on every device only then. Under different names, a note reaching
+  the other device before its `caldav_uid` may get a second reminder there.
 
 ## Development
 

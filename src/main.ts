@@ -105,8 +105,8 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     this.store = new IdbStore(`calendar-tasks/${this.app.vault.getName()}`);
     this.vaultPort = new ObsidianVault(this.app);
     this.index = new TaskIndex(this.vaultPort);
-    this.converter = new TaskConverter(this.app, this.vaultPort, () => this.settings, this.index, (path, blocks) =>
-      this.pendingBlocks.set(path, blocks),
+    this.converter = new TaskConverter(this.app, this.vaultPort, () => this.settings, this.index, (path, fm, body, blocks) =>
+      this.writeTaskNote(path, fm, body, blocks),
     );
     this.eventNotes = new EventNotes({
       vault: this.vaultPort,
@@ -356,7 +356,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     return this.tagsCache;
   }
 
-  /** Writes a new task note; TaskSync gives it its reminder. `parent` is a note path. */
+  /** Writes a new task note, with its reminder. `parent` is a note path. */
   private async createTaskNote(task: {
     title: string;
     due?: string | null;
@@ -367,6 +367,8 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     parent?: string | null;
     collection?: string | null;
     body?: string;
+    /** Made once the task has its reminder. */
+    blocks?: Block[];
   }): Promise<string> {
     const folder = this.settings.tasksFolder;
     const title = sanitizeTitle(task.title);
@@ -384,8 +386,23 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     const fm = plannedFrontmatter(plan, (target) => this.vaultPort.linkText(target, path));
     if (task.collection) fm[PROP.collection] = task.collection;
     await this.vaultPort.ensureFolder(folder);
-    await this.vaultPort.create(path, fm, task.body ?? "");
+    await this.writeTaskNote(path, fm, task.body ?? "", task.blocks ?? []);
     return path;
+  }
+
+  /**
+   * Writes a new task note: through TaskSync when there's a server, so the note's first version has its reminder's
+   * UID (see `TaskSync.createNote`). `blocks` are made once the task has its reminder (`createBlocks`).
+   */
+  private async writeTaskNote(path: string, fm: Record<string, unknown>, body: string, blocks: Block[]): Promise<void> {
+    if (blocks.length) this.pendingBlocks.set(path, blocks);
+    try {
+      if (this.tasks) await this.tasks.createNote(path, fm, body);
+      else await this.vaultPort.create(path, fm, body);
+    } catch (e) {
+      this.pendingBlocks.delete(path);
+      throw e;
+    }
   }
 
   /** The "New task" form, in the default collection. */
@@ -399,7 +416,6 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       submit: (task) =>
         void this.createTaskNote(task)
           .then((path) => {
-            if (task.blocks.length) this.pendingBlocks.set(path, task.blocks); // created once the task has its reminder
             new Notice(t("task.created", { name: path.split("/").pop()!.replace(/\.md$/, "") }));
           })
           .catch((e: unknown) => new Notice(t("error.write", { error: e instanceof Error ? e.message : String(e) }))),

@@ -148,8 +148,17 @@ user at each one.
   and the network still keep the change for the next sync.
 - **An empty full listing for a calendar we hold items for is believed only on the second sync in a row**
   (`emptySeen`): otherwise one bad server answer marks every task note done and unlinked.
-- **Known limitation**: a brand-new task note reaching a second device through vault sync before its `caldav_uid` was
-  written can get a second VTODO there (documented in the README; not handled).
+- **One reminder per task note on several devices** (2026-10-30, LiveSync delivers a note within a second: a note
+  written without `caldav_uid`, given it a moment later, reached the other device bare, which made a second VTODO).
+  Notes the plugin makes (line conversion, the form, the Claude tool) go through `TaskSync.createNote` (main's
+  `writeTaskNote`): VTODO queued first, the note written with `caldav_uid`, collection and `created`; it can't be
+  written → the queued VTODO is dropped. Notes made otherwise get `noteUid(vault name, path)` (cyrb128, UUID-shaped),
+  the same on every device: the second `PUT` (`If-None-Match: *`) gets 412 and merges (server wins, base null);
+  already pulled → `createItem` links the note to it; another note has that UID (renamed from there) → random.
+  `applyItem` looks for an unindexed note first (`linkUnseen`: its UID, or bare with that `noteUid`) before making
+  one: the VTODO pulled before the note's change event made "X (2)". Two-device tests: `tasksync.test.ts` and the
+  integration test (own collection; a test wiring `onServerChange` for the whole account relinked the bench's
+  reminders to its vault, 2026-10-30).
 - **When a task was ticked** (2026-10-25, asked: the last time it was ticked, right after an untick and a tick; for a
   repeating one, the list, not a count): `completed` ↔ `COMPLETED` (`TaskFields.completed`, local minute; the VTODO
   gets the note's time in UTC), only while done. Ticks here go through `setDone` (notes.ts: `done` and `completed`
