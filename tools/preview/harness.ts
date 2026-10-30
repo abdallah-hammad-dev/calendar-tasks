@@ -138,6 +138,7 @@ function phoneFrame(content: HTMLElement): void {
 /** `inTab`: inside an Obsidian tab beside a sidebar, whose `contain: strict` shifts `position: fixed` children. */
 function calendar(view: "timeGridWeek" | "timeGridDay" | "dayGridMonth" | "listWeek", inTab = false): void {
   const queued = new Set<string>();
+  let panelOpen = view === "timeGridWeek" || scenario === "phone-panel";
   // "calendar-drag": moves are written as the plugin writes them: the data changes at once (a deadline's reminder
   // too, TaskSync.setDue), the view redraws, then again once pushed. A redraw from elsewhere comes right after (a
   // sync ending, another move): what was dropped must stay.
@@ -224,8 +225,8 @@ function calendar(view: "timeGridWeek" | "timeGridDay" | "dayGridMonth" | "listW
     },
     pickSlot: () => undefined,
     newTask: () => undefined,
-    planPanelOpen: () => view === "timeGridWeek" || scenario === "phone-panel",
-    setPlanPanelOpen: () => undefined,
+    planPanelOpen: () => panelOpen,
+    setPlanPanelOpen: (open) => (panelOpen = open),
     task: (uid) => TASKS[uid] ?? null,
     toggleTask: () => undefined,
     // As in the plugin: the answer is written and queued (the view redraws), then pushed (it redraws again).
@@ -255,6 +256,13 @@ function calendar(view: "timeGridWeek" | "timeGridDay" | "dayGridMonth" | "listW
   } else document.body.appendChild(v.containerEl);
   void v.onOpen().then(() => {
     if (view !== "timeGridWeek") (v as unknown as { calendar: { changeView(v: string): void } }).calendar.changeView(view);
+    // A phone's "⋯" (Obsidian's view menu, a sheet), and the collections it opens.
+    if (scenario === "phone-more") {
+      const menu = new Menu();
+      v.onPaneMenu(menu, "more-options");
+      menu.showAtPosition({ x: 0, y: 0 });
+    }
+    if (scenario === "phone-collections") (v as unknown as { openCollections(): void }).openCollections();
     setTimeout(done, 300);
   });
 }
@@ -495,6 +503,26 @@ function newTask(tags = false): void {
   done();
 }
 
+/**
+ * The task form on a phone with the keyboard up (Obsidian says its height in `--keyboard-height`), typing a tag:
+ * the field and its suggestions must show above the keyboard, Cancel / Create too.
+ */
+function newTaskKeyboard(): void {
+  document.documentElement.style.setProperty("--keyboard-height", "336px");
+  const keyboard = document.body.createDiv();
+  Object.assign(keyboard.style, { position: "fixed", left: "0", right: "0", bottom: "0", height: "336px", background: "#5a5a5f", zIndex: "1000", opacity: "0.9" });
+  const modal = new TaskModal({} as never, { knownTags: KNOWN_TAGS, collections: ["Général", "Pro"], collection: "Pro", submit: () => undefined });
+  modal.open();
+  const tags = modal.contentEl.querySelector<HTMLInputElement>(".ct-task-tags-input")!;
+  // Tapped once the form is open (it focuses its title first).
+  setTimeout(() => tags.focus(), 50);
+  setTimeout(() => {
+    tags.value = "#f";
+    tags.dispatchEvent(new Event("input"));
+    done();
+  }, 600);
+}
+
 /** The task form with the day it's being placed on: a slot typed among the day's events, a deadline. */
 function taskPreview(): void {
   const modal = new TaskModal({} as never, {
@@ -703,6 +731,8 @@ else if (scenario === "phone-month") calendar("dayGridMonth");
 else if (scenario === "phone-day") calendar("timeGridDay");
 else if (scenario === "phone-list") calendar("listWeek");
 else if (scenario === "phone-panel") calendar("timeGridDay");
+else if (scenario === "phone-views" || scenario === "phone-add" || scenario === "phone-more" || scenario === "phone-collections") calendar("dayGridMonth");
+else if (scenario === "phone-new-task-keyboard") newTaskKeyboard();
 else if (scenario === "phone-new-task") newTask();
 else if (scenario === "phone-task-preview") taskPreview();
 else if (scenario === "phone-edit-task") editTask();

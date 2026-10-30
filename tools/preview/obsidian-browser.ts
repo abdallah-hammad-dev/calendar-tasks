@@ -219,6 +219,7 @@ export class View extends Component {
     return {};
   }
   async setState(): Promise<void> {}
+  onPaneMenu(_menu: unknown, _source: string): void {}
 }
 export class ItemView extends View {}
 
@@ -323,11 +324,15 @@ class MenuItem {
   private iconEl: HTMLElement;
   private titleEl: HTMLElement;
   private click: (() => void) | null = null;
-  constructor(menu: HTMLElement) {
+  /** Like Obsidian: a tap on an item closes the menu, then runs it. */
+  constructor(menu: HTMLElement, hide: () => void) {
     this.dom = (menu as unknown as { createDiv(o: string): HTMLElement }).createDiv("menu-item tappable");
     this.iconEl = (this.dom as unknown as { createDiv(o: string): HTMLElement }).createDiv("menu-item-icon");
     this.titleEl = (this.dom as unknown as { createDiv(o: string): HTMLElement }).createDiv("menu-item-title");
-    this.dom.addEventListener("click", () => this.click?.());
+    this.dom.addEventListener("click", () => {
+      hide();
+      this.click?.();
+    });
   }
   setTitle(t: string | DocumentFragment): this {
     (this.titleEl as unknown as { setText(t: string | DocumentFragment): void }).setText(t);
@@ -371,7 +376,7 @@ export class Menu extends Component {
     this.dom.appendChild(scroll);
   }
   addItem(cb: (item: MenuItem) => void): this {
-    cb(new MenuItem(this.dom.firstElementChild as HTMLElement));
+    cb(new MenuItem(this.dom.firstElementChild as HTMLElement, () => this.hide()));
     return this;
   }
   addSeparator(): this {

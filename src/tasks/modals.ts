@@ -9,6 +9,7 @@ import { DayPreview, type Placed, type PreviewSource } from "../calendar/day-pre
 import { localValue } from "../calendar/when-fields";
 import { dateText, dayBlock, dayValue, firstDay, readFields, repeatLabel, suggestAt, type Block } from "../editor/when";
 import { menuSelect, named } from "../ui/menu-select";
+import { formSheet } from "../ui/sheet";
 import { sameTag, tagsOf } from "./tags";
 
 const lang = (): "fr" | "en" => (language().startsWith("fr") ? "fr" : "en");
@@ -178,6 +179,7 @@ export class TaskModal extends Modal {
     const readTags = () => (this.task.tags = tagsOf(tagsInput.value));
     tagsInput.addEventListener("input", readTags);
     new TagSuggest(this.app, tagsInput, this.opts.knownTags, readTags);
+    tagsInput.addClass("ct-sheet-top"); // its suggestions show under it, above a phone's keyboard
     startAt("tags", tagsInput);
 
     if (this.opts.collections.length > 1) {
@@ -200,6 +202,7 @@ export class TaskModal extends Modal {
       });
       this.refreshPreview(this.task.due ? "due" : undefined);
     }
+    formSheet(this);
     window.setTimeout(() => start?.focus(), 0);
   }
 

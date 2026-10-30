@@ -655,7 +655,7 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-task-tags-input 
 /*
  * A phone (2026-10-30, the user: "pas du tout ergonomique"; Obsidian stacks every row, the sessions' fields ran
  * off the left edge): the deadline and the sessions keep their name above, their fields on one line that fits;
- * a menu or the tags sit beside their name; Cancel / Create stay at the bottom while the form scrolls.
+ * a menu or the tags sit beside their name. Cancel / Create are in the sheet's header (below).
  */
 /* The phone's form is a scrolling flex column: taller than the screen, its rows shrank (the title to 28px). */
 .is-phone .ct-task-modal .ct-task-fields > * {
@@ -704,14 +704,69 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-task-tags-input 
   width: auto;
 }
 
-.is-phone .ct-task-modal .ct-task-fields > .setting-item.ct-modal-buttons {
-  position: sticky;
-  bottom: calc(var(--size-4-4) * -1);
-  z-index: 1;
-  margin-top: 0;
-  padding: var(--size-4-3) 0 var(--size-4-4);
-  border-top: none;
-  background: var(--modal-background);
+/*
+ * A phone's form is a sheet, as iOS's own (2026-10-30, second try: the keyboard covered the tags, their suggestions
+ * and the buttons): from the bottom, above the keyboard (Obsidian's `--keyboard-height`), Cancel and the action in
+ * its header (`formSheet`), its fields scrolling under them.
+ */
+.is-phone .modal-container.ct-sheet-container {
+  align-items: flex-end;
+  padding-bottom: var(--keyboard-height, 0px);
+}
+
+.is-phone .modal.ct-sheet {
+  --modal-radius: var(--touch-radius-s) var(--touch-radius-s) 0 0;
+  max-height: calc(100vh - var(--safe-area-inset-top) - var(--keyboard-height, 0px) - var(--size-4-2));
+}
+
+.is-phone .modal.ct-sheet > .modal-close-button {
+  display: none;
+}
+
+.is-phone .modal.ct-sheet > .modal-header {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: var(--size-4-3);
+}
+
+.is-phone .modal.ct-sheet > .modal-header > .modal-title {
+  grid-column: 2;
+  max-width: 50vw;
+}
+
+.is-phone .modal.ct-sheet > .modal-header > button {
+  height: auto;
+  padding: var(--size-4-1) var(--size-4-2);
+  background: none;
+  box-shadow: none;
+  color: var(--text-accent);
+  font-size: var(--font-ui-medium);
+}
+
+.is-phone .modal.ct-sheet > .modal-header > .ct-sheet-cancel {
+  grid-column: 1;
+  justify-self: start;
+  font-weight: var(--font-normal);
+}
+
+.is-phone .modal.ct-sheet > .modal-header > .ct-sheet-action {
+  grid-column: 3;
+  justify-self: end;
+  font-weight: var(--font-semibold);
+}
+
+.is-phone .modal.ct-sheet > .modal-header > .ct-sheet-action:disabled {
+  color: var(--text-faint);
+}
+
+.is-phone .modal.ct-sheet > .modal-content {
+  padding-bottom: max(var(--size-4-4), calc(var(--safe-area-inset-bottom) - var(--keyboard-height, 0px)));
+}
+
+/* Room for a field with suggestions to scroll to the top, its suggestions under it. */
+.is-phone .modal.ct-sheet > .modal-content:has(.ct-sheet-top:focus) {
+  padding-bottom: 260px;
 }
 
 /* Beside the day: the buttons at the bottom, level with it. */
@@ -1107,20 +1162,21 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-task-tags-input 
 }
 
 /*
- * A phone (2026-10-30, the user: "un peu dégueu"): ‹ › the period and Today on a line, the views and the actions
- * (icons) on the next, the collections on one line that scrolls, and room at the bottom for Obsidian's floating
- * navbar (the month's last week was under it).
+ * A phone (2026-10-30, second try; the user: "fais toi les bons choix"): one line, as iOS's own apps. ‹ › the
+ * period, today's date, the view (a sheet picks another), "+" (a sheet: a task or an event). Room under the view
+ * for Obsidian's floating navbar, and a gap above it (the month's last week touched it).
  */
 .is-phone .ct-calendar {
-  padding: var(--size-4-2) var(--size-4-3) var(--view-bottom-spacing, 0);
+  padding: var(--size-4-2) var(--size-4-3) calc(var(--view-bottom-spacing, 0px) + var(--size-4-3));
 }
 
 .is-phone .ct-cal-bar {
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: var(--size-4-2);
 }
 
 .is-phone .ct-cal-nav {
+  flex: none;
   gap: 0;
 }
 
@@ -1133,37 +1189,101 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-task-tags-input 
   white-space: nowrap;
 }
 
-.is-phone .ct-cal-right {
-  flex: 1 1 100%;
-  flex-wrap: nowrap;
-  margin-inline-start: 0;
+/* Today: its date in a frame, as a calendar's page; faint while today is on screen. */
+.is-phone .ct-cal-today.is-date {
+  flex: none;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1.5px solid currentColor;
+  border-radius: var(--radius-s);
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-accent);
+  font-weight: var(--font-semibold);
 }
 
-.is-phone .ct-segmented {
-  flex: 1 1 auto;
+.is-phone .ct-cal-today.is-date:disabled {
+  color: var(--text-faint);
+  opacity: 1;
 }
 
-.is-phone .ct-segmented > button {
-  flex: 1 1 0;
-  padding-inline: var(--size-4-1);
+.is-phone .ct-cal-view {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  height: 30px;
+  padding: 0 var(--size-4-1) 0 var(--size-4-3);
+  font-size: var(--font-ui-small);
 }
 
-.is-phone .ct-cal-action {
-  padding: var(--size-4-1) var(--size-4-2);
+.is-phone .ct-cal-add {
+  flex: none;
+  color: var(--text-accent);
 }
 
-.is-phone .ct-cal-action-text {
+/* Only move mode's hint shows there on a phone; the collections are in "⋯". */
+.is-phone .ct-calendar-legend:empty {
   display: none;
 }
 
-.is-phone .ct-calendar-legend {
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  scrollbar-width: none;
+/* The tasks, as a view: the toolbar says "Tasks", its filter stays. */
+.is-phone .ct-plan-title {
+  display: none;
 }
 
-.is-phone .ct-calendar-legend > * {
-  flex: none;
+.is-phone .ct-plan-filter {
+  margin-inline-start: auto;
+}
+
+/* The collections' sheet (from "⋯"): one per line, its dot, its name, its pencil at the end; "+" a new one. */
+.ct-collections {
+  gap: var(--size-4-1);
+}
+
+.ct-collections .ct-legend-item,
+.ct-collections .ct-legend-add {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-3);
+  width: 100%;
+  height: auto;
+  padding: var(--size-4-3);
+  border-radius: var(--radius-m);
+  background: var(--interactive-normal);
+  box-shadow: none;
+  color: var(--text-normal);
+  font-size: var(--font-ui-medium);
+}
+
+.ct-collections .ct-legend-item.is-hidden {
+  color: var(--text-faint);
+}
+
+.ct-collections .ct-legend-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-align: start;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ct-collections .ct-legend-edit {
+  padding: var(--size-4-1);
+}
+
+.ct-collections .ct-legend-edit svg {
+  width: var(--icon-s);
+  height: var(--icon-s);
+}
+
+.ct-collections .ct-legend-add {
+  justify-content: flex-start;
+  background: transparent;
+  color: var(--text-accent);
 }
 
 /* Self-hosted LiveSync writes its status over the top of every view: here, over the toolbar (2026-10-30). */
@@ -2242,6 +2362,53 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-task-tags-input 
 /* "+2": the day it opens says the rest. */
 .is-phone .ct-calendar .fc .fc-daygrid-more-link {
   font-size: var(--font-ui-smaller);
+}
+
+/*
+ * A phone's month, as iOS's (2026-10-30, "un peu moche"): no columns drawn, only a line between weeks; the days'
+ * initials; each day's number in the middle; the week's number small and faint in the corner.
+ */
+.is-phone .ct-calendar .fc-dayGridMonth-view .fc-scrollgrid,
+.is-phone .ct-calendar .fc-dayGridMonth-view .fc-scrollgrid :is(td, th) {
+  border-inline: none;
+}
+
+.is-phone .ct-calendar .fc-dayGridMonth-view .fc-scrollgrid {
+  border-top: none;
+}
+
+.is-phone .ct-calendar .fc-dayGridMonth-view .fc-col-header-cell {
+  border: none;
+}
+
+.is-phone .ct-calendar .fc-dayGridMonth-view .fc-col-header-cell-cushion {
+  padding: var(--size-4-1) 0;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-normal);
+}
+
+.is-phone .ct-calendar .fc-dayGridMonth-view .fc-daygrid-day-top {
+  flex-direction: row;
+  justify-content: center;
+}
+
+.is-phone .ct-calendar .fc-dayGridMonth-view .fc-daygrid-day-number {
+  min-width: 1.75em;
+  margin: 3px 0 1px;
+  padding: 1px 2px;
+  font-size: var(--font-ui-small);
+  text-align: center;
+}
+
+.is-phone .ct-calendar .fc a.fc-daygrid-week-number {
+  top: 7px;
+  min-width: 0;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  font-size: 9px;
+  line-height: 1;
 }
 
 .ct-calendar .fc .fc-daygrid-dot-event:hover,

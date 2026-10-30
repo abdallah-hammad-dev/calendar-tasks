@@ -477,12 +477,14 @@ export class CardModal extends Modal {
   constructor(
     app: App,
     private readonly render: (el: HTMLElement, close: () => void) => void | (() => void),
+    private readonly title?: string,
   ) {
     super(app);
   }
 
   override onOpen(): void {
     this.modalEl.addClass("ct-card-modal");
+    if (this.title) this.setTitle(this.title);
     this.done = this.render(this.contentEl, () => this.close()) ?? null;
   }
 

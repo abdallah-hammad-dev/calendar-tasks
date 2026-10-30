@@ -2,6 +2,7 @@ import { Modal, Setting, type App } from "obsidian";
 import { t } from "../i18n";
 import { formRow } from "../ui/form-row";
 import { menuSelect } from "../ui/menu-select";
+import { formSheet } from "../ui/sheet";
 import { renderWhenFields, type When } from "./when-fields";
 
 export interface EventChoice {
@@ -128,6 +129,7 @@ export class EventModal extends Modal {
     this.setTitle(this.opts.edit ? t("modal.editEvent") : t("modal.newEvent"));
     this.modalEl.addClass("ct-task-modal");
     const input = renderEventForm(this.contentEl, this.opts, () => this.close());
+    formSheet(this);
     window.setTimeout(() => input.focus(), 0);
   }
 

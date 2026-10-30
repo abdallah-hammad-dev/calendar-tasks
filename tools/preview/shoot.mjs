@@ -96,7 +96,13 @@ const SCENARIOS = [
   ["phone-list", 393, 852],
   // The Tasks panel open: on a phone it takes the grid's place.
   ["phone-panel", 393, 852],
+  // The sheets: the views (tapped open), "+" (tapped open, then a new event), "⋯", the collections.
+  ["phone-views", 393, 852],
+  ["phone-add", 393, 852],
+  ["phone-more", 393, 852],
+  ["phone-collections", 393, 852],
   ["phone-new-task", 393, 852],
+  ["phone-new-task-keyboard", 393, 852],
   ["phone-task-preview", 393, 852],
   ["phone-edit-task", 393, 852],
   ["phone-new-event", 393, 852],
@@ -609,9 +615,11 @@ async function agenda(page, errors) {
 
 /**
  * On an iPhone (2026-10-30, from the user's screenshots: a session's day ran off the form, the month's last week
- * was under the navbar, the week's tab over Monday's number): nothing off the screen or out of its form, the
- * calendar above the navbar with its toolbar on two lines, no week tabs; a tap on a day of the month opens it, a
- * tap on an event its card. Takes the screenshot itself where it taps (`file`), before the tap.
+ * was under the navbar, the week's tab over Monday's number; then the views beside the tasks, the keyboard over the
+ * form): nothing off the screen or out of its form; the toolbar on one line, the calendar clear of the navbar; the
+ * weeks' numbers clear of the days'; the sheets (views, "+", "⋯", the collections) at the bottom; a form's Cancel /
+ * Create in its header, its field and suggestions above the keyboard; a tap on a day of the month opens it, a tap
+ * on an event its card. Takes the screenshot itself where it taps (`file`), before the tap.
  */
 async function phone(page, name, file, errors) {
   const outside = await page.evaluate(() => {
@@ -621,11 +629,23 @@ async function phone(page, name, file, errors) {
     return [...document.querySelectorAll("input, button, .ct-select")]
       .filter((el) => {
         const r = el.getBoundingClientRect();
-        return r.width && r.height && !el.closest(".mobile-navbar, .view-header") && (r.left < left - 0.5 || r.right > right + 0.5);
+        return r.width && r.height && !el.closest(".mobile-navbar, .view-header, .modal-header") && (r.left < left - 0.5 || r.right > right + 0.5);
       })
       .map((el) => el.getAttribute("placeholder") || el.textContent.trim() || el.className);
   });
   if (outside.length) errors.push(`out of the screen or the form: ${outside.slice(0, 3).join(", ")}`);
+  const sheet = () =>
+    page.evaluate(() => {
+      const menu = document.querySelector(".menu");
+      if (!menu) return null;
+      const r = menu.getBoundingClientRect();
+      return {
+        bottom: Math.round(r.bottom),
+        items: [...menu.querySelectorAll(".menu-item")].map((i) => i.textContent.trim()),
+        checked: [...menu.querySelectorAll(".menu-item.mod-checked")].map((i) => i.textContent.trim()),
+      };
+    });
+  const vh = page.viewportSize().height;
   if (name === "phone-date-suggest") {
     // Obsidian keeps the list within the screen: what it holds must fit, not run under its right edge.
     const cut = await page.$$eval(".ct-date-suggestion-day, .ct-date-suggestion-day > *", (days) =>
@@ -644,29 +664,93 @@ async function phone(page, name, file, errors) {
     await page.keyboard.type("@deadline ven 14h @tag famille ");
     await page.waitForTimeout(200);
   }
+  if (["phone-new-task", "phone-edit-task", "phone-new-event", "phone-new-task-keyboard"].includes(name)) {
+    const head = await page.evaluate(() => {
+      const r = (sel) => document.querySelector(sel)?.getBoundingClientRect() ?? null;
+      return {
+        cancel: document.querySelector(".modal-header .ct-sheet-cancel")?.textContent ?? null,
+        action: r(".modal-header .ct-sheet-action"),
+        row: document.querySelectorAll(".modal .ct-modal-buttons").length,
+        modal: r(".modal"),
+        tags: r(".ct-task-tags-input"),
+        suggestions: r(".suggestion-container"),
+      };
+    });
+    if (!head.cancel || !head.action) errors.push("Cancel / Create aren't in the form's header");
+    if (head.row) errors.push("the form still has its buttons' row");
+    if (name === "phone-new-task-keyboard") {
+      const top = vh - 336;
+      if (head.modal.bottom > top + 0.5) errors.push(`the form goes under the keyboard (${Math.round(head.modal.bottom - top)}px)`);
+      if (head.action.top < 0) errors.push("Create is off the screen");
+      if (!head.tags || head.tags.bottom > top || head.tags.top < head.modal.top) errors.push("the tags' field isn't in sight above the keyboard");
+      if (!head.suggestions) errors.push("no tag suggested");
+      else if (head.suggestions.bottom > top + 0.5) errors.push(`the tags' suggestions go under the keyboard (${Math.round(head.suggestions.bottom - top)}px)`);
+    }
+  }
+  if (name === "phone-more" || name === "phone-collections") {
+    const s = await sheet();
+    if (name === "phone-more" && (!s || s.bottom !== vh)) errors.push(`"⋯" isn't a sheet at the bottom (${JSON.stringify(s)})`);
+    if (name === "phone-more" && !s?.items.some((i) => i === "Collections")) errors.push(`"⋯" has no Collections: ${s?.items}`);
+    if (name === "phone-collections" && (await page.locator(".ct-collections .ct-legend-item").count()) !== 3) errors.push("the collections' sheet doesn't list the 3 collections");
+  }
+  if (name === "phone-views" || name === "phone-add") {
+    await page.locator(name === "phone-views" ? ".ct-cal-view" : ".ct-cal-add").tap();
+    await page.waitForTimeout(200);
+    const s = await sheet();
+    if (!s || s.bottom !== vh) errors.push(`no sheet at the bottom (${JSON.stringify(s)})`);
+    await page.screenshot({ path: file });
+    if (name === "phone-views") {
+      if (s?.items.join("|") !== "Mois|Jour|Planning|Tâches" || s?.checked.join() !== "Mois") errors.push(`the views' sheet: ${s?.items} (${s?.checked})`);
+      await page.locator(".menu-item", { hasText: "Tâches" }).tap();
+      await page.waitForTimeout(300);
+      const tasks = await page.evaluate(() => ({
+        title: document.querySelector(".ct-cal-title")?.textContent,
+        arrows: document.querySelectorAll(".ct-cal-arrow").length,
+        panel: !!document.querySelector(".ct-plan.is-open"),
+        grid: getComputedStyle(document.querySelector(".ct-calendar-grid")).display,
+        view: document.querySelector(".ct-cal-view")?.textContent,
+      }));
+      if (tasks.title !== "Tâches" || tasks.arrows || !tasks.panel || tasks.grid !== "none" || tasks.view !== "Tâches") errors.push(`the tasks, picked as a view: ${JSON.stringify(tasks)}`);
+      await page.screenshot({ path: file.replace(/-(light|dark)\.png$/, "-tasks-$1.png") });
+    } else {
+      if (s?.items.join("|") !== "Nouvelle tâche|Nouvel événement") errors.push(`"+": ${s?.items}`);
+      await page.locator(".menu-item", { hasText: "Nouvel événement" }).tap();
+      await page.waitForTimeout(300);
+      if (!(await page.locator(".modal.ct-sheet .ct-sheet-action").count())) errors.push("New event didn't open its form as a sheet");
+      else await page.screenshot({ path: file.replace(/-(light|dark)\.png$/, "-event-$1.png") });
+    }
+  }
   if (!["phone-month", "phone-day", "phone-list"].includes(name)) return;
   const layout = await page.evaluate(() => {
     const bar = document.querySelector(".ct-cal-bar");
     const lines = new Set([...bar.children].map((c) => Math.round(c.getBoundingClientRect().top + c.getBoundingClientRect().height / 2)));
+    // A week's number and a day's in the same cell must not touch.
+    const touching = [...document.querySelectorAll(".fc-daygrid-week-number")].filter((w) => {
+      const n = w.closest(".fc-daygrid-day")?.querySelector(".fc-daygrid-day-number")?.getBoundingClientRect();
+      const r = w.getBoundingClientRect();
+      return n && r.right > n.left - 2 && r.left < n.right && r.bottom > n.top && r.top < n.bottom;
+    }).length;
     return {
       lines: lines.size,
       bottom: document.querySelector(".fc").getBoundingClientRect().bottom,
       navbar: document.querySelector(".mobile-navbar").getBoundingClientRect().top,
-      weeks: document.querySelectorAll(".fc-daygrid-week-number, a.fc-timegrid-axis-cushion").length,
+      weeks: document.querySelectorAll(".fc-daygrid-week-number").length,
+      touching,
       title: document.querySelector(".ct-cal-title").textContent,
     };
   });
-  if (layout.lines > 2) errors.push(`the toolbar takes ${layout.lines} lines`);
-  if (layout.bottom > layout.navbar + 0.5) errors.push(`the calendar goes under the navbar (${Math.round(layout.bottom - layout.navbar)}px)`);
-  if (layout.weeks) errors.push("week numbers on a phone");
-  if (name === "phone-day" && layout.title !== "jeudi 15 octobre") errors.push(`the day's title reads "${layout.title}"`);
+  if (layout.lines > 1) errors.push(`the toolbar takes ${layout.lines} lines`);
+  if (layout.bottom > layout.navbar - 8) errors.push(`the calendar is ${Math.round(layout.navbar - layout.bottom)}px from the navbar`);
+  if (name === "phone-month" && layout.weeks !== 6) errors.push(`${layout.weeks} weeks' numbers in the month`);
+  if (layout.touching) errors.push(`${layout.touching} weeks' numbers touch a day's`);
+  if (name === "phone-day" && layout.title !== "jeu. 15 octobre") errors.push(`the day's title reads "${layout.title}"`);
   if (name === "phone-month") {
     await page.screenshot({ path: file });
     const day = await page.locator(".fc-daygrid-day[data-date='2026-10-21'] .fc-daygrid-day-frame").boundingBox();
     await page.touchscreen.tap(day.x + day.width / 2, day.y + day.height - 8);
     await page.waitForTimeout(300);
     const title = await page.locator(".ct-cal-title").textContent();
-    if (title !== "mercredi 21 octobre") errors.push(`a tap on the 21st of the month opened "${title}"`);
+    if (title !== "mer. 21 octobre") errors.push(`a tap on the 21st of the month opened "${title}"`);
     if (await page.locator(".modal-container").count()) errors.push("a tap on a day of the month opened a form");
   }
   if (name === "phone-day") {
@@ -1302,7 +1386,7 @@ for (const [name, width, height, scale = 2] of run) {
       const box = await settings.boundingBox();
       if (box) await page.setViewportSize({ width, height: Math.max(height, Math.ceil(box.y + box.height)) });
       await settings.screenshot({ path: file });
-    } else if (!["calendar-time", "calendar-new", "task-preview", "new-task-tags", "slot-picker", "date-picker", "new-event", "phone-month", "phone-day"].includes(name)) await page.screenshot({ path: file });
+    } else if (!["calendar-time", "calendar-new", "task-preview", "new-task-tags", "slot-picker", "date-picker", "new-event", "phone-month", "phone-day", "phone-views", "phone-add"].includes(name)) await page.screenshot({ path: file });
     console.log(`${errors.length ? "✗" : "✓"} ${name}-${theme}${errors.length ? `  ${errors.join(" | ")}` : ""}`);
     await page.close();
   }

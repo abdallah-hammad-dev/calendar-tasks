@@ -4,7 +4,7 @@ import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin, { Draggable, type DateClickArg } from "@fullcalendar/interaction";
 import listPlugin from "@fullcalendar/list";
 import timeGridPlugin from "@fullcalendar/timegrid";
-import { ItemView, Platform, setIcon, setTooltip, type WorkspaceLeaf } from "obsidian";
+import { ItemView, Menu, Platform, setIcon, setTooltip, type WorkspaceLeaf } from "obsidian";
 import { PRIORITY_MARK, type Priority } from "../constants";
 import { t, type StringKey } from "../i18n";
 import type { NewCalendar } from "../caldav/client";
@@ -98,6 +98,14 @@ const VIEWS: [string, StringKey][] = [
   ["timeGridDay", "view.day"],
   ["listWeek", "view.list"],
 ];
+
+/** Each view's icon in a phone's view sheet. */
+const VIEW_ICONS: Record<string, string> = {
+  dayGridMonth: "calendar-days",
+  timeGridWeek: "columns-3",
+  timeGridDay: "calendar-clock",
+  listWeek: "list",
+};
 
 /** "14:00" from a local value. */
 const hm = (value: string) => value.slice(11, 16);
@@ -274,9 +282,11 @@ export class CalendarView extends ItemView {
       // toolbar isn't FullCalendar's, so its own pick for "day" would be the agenda-like dayGridDay.
       navLinks: true,
       navLinkDayClick: "timeGridDay",
-      navLinkWeekClick: "timeGridWeek",
-      // A phone's month has no room for the week's tab: it covered Monday's number (2026-10-30).
-      weekNumbers: !Platform.isPhone,
+      // A phone has no week of columns: its week is the agenda.
+      navLinkWeekClick: Platform.isPhone ? "listWeek" : "timeGridWeek",
+      // A phone's month: the number alone, small, in the corner (2026-10-30: the tab covered Monday's number, and
+      // without them the user missed the weeks).
+      weekNumbers: true,
       // A phone: a tap in a day of the month opens it, as "+2" does (a popover of a 50px day says nothing).
       ...(Platform.isPhone
         ? {
@@ -287,7 +297,7 @@ export class CalendarView extends ItemView {
             moreLinkContent: (arg: MoreLinkContentArg) => `+${arg.num}`,
           }
         : {}),
-      weekNumberContent: (arg) => t("view.weekShort", { n: arg.num ?? "" }),
+      weekNumberContent: (arg) => (Platform.isPhone ? String(arg.num ?? "") : t("view.weekShort", { n: arg.num ?? "" })),
       scrollTime: "08:00:00",
       snapDuration: SNAP_MS,
       ...slotOptions(this.zoom),
@@ -302,7 +312,14 @@ export class CalendarView extends ItemView {
       views: {
         dayGridMonth: { eventOrder: "monthGroup,start,-duration,allDay,title" },
         // A phone's day: the weekday goes into the title, not into a column header that took a fifth of the screen.
-        ...(Platform.isPhone ? { timeGridDay: { dayHeaders: false, titleFormat: { weekday: "long", day: "numeric", month: "long" } } } : {}),
+        // Titles short enough for the toolbar's one line; a month's days by their initial, as iOS.
+        ...(Platform.isPhone
+          ? {
+              timeGridDay: { dayHeaders: false, titleFormat: { weekday: "short", day: "numeric", month: "long" } },
+              listWeek: { titleFormat: { day: "numeric", month: "short" } },
+              dayGridMonth: { eventOrder: "monthGroup,start,-duration,allDay,title", dayHeaderFormat: { weekday: "narrow" } },
+            }
+          : {}),
       },
       events: (info, success) => success(this.inputs(info.start, info.end)),
       eventContent: (arg) => this.eventContent(arg),
@@ -748,6 +765,10 @@ export class CalendarView extends ItemView {
     const cal = this.calendar;
     if (!bar || !cal) return;
     bar.empty();
+    if (Platform.isPhone) {
+      this.renderPhoneToolbar(bar, cal);
+      return;
+    }
     const nav = bar.createDiv({ cls: "ct-cal-nav" });
     const arrow = (icon: string, label: StringKey, run: () => void) => {
       const b = nav.createEl("button", { cls: "clickable-icon ct-cal-arrow", attr: { "aria-label": t(label) } });
@@ -761,10 +782,8 @@ export class CalendarView extends ItemView {
     const today = createEl("button", { cls: "ct-cal-today", text: t("chip.today") });
     today.disabled = now >= view.activeStart.getTime() && now < view.activeEnd.getTime();
     today.addEventListener("click", () => cal.today());
-    // A phone: ‹ › and the period, Today at the end of that line; the views and the actions (icons) on the next.
-    if (!Platform.isPhone) nav.append(today);
+    nav.append(today);
     bar.createDiv({ cls: "ct-cal-title", text: view.title });
-    if (Platform.isPhone) bar.append(today);
 
     const right = bar.createDiv({ cls: "ct-cal-right" });
     const seg = right.createDiv({ cls: "ct-segmented" });
@@ -772,7 +791,7 @@ export class CalendarView extends ItemView {
       const b = seg.createEl("button", { text: t(label), cls: view.type === type ? "is-active" : "" });
       b.addEventListener("click", () => cal.changeView(type));
     }
-    if (view.type.startsWith("timeGrid") && !Platform.isPhone) {
+    if (view.type.startsWith("timeGrid")) {
       const zoom = right.createDiv({ cls: "ct-cal-zoom" });
       const hint = t("view.zoomHint", { key: Platform.isMacOS ? "⌘" : "Ctrl" });
       for (const [icon, label, factor] of [["zoom-out", "view.zoomOut", 1 / ZOOM.step], ["zoom-in", "view.zoomIn", ZOOM.step]] as const) {
@@ -789,7 +808,6 @@ export class CalendarView extends ItemView {
       setTooltip(b, tooltip);
       b.addEventListener("click", run);
     };
-    // The command's icon: on a phone it stands alone, next to Obsidian's "+" for a new note.
     action("list-plus", t("command.newTask"), t("command.newTask"), () => this.host.newTask());
     // As iOS's Edit / Done: while moving, the button says how to finish.
     if (!view.type.startsWith("list")) {
@@ -805,6 +823,135 @@ export class CalendarView extends ItemView {
     const sync = right.createEl("button", { cls: "clickable-icon ct-cal-sync", attr: { "aria-label": t("command.syncNow") } });
     setIcon(sync, "refresh-cw");
     sync.addEventListener("click", () => this.host.sync());
+  }
+
+  /**
+   * A phone (2026-10-30, second try; the user: "fais toi les bons choix"): one line, as iOS's own apps. ‹ › and the
+   * period, today's date (back to today), the view as a button opening a sheet to pick another (the tasks are one:
+   * on a phone they take the calendar's place, and the views meant nothing beside them), "+" opening a sheet (a
+   * task, an event). Sync, move mode and the collections are in the view's "⋯" menu (`onPaneMenu`).
+   */
+  private renderPhoneToolbar(bar: HTMLElement, cal: Calendar): void {
+    const view = cal.view;
+    const tasks = this.host.planPanelOpen();
+    if (!tasks) {
+      const nav = bar.createDiv({ cls: "ct-cal-nav" });
+      for (const [icon, label, run] of [
+        ["chevron-left", "view.prev", () => cal.prev()],
+        ["chevron-right", "view.next", () => cal.next()],
+      ] as const) {
+        const b = nav.createEl("button", { cls: "clickable-icon ct-cal-arrow", attr: { "aria-label": t(label) } });
+        setIcon(b, icon);
+        b.addEventListener("click", run);
+      }
+    }
+    bar.createDiv({ cls: "ct-cal-title", text: tasks ? t("view.tasksPanel") : view.title });
+    if (!tasks) {
+      const now = new Date();
+      const today = bar.createEl("button", { cls: "ct-cal-today is-date", text: String(now.getDate()), attr: { "aria-label": t("chip.today") } });
+      today.disabled = now >= view.activeStart && now < view.activeEnd;
+      today.addEventListener("click", () => cal.today());
+    }
+    const shown = tasks ? t("view.tasksPanel") : t(this.views().find(([type]) => type === view.type)?.[1] ?? "view.month");
+    const pick = bar.createEl("button", { cls: "ct-cal-view", attr: { "aria-label": t("view.pick") } });
+    pick.createSpan({ text: shown });
+    setIcon(pick.createSpan({ cls: "ct-chip-icon" }), "chevron-down");
+    pick.addEventListener("click", (e) => this.viewMenu(e));
+    const add = bar.createEl("button", { cls: "clickable-icon ct-cal-add", attr: { "aria-label": t("view.add") } });
+    setIcon(add, "plus");
+    add.addEventListener("click", (e) => this.addMenu(e));
+  }
+
+  /** A phone's views, the tasks among them, in a sheet (Obsidian's menus are sheets from the bottom on a phone). */
+  private viewMenu(e: MouseEvent): void {
+    const cal = this.calendar;
+    if (!cal) return;
+    const tasks = this.host.planPanelOpen();
+    const menu = new Menu();
+    for (const [type, label] of this.views()) {
+      menu.addItem((item) =>
+        item
+          .setTitle(t(label))
+          .setIcon(VIEW_ICONS[type] ?? "calendar")
+          .setChecked(!tasks && cal.view.type === type)
+          .onClick(() => {
+            this.showTasks(false);
+            cal.changeView(type);
+          }),
+      );
+    }
+    menu.addItem((item) =>
+      item
+        .setTitle(t("view.tasksPanel"))
+        .setIcon("list-todo")
+        .setChecked(tasks)
+        .onClick(() => this.showTasks(true)),
+    );
+    menu.showAtMouseEvent(e);
+  }
+
+  /** "+" on a phone: a task, or an event. */
+  private addMenu(e: MouseEvent): void {
+    new Menu()
+      .addItem((item) => item.setTitle(t("command.newTask")).setIcon("list-plus").onClick(() => this.host.newTask()))
+      .addItem((item) => item.setTitle(t("modal.newEvent")).setIcon("calendar-plus").onClick(() => this.newEventNow()))
+      .showAtMouseEvent(e);
+  }
+
+  /** A new event from "+": the next hour today when today is shown, else 9:00 on the day shown. */
+  private newEventNow(): void {
+    const cal = this.calendar;
+    if (!cal) return;
+    const now = new Date();
+    const shown = now >= cal.view.activeStart && now < cal.view.activeEnd;
+    const start = shown ? now : cal.getDate();
+    start.setHours(shown ? now.getHours() + 1 : 9, 0, 0, 0);
+    const opts = this.host.newEvent(start, new Date(start.getTime() + 60 * 60_000), false);
+    if (opts) new EventModal(this.app, opts).open();
+  }
+
+  /** On a phone the tasks take the calendar's place, as one of its views. */
+  private showTasks(open: boolean): void {
+    if (this.host.planPanelOpen() === open) return;
+    if (open && this.moving) this.setMoving(false);
+    this.host.setPlanPanelOpen(open);
+    this.renderToolbar();
+    this.renderLegend();
+    this.renderPanel();
+    this.calendar?.updateSize();
+  }
+
+  /** A phone: what the toolbar has no room for, in the view's "⋯" menu. */
+  override onPaneMenu(menu: Menu, source: string): void {
+    super.onPaneMenu(menu, source);
+    if (!Platform.isPhone) return;
+    menu.addItem((item) => item.setTitle(t("command.syncNow")).setIcon("refresh-cw").onClick(() => this.host.sync()));
+    const type = this.calendar?.view.type ?? "";
+    if (!this.host.planPanelOpen() && !type.startsWith("list")) {
+      menu.addItem((item) =>
+        item
+          .setTitle(t(this.moving ? "view.move.done" : "view.move"))
+          .setIcon(this.moving ? "check" : "move")
+          .onClick(() => this.setMoving(!this.moving)),
+      );
+    }
+    menu.addItem((item) => item.setTitle(t("view.collections")).setIcon("layers").onClick(() => this.openCollections()));
+  }
+
+  /** A phone: the collections in a sheet, as the legend shows them on a computer. */
+  private openCollections(): void {
+    new CardModal(
+      this.app,
+      (box, close) => {
+        box.addClass("ct-collections");
+        const draw = () => {
+          box.empty();
+          this.collectionChips(box, { toggled: draw, leave: close });
+        };
+        draw();
+      },
+      t("view.collections"),
+    ).open();
   }
 
   /**
@@ -827,27 +974,8 @@ export class CalendarView extends ItemView {
     const legend = this.legend;
     if (!legend) return;
     legend.empty();
-    for (const c of this.host.calendars()) {
-      const chip = legend.createEl("button", { cls: `ct-legend-item${c.hidden ? " is-hidden" : ""}` });
-      chip.style.setProperty("--ct-dot", c.color);
-      chip.createSpan({ cls: "ct-legend-mark" });
-      chip.createSpan({ text: c.name });
-      setTooltip(chip, c.hidden ? t("view.show") : t("view.hide"));
-      chip.addEventListener("click", () => this.toggleCalendar(c.url));
-      chip.addEventListener("contextmenu", (e) => {
-        e.preventDefault();
-        this.editCalendar(c, chip);
-      });
-      const pencil = chip.createSpan({ cls: "ct-legend-edit", attr: { "aria-label": t("cal.edit") } });
-      setIcon(pencil, "pencil");
-      pencil.addEventListener("click", (e) => {
-        e.stopPropagation();
-        this.editCalendar(c, chip);
-      });
-    }
-    const add = legend.createEl("button", { cls: "clickable-icon ct-legend-add", attr: { "aria-label": t("cal.new") } });
-    setIcon(add, "plus");
-    add.addEventListener("click", () => this.newCalendar(add));
+    // A phone: the collections are in "⋯" (`openCollections`); only move mode's hint shows here.
+    if (!Platform.isPhone) this.collectionChips(legend);
     if (this.moving) {
       const hint = legend.createDiv({ cls: "ct-move-hint" });
       setIcon(hint.createSpan({ cls: "ct-chip-icon" }), "move");
@@ -856,6 +984,7 @@ export class CalendarView extends ItemView {
       if (!Platform.isMobile) hint.createSpan({ cls: "ct-move-hint-key", text: t("view.move.escape") });
       return;
     }
+    if (Platform.isPhone) return;
     // What the shapes mean, drawn as this view draws them: blocks in the week and day, the marks before each line
     // in the month and the agenda (a solid bar, a dashed one, the checkbox).
     const lines = !(this.calendar?.view.type.startsWith("timeGrid") ?? true);
@@ -866,6 +995,43 @@ export class CalendarView extends ItemView {
       if (shape === "deadline") swatch.createSpan({ cls: "ct-key-check" });
       item.createSpan({ text: t(label) });
     }
+  }
+
+  /**
+   * The collections' chips, then "+". In the phone's sheet, `toggled` redraws it and `leave` closes it before a
+   * collection's card (or the new one's) opens.
+   */
+  private collectionChips(el: HTMLElement, sheet?: { toggled: () => void; leave: () => void }): void {
+    for (const c of this.host.calendars()) {
+      const chip = el.createEl("button", { cls: `ct-legend-item${c.hidden ? " is-hidden" : ""}` });
+      chip.style.setProperty("--ct-dot", c.color);
+      chip.createSpan({ cls: "ct-legend-mark" });
+      chip.createSpan({ cls: "ct-legend-name", text: c.name });
+      setTooltip(chip, c.hidden ? t("view.show") : t("view.hide"));
+      chip.addEventListener("click", () => {
+        this.toggleCalendar(c.url);
+        sheet?.toggled();
+      });
+      chip.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        sheet?.leave();
+        this.editCalendar(c, chip);
+      });
+      const pencil = chip.createSpan({ cls: "ct-legend-edit", attr: { "aria-label": t("cal.edit") } });
+      setIcon(pencil, "pencil");
+      pencil.addEventListener("click", (e) => {
+        e.stopPropagation();
+        sheet?.leave();
+        this.editCalendar(c, chip);
+      });
+    }
+    const add = el.createEl("button", { cls: "clickable-icon ct-legend-add", attr: { "aria-label": t("cal.new") } });
+    setIcon(add, "plus");
+    if (sheet) add.createSpan({ text: t("cal.new") });
+    add.addEventListener("click", () => {
+      sheet?.leave();
+      this.newCalendar(add);
+    });
   }
 
   /**
