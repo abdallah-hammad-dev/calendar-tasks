@@ -1,6 +1,6 @@
 {
   "name": "calendar-tasks",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "CalDAV calendar and tasks in Obsidian: a note for every event and task, a calendar view, a Bases task list.",
   "type": "module",
