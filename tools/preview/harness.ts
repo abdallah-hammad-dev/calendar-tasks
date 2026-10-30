@@ -240,7 +240,7 @@ function calendar(view: "timeGridWeek" | "timeGridDay" | "dayGridMonth" | "listW
         v.refresh();
       }, 400);
     },
-    savedView: () => null,
+    savedView: () => view,
     saveView: () => undefined,
   };
   const leaf = { app: { workspace: { on: () => ({}), getActiveViewOfType: () => v }, loadLocalStorage: () => null, saveLocalStorage: () => undefined } };
@@ -255,7 +255,6 @@ function calendar(view: "timeGridWeek" | "timeGridDay" | "dayGridMonth" | "listW
     tab.appendChild(v.containerEl);
   } else document.body.appendChild(v.containerEl);
   void v.onOpen().then(() => {
-    if (view !== "timeGridWeek") (v as unknown as { calendar: { changeView(v: string): void } }).calendar.changeView(view);
     // A phone's "⋯" (Obsidian's view menu, a sheet), and the collections it opens.
     if (scenario === "phone-more") {
       const menu = new Menu();
@@ -505,7 +504,7 @@ function newTask(tags = false): void {
 
 /**
  * The task form on a phone with the keyboard up (Obsidian says its height in `--keyboard-height`), typing a tag:
- * the field and its suggestions must show above the keyboard, Cancel / Create too.
+ * the field and its suggestions must show above the keyboard, ✕ and ✓ too.
  */
 function newTaskKeyboard(): void {
   document.documentElement.style.setProperty("--keyboard-height", "336px");
@@ -572,7 +571,9 @@ function datePicker(): void {
  */
 function taskNote(kind: "full" | "short" | "done" | "repeat" = "full"): void {
   const short = kind !== "full";
-  const leaf = document.body.createDiv({ cls: "workspace-leaf-content", attr: { "data-type": "markdown" } });
+  // On a phone inside `.mod-root`, where Obsidian pads the page under its floating header.
+  if (phone) document.body.addClass("show-inline-title");
+  const leaf = (phone ? document.body.createDiv({ cls: "mod-root" }) : document.body).createDiv({ cls: "workspace-leaf-content", attr: { "data-type": "markdown" } });
   Object.assign(leaf.style, { height: "100vh", display: "flex", flexDirection: "column" });
   leaf.createDiv({ cls: "view-header", text: "" }).style.height = "40px";
   const content = leaf.createDiv({ cls: "view-content ct-task-view" });
@@ -731,7 +732,7 @@ else if (scenario === "phone-month") calendar("dayGridMonth");
 else if (scenario === "phone-day") calendar("timeGridDay");
 else if (scenario === "phone-list") calendar("listWeek");
 else if (scenario === "phone-panel") calendar("timeGridDay");
-else if (scenario === "phone-views" || scenario === "phone-add" || scenario === "phone-more" || scenario === "phone-collections") calendar("dayGridMonth");
+else if (scenario === "phone-tasks" || scenario === "phone-add" || scenario === "phone-more" || scenario === "phone-collections") calendar("dayGridMonth");
 else if (scenario === "phone-new-task-keyboard") newTaskKeyboard();
 else if (scenario === "phone-new-task") newTask();
 else if (scenario === "phone-task-preview") taskPreview();

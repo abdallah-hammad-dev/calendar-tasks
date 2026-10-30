@@ -1,8 +1,9 @@
-import { Calendar, type DayHeaderContentArg, type EventContentArg, type EventInput, type MoreLinkContentArg } from "@fullcalendar/core";
+import { Calendar, type DayCellMountArg, type DayHeaderContentArg, type EventContentArg, type EventInput, type MoreLinkContentArg } from "@fullcalendar/core";
 import frLocale from "@fullcalendar/core/locales/fr";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin, { Draggable, type DateClickArg } from "@fullcalendar/interaction";
 import listPlugin from "@fullcalendar/list";
+import multiMonthPlugin from "@fullcalendar/multimonth";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import { ItemView, Menu, Platform, setIcon, setTooltip, type WorkspaceLeaf } from "obsidian";
 import { PRIORITY_MARK, type Priority } from "../constants";
@@ -99,13 +100,19 @@ const VIEWS: [string, StringKey][] = [
   ["listWeek", "view.list"],
 ];
 
-/** Each view's icon in a phone's view sheet. */
-const VIEW_ICONS: Record<string, string> = {
-  dayGridMonth: "calendar-days",
-  timeGridWeek: "columns-3",
-  timeGridDay: "calendar-clock",
-  listWeek: "list",
-};
+/**
+ * A phone's month (2026-10-30, the user: "comme apple calendar"): the months one under the other, scrolled with the
+ * finger, FullCalendar's `multiMonth`. It draws a fixed range: `MONTHS_AROUND` on each side of the date shown, and
+ * near an end, once the scroll has stopped, the months around the one on screen (`keepMonths`). Saved as the
+ * computer's month, which it stands for. "dayGrid…" so that it counts as a grid of days (`renderLegend`).
+ */
+const MONTHS_VIEW = "dayGridMonths";
+const MONTHS_AROUND = 6;
+/** How far a finger goes sideways, in px, to turn a phone's day or agenda (`swipeDays`). */
+const SWIPE_PX = 60;
+
+/** "2026-10": how FullCalendar names a month in its `data-date`. */
+const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 
 /** "14:00" from a local value. */
 const hm = (value: string) => value.slice(11, 16);
@@ -141,6 +148,9 @@ export class CalendarView extends ItemView {
   private calendar: Calendar | null = null;
   private toolbar: HTMLElement | null = null;
   private legend: HTMLElement | null = null;
+  private weekdays: HTMLElement | null = null;
+  /** The month on a phone's screen. */
+  private month: Date | null = null;
   private panel: HTMLElement | null = null;
   private draggable: Draggable | null = null;
   private popover: { el: HTMLElement; kind: PopoverKind; closed: () => void } | null = null;
@@ -198,9 +208,11 @@ export class CalendarView extends ItemView {
     return "calendar";
   }
 
-  private views(): [string, StringKey][] {
-    // A week of columns doesn't fit a phone.
-    return Platform.isPhone ? VIEWS.filter(([type]) => type !== "timeGridWeek") : VIEWS;
+  /** The view to open on. A phone has no week of columns (it doesn't fit), and its month is `MONTHS_VIEW`. */
+  private firstView(): string {
+    const saved = this.host.savedView();
+    if (Platform.isPhone) return saved === "timeGridDay" || saved === "listWeek" ? saved : MONTHS_VIEW;
+    return saved && VIEWS.some(([type]) => type === saved) ? saved : "timeGridWeek";
   }
 
   override async onOpen(): Promise<void> {
@@ -209,6 +221,7 @@ export class CalendarView extends ItemView {
     root.addClass("ct-calendar");
     this.toolbar = root.createDiv({ cls: "ct-cal-bar" });
     this.legend = root.createDiv({ cls: "ct-calendar-legend" });
+    if (Platform.isPhone) this.renderWeekdays(root);
     const body = root.createDiv({ cls: "ct-calendar-body" });
     const grid = body.createDiv({ cls: "ct-calendar-grid" });
     this.panel = body.createDiv({ cls: "ct-plan" });
@@ -217,14 +230,12 @@ export class CalendarView extends ItemView {
       itemSelector: ".ct-plan-item",
       eventData: (el) => ({ title: el.dataset.title ?? "", create: false, duration: "01:00" }),
     });
-    const saved = this.host.savedView();
-    const initialView = saved && this.views().some(([type]) => type === saved) ? saved : Platform.isPhone ? "listWeek" : "timeGridWeek";
     this.zoom = Math.min(ZOOM.max, Math.max(ZOOM.min, Number(this.app.loadLocalStorage(ZOOM_KEY)) || ZOOM.base));
     this.dragLayer?.remove();
     this.dragLayer = root.ownerDocument.body.createDiv({ cls: "ct-calendar ct-drag-layer" });
     root.style.setProperty("--ct-slot-h", `${this.slotHeight()}px`);
     this.calendar = new Calendar(grid, {
-      plugins: [dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin],
+      plugins: [dayGridPlugin, timeGridPlugin, listPlugin, multiMonthPlugin, interactionPlugin],
       headerToolbar: false,
       footerToolbar: false,
       editable: true,
@@ -272,7 +283,7 @@ export class CalendarView extends ItemView {
         void this.host
           .move(info.event.extendedProps.occ as Occurrence, info.event.start!, info.event.end, info.event.allDay)
           .then((ok) => ok || info.revert()),
-      initialView,
+      initialView: this.firstView(),
       ...(this.host.initialDate ? { initialDate: this.host.initialDate() } : {}),
       ...(this.host.language().startsWith("fr") ? { locale: frLocale } : {}),
       firstDay: 1,
@@ -291,10 +302,15 @@ export class CalendarView extends ItemView {
       ...(Platform.isPhone
         ? {
             dateClick: (info: DateClickArg) => {
-              if (info.view.type === "dayGridMonth") this.calendar?.changeView("timeGridDay", info.date);
+              if (info.view.type === MONTHS_VIEW) this.calendar?.changeView("timeGridDay", info.date);
             },
             moreLinkClick: "timeGridDay",
             moreLinkContent: (arg: MoreLinkContentArg) => `+${arg.num}`,
+            // A month's name sits over its first day, as iOS's.
+            dayCellDidMount: (arg: DayCellMountArg) => {
+              if (arg.date.getDate() !== 1 || arg.isDisabled) return;
+              arg.el.closest<HTMLElement>(".fc-multimonth-month")?.style.setProperty("--ct-first", String((arg.date.getDay() + 6) % 7));
+            },
           }
         : {}),
       weekNumberContent: (arg) => (Platform.isPhone ? String(arg.num ?? "") : t("view.weekShort", { n: arg.num ?? "" })),
@@ -312,12 +328,25 @@ export class CalendarView extends ItemView {
       views: {
         dayGridMonth: { eventOrder: "monthGroup,start,-duration,allDay,title" },
         // A phone's day: the weekday goes into the title, not into a column header that took a fifth of the screen.
-        // Titles short enough for the toolbar's one line; a month's days by their initial, as iOS.
+        // Titles short enough for the toolbar's one line.
         ...(Platform.isPhone
           ? {
               timeGridDay: { dayHeaders: false, titleFormat: { weekday: "short", day: "numeric", month: "long" } },
               listWeek: { titleFormat: { day: "numeric", month: "short" } },
-              dayGridMonth: { eventOrder: "monthGroup,start,-duration,allDay,title", dayHeaderFormat: { weekday: "narrow" } },
+              [MONTHS_VIEW]: {
+                type: "multiMonth",
+                visibleRange: (date: Date) => ({
+                  start: new Date(date.getFullYear(), date.getMonth() - MONTHS_AROUND, 1),
+                  end: new Date(date.getFullYear(), date.getMonth() + MONTHS_AROUND + 1, 1),
+                }),
+                multiMonthMaxColumns: 1,
+                multiMonthTitleFormat: { month: "long" },
+                fixedWeekCount: false,
+                showNonCurrentDates: false,
+                eventOrder: "monthGroup,start,-duration,allDay,title",
+                // A month, to styles.css.
+                viewClassNames: "fc-dayGridMonth-view",
+              },
             }
           : {}),
       },
@@ -326,7 +355,13 @@ export class CalendarView extends ItemView {
       dayHeaderContent: (arg) => this.dayHeader(arg),
       datesSet: (arg) => {
         this.closePopover();
-        this.host.saveView(arg.view.type);
+        this.host.saveView(arg.view.type === MONTHS_VIEW ? "dayGridMonth" : arg.view.type);
+        if (Platform.isPhone) {
+          if (arg.view.type === MONTHS_VIEW) this.month = this.calendar?.getDate() ?? null;
+          // The day and the agenda turn with a swipe, which Obsidian would take for its own (`swipeDays`).
+          if (arg.view.type === MONTHS_VIEW) delete grid.dataset.ignoreSwipe;
+          else grid.dataset.ignoreSwipe = "true";
+        }
         // Nothing drags in the agenda: move mode ends there. Elsewhere its hint says what dragging does in this view.
         if (this.moving && arg.view.type.startsWith("list")) this.setMoving(false);
         // The key draws the shapes as this view does; in move mode, the hint says what dragging does here.
@@ -387,6 +422,10 @@ export class CalendarView extends ItemView {
     this.renderToolbar();
     this.renderLegend();
     this.registerEvent(this.app.workspace.on("resize", () => this.calendar?.updateSize()));
+    if (Platform.isPhone) {
+      this.followMonths(grid);
+      this.swipeDays(grid);
+    }
     // Zoom on the hours: Ctrl (⌘) + wheel, which is also what a trackpad pinch sends, or two fingers on a screen.
     this.registerDomEvent(
       grid,
@@ -678,7 +717,7 @@ export class CalendarView extends ItemView {
         if (end && end.toDateString() === start.toDateString()) time.createSpan({ text: ` – ${clock(end)}` });
         if (occ.location) time.createSpan({ cls: "ct-ev-place", text: ` · ${occ.location}` });
       }
-    } else if (type === "dayGridMonth" && Platform.isPhone && (!occ.allDay || task)) {
+    } else if (type === MONTHS_VIEW && (!occ.allDay || task)) {
       // A phone's day is 50px wide: its mark and the title, no times (2026-10-30: they took the whole line); the day
       // is a tap away. The checkbox doesn't tick here: a tap opens the card.
       el.addClass("is-line", "is-compact");
@@ -787,7 +826,7 @@ export class CalendarView extends ItemView {
 
     const right = bar.createDiv({ cls: "ct-cal-right" });
     const seg = right.createDiv({ cls: "ct-segmented" });
-    for (const [type, label] of this.views()) {
+    for (const [type, label] of VIEWS) {
       const b = seg.createEl("button", { text: t(label), cls: view.type === type ? "is-active" : "" });
       b.addEventListener("click", () => cal.changeView(type));
     }
@@ -826,68 +865,154 @@ export class CalendarView extends ItemView {
   }
 
   /**
-   * A phone (2026-10-30, second try; the user: "fais toi les bons choix"): one line, as iOS's own apps. ‹ › and the
-   * period, today's date (back to today), the view as a button opening a sheet to pick another (the tasks are one:
-   * on a phone they take the calendar's place, and the views meant nothing beside them), "+" opening a sheet (a
-   * task, an event). Sync, move mode and the collections are in the view's "⋯" menu (`onPaneMenu`).
+   * A phone: one line, as iOS's own apps (2026-10-30, third try; the user: no menu to pick the month or the day, "juste
+   * choisir le jour, et retourne au mois avec un bouton"). The month is home: its title follows the scroll, with
+   * the tasks' button, today's date and "+" (a sheet: a task, an event). A day, opened from it, has "‹ month" to go
+   * back, and the agenda a button of its own there. Sync, move mode and the collections are in the view's "⋯" menu
+   * (`onPaneMenu`).
    */
   private renderPhoneToolbar(bar: HTMLElement, cal: Calendar): void {
     const view = cal.view;
     const tasks = this.host.planPanelOpen();
-    if (!tasks) {
-      const nav = bar.createDiv({ cls: "ct-cal-nav" });
-      for (const [icon, label, run] of [
-        ["chevron-left", "view.prev", () => cal.prev()],
-        ["chevron-right", "view.next", () => cal.next()],
-      ] as const) {
-        const b = nav.createEl("button", { cls: "clickable-icon ct-cal-arrow", attr: { "aria-label": t(label) } });
-        setIcon(b, icon);
-        b.addEventListener("click", run);
-      }
+    const month = view.type === MONTHS_VIEW && !tasks;
+    const tool = (icon: string, label: StringKey, run: () => void) => {
+      const b = bar.createEl("button", { cls: "clickable-icon ct-cal-tool", attr: { "aria-label": t(label) } });
+      setIcon(b, icon);
+      b.addEventListener("click", run);
+      return b;
+    };
+    if (!month) {
+      const back = bar.createEl("button", { cls: "ct-cal-back", attr: { "aria-label": t("view.month") } });
+      setIcon(back.createSpan({ cls: "ct-chip-icon" }), "chevron-left");
+      back.createSpan({ text: new Intl.DateTimeFormat(this.host.language(), { month: "long" }).format(this.backDate(cal)) });
+      back.addEventListener("click", () => this.backToMonth());
     }
-    bar.createDiv({ cls: "ct-cal-title", text: tasks ? t("view.tasksPanel") : view.title });
+    const shownMonth = this.month ?? cal.getDate();
+    const period = tasks ? t("view.tasksPanel") : month ? new Intl.DateTimeFormat(this.host.language(), { month: "long", year: "numeric" }).format(shownMonth) : view.title;
+    bar.createDiv({ cls: "ct-cal-title", text: period });
+    if (month) tool("list-todo", "view.tasksPanel", () => this.showTasks(true));
+    else if (!tasks) {
+      const list = view.type === "listWeek";
+      tool("list", list ? "view.day" : "view.list", () => cal.changeView(list ? "timeGridDay" : "listWeek")).toggleClass("is-active", list);
+    }
     if (!tasks) {
       const now = new Date();
       const today = bar.createEl("button", { cls: "ct-cal-today is-date", text: String(now.getDate()), attr: { "aria-label": t("chip.today") } });
-      today.disabled = now >= view.activeStart && now < view.activeEnd;
-      today.addEventListener("click", () => cal.today());
+      today.disabled = this.todayShown();
+      today.addEventListener("click", () => (month ? this.showMonth(now, true) : cal.today()));
     }
-    const shown = tasks ? t("view.tasksPanel") : t(this.views().find(([type]) => type === view.type)?.[1] ?? "view.month");
-    const pick = bar.createEl("button", { cls: "ct-cal-view", attr: { "aria-label": t("view.pick") } });
-    pick.createSpan({ text: shown });
-    setIcon(pick.createSpan({ cls: "ct-chip-icon" }), "chevron-down");
-    pick.addEventListener("click", (e) => this.viewMenu(e));
-    const add = bar.createEl("button", { cls: "clickable-icon ct-cal-add", attr: { "aria-label": t("view.add") } });
-    setIcon(add, "plus");
-    add.addEventListener("click", (e) => this.addMenu(e));
+    tool("plus", "view.add", () => undefined).addEventListener("click", (e) => this.addMenu(e));
   }
 
-  /** A phone's views, the tasks among them, in a sheet (Obsidian's menus are sheets from the bottom on a phone). */
-  private viewMenu(e: MouseEvent): void {
+  /** The days of the week over a phone's months, which scroll under them. */
+  private renderWeekdays(root: HTMLElement): void {
+    this.weekdays = root.createDiv({ cls: "ct-cal-weekdays" });
+    const name = new Intl.DateTimeFormat(this.host.language(), { weekday: "narrow" });
+    for (let day = 19; day < 26; day++) this.weekdays.createSpan({ text: name.format(new Date(2026, 9, day)) }); // a Monday, on
+  }
+
+  private monthsBox(): HTMLElement | null {
+    return this.contentEl.querySelector<HTMLElement>(".fc-multimonth");
+  }
+
+  /** The month on a phone's screen: the one a third of the way down it. */
+  private monthOnScreen(box: HTMLElement): HTMLElement | null {
+    const line = box.scrollTop + box.clientHeight / 3;
+    return Array.from(box.querySelectorAll<HTMLElement>(".fc-multimonth-month")).reverse().find((m) => m.offsetTop <= line) ?? null;
+  }
+
+  /** A phone's months as they scroll: the toolbar says which is on screen, and more come near the end. */
+  private followMonths(grid: HTMLElement): void {
+    let idle = 0;
+    this.registerDomEvent(
+      grid,
+      "scroll",
+      (e) => {
+        const box = e.target;
+        if (!(box instanceof HTMLElement) || !box.matches(".fc-multimonth")) return;
+        const [year, month] = (this.monthOnScreen(box)?.dataset.date ?? "").split("-").map(Number);
+        const shown = year && month ? new Date(year, month - 1, 1) : null;
+        if (shown && monthKey(shown) !== (this.month && monthKey(this.month))) {
+          this.month = shown;
+          this.renderToolbar();
+        }
+        window.clearTimeout(idle);
+        idle = window.setTimeout(() => this.keepMonths(), 250);
+      },
+      { capture: true, passive: true },
+    );
+  }
+
+  /** Near an end of the months drawn: those around the one on screen, which stays where it is. */
+  private keepMonths(): void {
+    const box = this.monthsBox();
+    const shown = box && this.monthOnScreen(box);
+    if (!box || !shown || !this.month) return;
+    const months = box.querySelectorAll(".fc-multimonth-month");
+    const place = Array.from(months).indexOf(shown);
+    if (place >= 2 && place < months.length - 2) return;
+    const into = box.scrollTop - shown.offsetTop;
+    this.calendar?.gotoDate(this.month);
+    const again = this.monthsBox();
+    const top = again?.querySelector<HTMLElement>(`[data-date="${monthKey(this.month)}"]`)?.offsetTop;
+    if (again && top !== undefined) again.scrollTop = top + into;
+  }
+
+  /** Brings a month of a phone's months on screen: one drawn by a scroll, else the months around it. */
+  private showMonth(date: Date, smooth = false): void {
+    const box = this.monthsBox();
+    const el = box?.querySelector<HTMLElement>(`[data-date="${monthKey(date)}"]`);
+    if (box && el) box.scrollTo({ top: el.offsetTop, behavior: smooth ? "smooth" : "auto" });
+    else this.calendar?.gotoDate(date);
+  }
+
+  /** The month "‹ month" goes back to. */
+  private backDate(cal: Calendar): Date {
+    return cal.view.type === MONTHS_VIEW ? (this.month ?? cal.getDate()) : cal.getDate();
+  }
+
+  private backToMonth(): void {
     const cal = this.calendar;
     if (!cal) return;
-    const tasks = this.host.planPanelOpen();
-    const menu = new Menu();
-    for (const [type, label] of this.views()) {
-      menu.addItem((item) =>
-        item
-          .setTitle(t(label))
-          .setIcon(VIEW_ICONS[type] ?? "calendar")
-          .setChecked(!tasks && cal.view.type === type)
-          .onClick(() => {
-            this.showTasks(false);
-            cal.changeView(type);
-          }),
-      );
-    }
-    menu.addItem((item) =>
-      item
-        .setTitle(t("view.tasksPanel"))
-        .setIcon("list-todo")
-        .setChecked(tasks)
-        .onClick(() => this.showTasks(true)),
+    const date = this.backDate(cal);
+    this.showTasks(false);
+    cal.changeView(MONTHS_VIEW, date);
+  }
+
+  /** Whether today is in what's on screen: a phone's month is the one on screen, not all those drawn. */
+  private todayShown(): boolean {
+    const cal = this.calendar;
+    if (!cal) return false;
+    const now = new Date();
+    if (cal.view.type === MONTHS_VIEW) return monthKey(now) === monthKey(this.month ?? cal.getDate());
+    return now >= cal.view.activeStart && now < cal.view.activeEnd;
+  }
+
+  /** A phone's day and agenda: a swipe goes to the next or previous day or week, as Apple Calendar's. */
+  private swipeDays(grid: HTMLElement): void {
+    let from: { x: number; y: number } | null = null;
+    this.registerDomEvent(
+      grid,
+      "touchstart",
+      (e) => {
+        const touch = e.touches[0];
+        from = touch && e.touches.length === 1 && !this.moving ? { x: touch.clientX, y: touch.clientY } : null;
+      },
+      { passive: true },
     );
-    menu.showAtMouseEvent(e);
+    this.registerDomEvent(grid, "touchend", (e) => {
+      const touch = e.changedTouches[0];
+      const cal = this.calendar;
+      if (!from || !touch || !cal || cal.view.type === MONTHS_VIEW) return;
+      const dx = touch.clientX - from.x;
+      const dy = touch.clientY - from.y;
+      from = null;
+      if (Math.abs(dx) < SWIPE_PX || Math.abs(dx) < 2 * Math.abs(dy)) return;
+      if (dx < 0) cal.next();
+      else cal.prev();
+      const shift = dx < 0 ? 24 : -24;
+      grid.querySelector(".fc-view-harness")?.animate([{ transform: `translateX(${shift}px)`, opacity: 0.4 }, { transform: "none", opacity: 1 }], { duration: 180, easing: "ease-out" });
+    });
   }
 
   /** "+" on a phone: a task, or an event. */
@@ -903,8 +1028,8 @@ export class CalendarView extends ItemView {
     const cal = this.calendar;
     if (!cal) return;
     const now = new Date();
-    const shown = now >= cal.view.activeStart && now < cal.view.activeEnd;
-    const start = shown ? now : cal.getDate();
+    const shown = this.todayShown();
+    const start = shown ? now : new Date(this.backDate(cal));
     start.setHours(shown ? now.getHours() + 1 : 9, 0, 0, 0);
     const opts = this.host.newEvent(start, new Date(start.getTime() + 60 * 60_000), false);
     if (opts) new EventModal(this.app, opts).open();
@@ -976,6 +1101,7 @@ export class CalendarView extends ItemView {
     legend.empty();
     // A phone: the collections are in "⋯" (`openCollections`); only move mode's hint shows here.
     if (!Platform.isPhone) this.collectionChips(legend);
+    this.weekdays?.toggleClass("is-shown", this.calendar?.view.type === MONTHS_VIEW && !this.host.planPanelOpen());
     if (this.moving) {
       const hint = legend.createDiv({ cls: "ct-move-hint" });
       setIcon(hint.createSpan({ cls: "ct-chip-icon" }), "move");

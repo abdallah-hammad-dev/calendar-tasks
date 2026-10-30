@@ -16,10 +16,13 @@ user at each one.
   `phone-…` scenarios are an iPhone (393 × 852, `is-phone`, touch, Obsidian's floating header and navbar drawn
   around the view): `phone()` in shoot.mjs fails on anything off the screen or out of its form, the calendar less
   than 8px above the navbar, a toolbar over one line, a week's number touching a day's, a sheet not at the bottom,
-  a form without Cancel / Create in its header; it taps a day of the month, an event, the views' sheet (then
-  Tasks) and "+" (then New event). `phone-new-task-keyboard` sets `--keyboard-height` and draws a keyboard: the tags
-  and their suggestions must show above it. The stand-in's menus close on a tap, as Obsidian's. Finds Obsidian's
-  AppImage while it runs and a system Chrome; else `OBSIDIAN_ASAR` / `CHROMIUM_PATH`.
+  a form without one ✕ and one ✓ beside its title, a task's title more than 32px under its header; it scrolls the
+  months (more must come, what's on screen staying), taps a day and comes back, swipes a day, opens the agenda and
+  the tasks, an event and "+" (then New event). `phone-new-task-keyboard` sets `--keyboard-height` and draws a
+  keyboard: the tags must show above it, their suggestions above them, and no empty sheet under the form. The
+  stand-in's menus close on a tap, as Obsidian's, and its Modal has Obsidian's ✕. Uses the newest of Obsidian's
+  updates (`~/.config/obsidian/obsidian-*.asar`…), then the installed one, and a system Chrome; else `OBSIDIAN_ASAR`
+  / `CHROMIUM_PATH`. The AppImage's own asar was 1.12 while 1.14 ran: the phone showed a ✕ the preview hid.
 - `npm run deploy` — build + copy into `./test-vault`; `TEST_VAULT=/mnt/c/Users/abdal/Documents/ct-test-vault`
   for a vault Windows Obsidian can open. Refuses non-empty folders without the `.calendar-tasks-test-vault` marker.
 - Release: `npm version patch|minor|major` then `git push --follow-tags` (`docs/releasing.md`). Never hand-edit the
@@ -45,7 +48,7 @@ user at each one.
 
 ## Layout
 - `src/main.ts` — plugin entry: settings, the `SyncEngine` (rebuilt when connection settings change), commands
-  (Sync now, Rebuild cache), auto-sync (startup, interval, window focus with a 30 s gap).
+  (Sync now, Rebuild cache), auto-sync (startup, interval, window focus or back to the app on the phone, with a 30 s gap).
 - `src/settings.ts` — persisted shape, defaults, `mergeSettings` (pure, tested), declarative settings tab (1.13+:
   `getSettingDefinitions`, values go through `mergeSettings` in `setControlValue`).
 - `src/caldav/` — `transport.ts` (`requestUrl` wrapper, Basic auth), `xml.ts` (namespace-aware multistatus parsing
@@ -511,10 +514,23 @@ user at each one.
   `projectTag` setting, project notes and the `project:` property are gone; old `project:` values are left alone.
 - **Phones** (2026-10-30, two tries on the iPhone; the user: "un peu dégueu", "rajouter une tâche c pas du tout
   ergonomique", then "pk on fait pas usage des trucs de mobile […] fais TOI LES BONS CHOIX"). As iOS's own apps,
-  with Obsidian's sheets (a `Menu` is a sheet from the bottom on a phone): the toolbar is one line (‹ › the
-  period, today's date in a frame, the view as a button opening a sheet, "+" opening a sheet: New task, New event
-  at the next hour or 9:00 on the day shown); the tasks are one of the views (they take the calendar's place: the
-  views beside them meant nothing, and the bar changed width as Move came and went); sync, Move and the
+  with Obsidian's sheets (a `Menu` is a sheet from the bottom on a phone). **The month is home** (third try, the
+  user, with their Apple Calendar beside it: "pas besoin d'avoir un menu déroulant pour choisir mois et jour", "glisse
+  vers le bas je peux voir le mois d'après"): `MONTHS_VIEW`, FullCalendar's `multiMonth` in one column, the months
+  under one another in a native scroll, over one fixed row of initials (`renderWeekdays`; each month's own is hidden),
+  each month's name over its first day (`--ct-first`), weeks of one height (`100cqh / 5.4`, the grid being a size
+  container; FullCalendar's height from `aspectRatio` is overridden). Its range is `visibleRange` as a function of
+  the date, 6 months on each side; `followMonths` puts the month on screen in the title, and once the scroll has
+  stopped within 2 months of an end `keepMonths` goes to that month and puts the scroll back (programmatic scrolling
+  stops iOS's momentum: never during one). A strong flick can reach the end before that. `viewClassNames` gives it
+  `fc-dayGridMonth-view`, so the month's styles apply; saved as `dayGridMonth`, which it stands for. Going back to it
+  redraws all 13 months (~400ms on a PC, mostly layout: 300 with 4 months each side, not worth stopping sooner).
+  The toolbar is one line: outside the month, "‹ octobre" back to it (the month shown, or the day's); the period; the
+  tasks' button in the month (they take the calendar's place), the agenda's button in a day and the agenda (a
+  toggle); today's date in a frame; "+" opening a sheet: New task, New event at the next hour or 9:00 on the day
+  shown. No view menu, no ‹ ›: a day and the agenda turn with a swipe (`swipeDays`, 60px, twice as far across as down,
+  not in Move), on `data-ignore-swipe`, Obsidian's own way to keep a swipe from its sidebars (only there: the month
+  scrolls, and they still open from it). Sync, Move and the
   collections are in the view's "⋯" (`onPaneMenu`), the collections in a sheet of their own (`openCollections`,
   the legend's chips). The view is padded by Obsidian's `--view-bottom-spacing` plus a gap (the month's last week
   was under the floating navbar, then against it). Short titles ("jeu. 15 octobre", "12 – 18 oct."). The month
@@ -526,10 +542,15 @@ user at each one.
   The day view has no column header, its weekday is in the title. Self-hosted LiveSync's status, drawn over the
   top of every view, is hidden in ours. The task and event forms are sheets (`formSheet`, src/ui/sheet.ts): from
   the bottom, above the keyboard (Obsidian sets `--keyboard-height` on `<html>` and doesn't resize the page: the
-  keyboard covered the tags, their suggestions and the buttons), Cancel and Create in the header (moved there from
-  `.ct-modal-buttons`), the field tapped scrolled into sight after the keyboard's 350ms; the tags' field
-  (`.ct-sheet-top`) to the top, with room under it while focused, so Obsidian's suggestions show above the
-  keyboard. The task form has no day preview (it was under the buttons), the deadline and sessions' fields share
+  keyboard covered the tags, their suggestions and the buttons), with Obsidian's own round buttons as in its forms
+  and iOS's: its ✕ on the left for Cancel (`.modal-header-button` since 1.14, `.modal-close-button` before), the
+  action as ✓ on the right, still the real button (its handler, `disabled`). The field tapped scrolls just into
+  sight after the keyboard's 350ms, as Apple Calendar's (it went to the top with 260px of empty sheet for the tags'
+  suggestions: "ça descend beaucoup trop"); `TagSuggest.placeAbove` puts those above the field instead, wrapping
+  `reposition` and `suggestEl`, which aren't in the API (Obsidian doesn't count the keyboard). The field moves with
+  the sheet, not by a scroll, so `formSheet` sends a `scroll` event for Obsidian to place them again. A task note's
+  title sits under its header through `--view-top-spacing-markdown` on the page: Obsidian's padding rule has seven
+  classes, ours lost to it unseen (the preview's note wasn't in `.mod-root`; it is now). The task form has no day preview (it was under the buttons), the deadline and sessions' fields share
   one line, menus and tags sit beside their name; its rows don't shrink (`flex-shrink: 0`: the form is a scrolling
   flex column, the title shrank to 28px). The date picker doesn't focus its day field on mobile (the
   keyboard covered the month). A deadline's time in the agenda is our span in FullCalendar's cell, whose own text

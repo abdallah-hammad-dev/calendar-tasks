@@ -172,8 +172,13 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     this.addCommand({ id: "open-calendar", name: t("command.openCalendar"), callback: () => void this.openCalendar() });
     this.registerObsidianProtocolHandler(PROTOCOL_ACTION, (params) => void this.openUid(params.uid, params.rid ?? null));
 
-    this.registerDomEvent(window, "focus", () => {
+    const resume = () => {
       if (Date.now() - this.lastSync > FOCUS_SYNC_GAP_MS) void this.syncNow(false);
+    };
+    this.registerDomEvent(window, "focus", resume);
+    // Back from another app on the phone, the page becomes visible; the window isn't always focused.
+    this.registerDomEvent(document, "visibilitychange", () => {
+      if (document.visibilityState === "visible") resume();
     });
     this.registerEvent(
       this.app.metadataCache.on("changed", (file) => {
@@ -888,6 +893,8 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       if (manual) new Notice(t("sync.done", { calendars: r.calendars, changes: r.pulled + r.pushed }));
     }
     this.catalog.invalidate();
+    // A list for tasks made on the phone (Reminders) or another computer.
+    if (r.ok) await this.sendWaitingTasks();
     if (r.pulled) await this.updateEventNotes();
     // Redraw only when something moved; pushes turn the "waiting to sync" icons off, and an open card says
     // whether an answer reached the server (or can't, while it's unreachable).
@@ -990,6 +997,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
           await this.sync.createCalendar(newUid(), spec);
           this.refreshViews();
           this.refreshSettingsIfCalendarsChanged();
+          await this.sendWaitingTasks();
           return true;
         } catch (e) {
           new Notice(t("cal.createFailed", { error: e instanceof Error ? e.message : String(e) }));
@@ -1866,13 +1874,23 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     }, SYNC_DEBOUNCE_MS);
   }
 
+  /**
+   * Task notes made while no collection accepted tasks get their reminders once one does (2026-10-30: Davis's
+   * "Default Calendar" takes events only; the first task waited for the next start, or the next edit of its note).
+   */
+  private async sendWaitingTasks(): Promise<void> {
+    if (!this.warnedNoTaskCalendar || !this.collectionFor("VTODO")) return;
+    this.warnedNoTaskCalendar = false;
+    await this.tasks?.pushAll();
+  }
+
   private notify(name: string, kind: "no-task-calendar" | "clash" | "next" | "no-collection", detail?: string): void {
     if (kind === "clash") new Notice(t("tasks.clash", { name }));
     else if (kind === "no-collection") new Notice(t("tasks.noCollection", { name, collection: detail ?? "" }));
     else if (kind === "next") new Notice(t("tasks.next", { name, date: shortDay(detail ?? "") }));
     else if (!this.warnedNoTaskCalendar) {
       this.warnedNoTaskCalendar = true;
-      new Notice(t("tasks.noCalendar"));
+      new Notice(t(Platform.isPhone ? "tasks.noCalendarPhone" : "tasks.noCalendar"));
     }
   }
 

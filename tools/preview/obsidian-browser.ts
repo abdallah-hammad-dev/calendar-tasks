@@ -236,6 +236,9 @@ export class Modal extends Component {
     this.containerEl.className = "modal-container mod-dim";
     c(this.containerEl, "modal-bg");
     this.modalEl = c(this.containerEl, "modal");
+    const close = c(this.modalEl, "modal-header-button mod-raised clickable-icon");
+    setIcon(close, "x");
+    close.addEventListener("click", () => this.close());
     const header = c(this.modalEl, "modal-header");
     this.titleEl = c(header, "modal-title");
     this.contentEl = c(this.modalEl, "modal-content");
@@ -263,7 +266,7 @@ export class SuggestModal<T> extends Modal {
 /** Obsidian's suggestions under a text box (.suggestion-container > .suggestion > .suggestion-item), on input. */
 export abstract class AbstractInputSuggest<T> {
   limit = 100;
-  private container: HTMLElement | null = null;
+  suggestEl: HTMLElement | null = null;
   private picked: ((value: T, evt: MouseEvent | KeyboardEvent) => unknown) | null = null;
   constructor(
     public app: unknown,
@@ -271,6 +274,11 @@ export abstract class AbstractInputSuggest<T> {
   ) {
     textInputEl.addEventListener("input", () => void this.update());
     textInputEl.addEventListener("focus", () => void this.update());
+    document.addEventListener("scroll", () => this.suggestEl && this.reposition(this.textInputEl.getBoundingClientRect()), { capture: true, passive: true });
+  }
+  /** As Obsidian's, which doesn't know of a keyboard: under the field. */
+  reposition(rect: DOMRect): void {
+    Object.assign(this.suggestEl!.style, { position: "fixed", left: `${rect.left}px`, top: `${rect.bottom + 5}px`, bottom: "", minWidth: `${rect.width}px` });
   }
   setValue(value: string): void {
     if (this.textInputEl instanceof HTMLInputElement) this.textInputEl.value = value;
@@ -290,8 +298,8 @@ export abstract class AbstractInputSuggest<T> {
   }
   open(): void {}
   close(): void {
-    this.container?.remove();
-    this.container = null;
+    this.suggestEl?.remove();
+    this.suggestEl = null;
   }
   private async update(): Promise<void> {
     const items = (await this.getSuggestions(this.getValue())).slice(0, this.limit || undefined);
@@ -310,10 +318,9 @@ export abstract class AbstractInputSuggest<T> {
         this.selectSuggestion(item, e);
       });
     });
-    const r = this.textInputEl.getBoundingClientRect();
-    Object.assign(container.style, { position: "fixed", left: `${r.left}px`, top: `${r.bottom + 4}px`, minWidth: `${r.width}px` });
     document.body.appendChild(container);
-    this.container = container;
+    this.suggestEl = container;
+    this.reposition(this.textInputEl.getBoundingClientRect());
   }
 }
 

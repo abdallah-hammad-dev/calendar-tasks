@@ -179,7 +179,6 @@ export class TaskModal extends Modal {
     const readTags = () => (this.task.tags = tagsOf(tagsInput.value));
     tagsInput.addEventListener("input", readTags);
     new TagSuggest(this.app, tagsInput, this.opts.knownTags, readTags);
-    tagsInput.addClass("ct-sheet-top"); // its suggestions show under it, above a phone's keyboard
     startAt("tags", tagsInput);
 
     if (this.opts.collections.length > 1) {
@@ -488,6 +487,26 @@ class TagSuggest extends AbstractInputSuggest<string> {
     private readonly picked: () => void,
   ) {
     super(app, input);
+    if (Platform.isPhone) this.placeAbove();
+  }
+
+  /**
+   * On a phone, over the rows above the field: Obsidian doesn't count the keyboard (`--keyboard-height`) and puts them
+   * under the field, behind it. `reposition` and `suggestEl` aren't in its API: without them it's that again.
+   */
+  private placeAbove(): void {
+    const popover = this as unknown as { reposition?: (rect: DOMRect) => void; suggestEl?: HTMLElement };
+    const place = popover.reposition?.bind(this);
+    if (!place) return;
+    popover.reposition = (rect) => {
+      place(rect);
+      const el = popover.suggestEl;
+      if (!el) return;
+      const top = this.input.closest(".modal")?.querySelector(".modal-header")?.getBoundingClientRect().bottom ?? 0;
+      el.style.top = "";
+      el.style.bottom = `${(el.offsetParent ?? el.ownerDocument.documentElement).clientHeight - rect.top + 5}px`;
+      el.style.maxHeight = `${rect.top - top - 5}px`;
+    };
   }
 
   protected override getSuggestions(query: string): string[] {

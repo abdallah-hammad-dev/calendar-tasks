@@ -362,6 +362,20 @@ describe("from notes to the server", () => {
     expect(notices).toEqual(["no-task-calendar:"]);
   });
 
+  it("gives a note made without a collection its reminder once there's one", async () => {
+    server.removeCalendar(calendar);
+    server.addCalendar("events", { components: ["VEVENT"] });
+    await start();
+    vault.add("Tâches/X.md", { type: "task", done: false });
+    await tasks.noteChanged("Tâches/X.md");
+    calendar = server.addCalendar("school");
+    await engine.sync();
+    await tasks.pushAll();
+    await cycle();
+    expect(onServer(uidOf("Tâches/X.md"))!.summary).toBe("X");
+    expect(vault.fm("Tâches/X.md")!.caldav_uid).toBe(uidOf("Tâches/X.md"));
+  });
+
   it("settles: nothing more to push once both sides agree", async () => {
     server.externalPut(`${calendar}a.ics`, fixture("ios-new-reminder.ics").replace(/UID:9EAB[^\r]*/, "UID:a"));
     await start();

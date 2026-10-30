@@ -97,7 +97,7 @@ const SCENARIOS = [
   // The Tasks panel open: on a phone it takes the grid's place.
   ["phone-panel", 393, 852],
   // The sheets: the views (tapped open), "+" (tapped open, then a new event), "⋯", the collections.
-  ["phone-views", 393, 852],
+  ["phone-tasks", 393, 852],
   ["phone-add", 393, 852],
   ["phone-more", 393, 852],
   ["phone-collections", 393, 852],
@@ -120,7 +120,14 @@ const run = SCENARIOS.filter(([name]) => !wanted.length || wanted.includes(name)
 
 function findAsar() {
   if (process.env.OBSIDIAN_ASAR) return process.env.OBSIDIAN_ASAR;
+  // Obsidian's updates, newest first: what the installer left behind is older (1.12 here while 1.14 ran: its modal
+  // had another class for ✕, and the preview hid a button the phone showed).
+  const updates = ["AppData/Roaming/obsidian", "Library/Application Support/obsidian", ".config/obsidian"]
+    .flatMap((dir) => globSync(join(homedir(), dir, "obsidian-*.asar")))
+    .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
   const candidates = [
+    ...updates,
+    ...globSync("/mnt/c/Users/*/AppData/Roaming/obsidian/obsidian-*.asar").sort((a, b) => b.localeCompare(a, undefined, { numeric: true })),
     ...globSync("/mnt/c/Users/*/AppData/Local/Programs/Obsidian/resources/obsidian.asar"),
     join(homedir(), "AppData/Local/Programs/Obsidian/resources/obsidian.asar"),
     "/Applications/Obsidian.app/Contents/Resources/obsidian.asar",
@@ -617,9 +624,9 @@ async function agenda(page, errors) {
  * On an iPhone (2026-10-30, from the user's screenshots: a session's day ran off the form, the month's last week
  * was under the navbar, the week's tab over Monday's number; then the views beside the tasks, the keyboard over the
  * form): nothing off the screen or out of its form; the toolbar on one line, the calendar clear of the navbar; the
- * weeks' numbers clear of the days'; the sheets (views, "+", "⋯", the collections) at the bottom; a form's Cancel /
- * Create in its header, its field and suggestions above the keyboard; a tap on a day of the month opens it, a tap
- * on an event its card. Takes the screenshot itself where it taps (`file`), before the tap.
+ * weeks' numbers clear of the days'; the sheets ("+", "⋯", the collections) at the bottom; a form's ✕ and ✓ in its
+ * header, its field and suggestions above the keyboard; the months scrolling, more coming near the end; a tap on a
+ * day opens it and its back button comes back; a swipe turns the day; a tap on an event opens its card. Takes the screenshot itself where it taps (`file`), before the tap.
  */
 async function phone(page, name, file, errors) {
   const outside = await page.evaluate(() => {
@@ -667,25 +674,38 @@ async function phone(page, name, file, errors) {
   if (["phone-new-task", "phone-edit-task", "phone-new-event", "phone-new-task-keyboard"].includes(name)) {
     const head = await page.evaluate(() => {
       const r = (sel) => document.querySelector(sel)?.getBoundingClientRect() ?? null;
+      const content = document.querySelector(".modal-content");
       return {
-        cancel: document.querySelector(".modal-header .ct-sheet-cancel")?.textContent ?? null,
+        closes: document.querySelectorAll(".modal .modal-header-button:not(.ct-sheet-action)").length,
+        close: r(".modal .ct-sheet-close"),
+        title: r(".modal-title"),
         action: r(".modal-header .ct-sheet-action"),
         row: document.querySelectorAll(".modal .ct-modal-buttons").length,
         modal: r(".modal"),
         tags: r(".ct-task-tags-input"),
         suggestions: r(".suggestion-container"),
+        blank: content.scrollHeight - content.clientHeight - content.scrollTop,
       };
     });
-    if (!head.cancel || !head.action) errors.push("Cancel / Create aren't in the form's header");
+    if (head.closes !== 1 || !head.close || !head.action) errors.push(`not one ✕ and one ✓ (${head.closes} ✕)`);
+    else if (head.close.right > head.title.left || head.action.left < head.title.right || head.close.top !== head.action.top) {
+      errors.push("✕ and ✓ aren't on each side of the title");
+    }
     if (head.row) errors.push("the form still has its buttons' row");
     if (name === "phone-new-task-keyboard") {
       const top = vh - 336;
       if (head.modal.bottom > top + 0.5) errors.push(`the form goes under the keyboard (${Math.round(head.modal.bottom - top)}px)`);
-      if (head.action.top < 0) errors.push("Create is off the screen");
+      if (head.action.top < 0) errors.push("✓ is off the screen");
       if (!head.tags || head.tags.bottom > top || head.tags.top < head.modal.top) errors.push("the tags' field isn't in sight above the keyboard");
       if (!head.suggestions) errors.push("no tag suggested");
-      else if (head.suggestions.bottom > top + 0.5) errors.push(`the tags' suggestions go under the keyboard (${Math.round(head.suggestions.bottom - top)}px)`);
+      else if (head.suggestions.bottom > head.tags.top) errors.push(`the tags' suggestions aren't above their field (${Math.round(head.suggestions.bottom - head.tags.top)}px)`);
+      if (head.blank > 64) errors.push(`${Math.round(head.blank)}px of empty sheet under the form`);
     }
+  }
+  if (name === "phone-task-note") {
+    // Right under the header's line (2026-10-30: Obsidian's padding for its floating header stayed there too).
+    const gap = await page.evaluate(() => document.querySelector(".inline-title").getBoundingClientRect().top - document.querySelector(".ct-task-header").getBoundingClientRect().bottom);
+    if (gap > 32) errors.push(`${Math.round(gap)}px between the task's header and its title`);
   }
   if (name === "phone-more" || name === "phone-collections") {
     const s = await sheet();
@@ -693,32 +713,46 @@ async function phone(page, name, file, errors) {
     if (name === "phone-more" && !s?.items.some((i) => i === "Collections")) errors.push(`"⋯" has no Collections: ${s?.items}`);
     if (name === "phone-collections" && (await page.locator(".ct-collections .ct-legend-item").count()) !== 3) errors.push("the collections' sheet doesn't list the 3 collections");
   }
-  if (name === "phone-views" || name === "phone-add") {
-    await page.locator(name === "phone-views" ? ".ct-cal-view" : ".ct-cal-add").tap();
+  const title = () => page.locator(".ct-cal-title").textContent();
+  const onScreen = () => page.evaluate(() => {
+    const box = document.querySelector(".fc-multimonth");
+    const line = box.scrollTop + box.clientHeight / 3;
+    return [...box.querySelectorAll(".fc-multimonth-month")].reverse().find((m) => m.offsetTop <= line)?.dataset.date;
+  });
+  const swipe = (dx) => page.evaluate((dx) => {
+    const grid = document.querySelector(".ct-calendar-grid");
+    const touch = (x) => new Touch({ identifier: 1, target: grid, clientX: x, clientY: 400 });
+    grid.dispatchEvent(new TouchEvent("touchstart", { bubbles: true, touches: [touch(200)], changedTouches: [touch(200)] }));
+    grid.dispatchEvent(new TouchEvent("touchend", { bubbles: true, touches: [], changedTouches: [touch(200 + dx)] }));
+  }, dx);
+  const back = page.locator(".ct-cal-back");
+  if (name === "phone-add") {
+    await page.locator(".ct-cal-tool").last().tap();
     await page.waitForTimeout(200);
     const s = await sheet();
     if (!s || s.bottom !== vh) errors.push(`no sheet at the bottom (${JSON.stringify(s)})`);
     await page.screenshot({ path: file });
-    if (name === "phone-views") {
-      if (s?.items.join("|") !== "Mois|Jour|Planning|Tâches" || s?.checked.join() !== "Mois") errors.push(`the views' sheet: ${s?.items} (${s?.checked})`);
-      await page.locator(".menu-item", { hasText: "Tâches" }).tap();
-      await page.waitForTimeout(300);
-      const tasks = await page.evaluate(() => ({
-        title: document.querySelector(".ct-cal-title")?.textContent,
-        arrows: document.querySelectorAll(".ct-cal-arrow").length,
-        panel: !!document.querySelector(".ct-plan.is-open"),
-        grid: getComputedStyle(document.querySelector(".ct-calendar-grid")).display,
-        view: document.querySelector(".ct-cal-view")?.textContent,
-      }));
-      if (tasks.title !== "Tâches" || tasks.arrows || !tasks.panel || tasks.grid !== "none" || tasks.view !== "Tâches") errors.push(`the tasks, picked as a view: ${JSON.stringify(tasks)}`);
-      await page.screenshot({ path: file.replace(/-(light|dark)\.png$/, "-tasks-$1.png") });
-    } else {
-      if (s?.items.join("|") !== "Nouvelle tâche|Nouvel événement") errors.push(`"+": ${s?.items}`);
-      await page.locator(".menu-item", { hasText: "Nouvel événement" }).tap();
-      await page.waitForTimeout(300);
-      if (!(await page.locator(".modal.ct-sheet .ct-sheet-action").count())) errors.push("New event didn't open its form as a sheet");
-      else await page.screenshot({ path: file.replace(/-(light|dark)\.png$/, "-event-$1.png") });
-    }
+    if (s?.items.join("|") !== "Nouvelle tâche|Nouvel événement") errors.push(`"+": ${s?.items}`);
+    await page.locator(".menu-item", { hasText: "Nouvel événement" }).tap();
+    await page.waitForTimeout(300);
+    if (!(await page.locator(".modal.ct-sheet .ct-sheet-action").count())) errors.push("New event didn't open its form as a sheet");
+    else await page.screenshot({ path: file.replace(/-(light|dark)\.png$/, "-event-$1.png") });
+  }
+  if (name === "phone-tasks") {
+    await page.locator(".ct-cal-tool").first().tap();
+    await page.waitForTimeout(300);
+    const tasks = await page.evaluate(() => ({
+      title: document.querySelector(".ct-cal-title")?.textContent,
+      back: document.querySelector(".ct-cal-back")?.textContent,
+      panel: !!document.querySelector(".ct-plan.is-open"),
+      grid: getComputedStyle(document.querySelector(".ct-calendar-grid")).display,
+      weekdays: getComputedStyle(document.querySelector(".ct-cal-weekdays")).display,
+    }));
+    if (tasks.title !== "Tâches" || tasks.back !== "octobre" || !tasks.panel || tasks.grid !== "none" || tasks.weekdays !== "none") errors.push(`the tasks: ${JSON.stringify(tasks)}`);
+    await page.screenshot({ path: file });
+    await back.tap();
+    await page.waitForTimeout(300);
+    if ((await title()) !== "octobre 2026" || (await onScreen()) !== "2026-10") errors.push(`back from the tasks: "${await title()}", ${await onScreen()}`);
   }
   if (!["phone-month", "phone-day", "phone-list"].includes(name)) return;
   const layout = await page.evaluate(() => {
@@ -730,31 +764,89 @@ async function phone(page, name, file, errors) {
       const r = w.getBoundingClientRect();
       return n && r.right > n.left - 2 && r.left < n.right && r.bottom > n.top && r.top < n.bottom;
     }).length;
+    // The days' initials stand over their columns.
+    const initials = [...document.querySelectorAll(".ct-cal-weekdays.is-shown span")].map((s) => s.getBoundingClientRect());
+    const monday = [...document.querySelectorAll(".fc-multimonth-month[data-date='2026-10'] tr:nth-child(2) td")].map((d) => d.getBoundingClientRect());
     return {
       lines: lines.size,
       bottom: document.querySelector(".fc").getBoundingClientRect().bottom,
       navbar: document.querySelector(".mobile-navbar").getBoundingClientRect().top,
-      weeks: document.querySelectorAll(".fc-daygrid-week-number").length,
       touching,
       title: document.querySelector(".ct-cal-title").textContent,
+      weekdays: initials.length,
+      apart: initials.length === monday.length ? Math.max(...initials.map((r, i) => Math.abs(r.left - monday[i].left))) : 0,
+      rows: new Set([...document.querySelectorAll(".fc-multimonth-daygrid-table tr")].map((r) => Math.round(r.getBoundingClientRect().height))).size,
     };
   });
   if (layout.lines > 1) errors.push(`the toolbar takes ${layout.lines} lines`);
   if (layout.bottom > layout.navbar - 8) errors.push(`the calendar is ${Math.round(layout.navbar - layout.bottom)}px from the navbar`);
-  if (name === "phone-month" && layout.weeks !== 6) errors.push(`${layout.weeks} weeks' numbers in the month`);
   if (layout.touching) errors.push(`${layout.touching} weeks' numbers touch a day's`);
   if (name === "phone-day" && layout.title !== "jeu. 15 octobre") errors.push(`the day's title reads "${layout.title}"`);
   if (name === "phone-month") {
     await page.screenshot({ path: file });
+    if (layout.title !== "octobre 2026" || (await onScreen()) !== "2026-10") errors.push(`the month opens on "${layout.title}", ${await onScreen()}`);
+    if (await back.count()) errors.push("the month has a back button");
+    if (layout.weekdays !== 7 || layout.apart > 1) errors.push(`the days' initials: ${layout.weekdays}, ${layout.apart}px off their columns`);
+    if (layout.rows !== 1) errors.push("weeks of different heights");
+    // The months scroll, the title follows, Today comes back.
+    const scrollTo = (month) => page.evaluate((month) => {
+      const box = document.querySelector(".fc-multimonth");
+      box.scrollTop = box.querySelector(`[data-date="${month}"]`).offsetTop;
+    }, month);
+    await scrollTo("2026-12");
+    await page.waitForTimeout(100);
+    if ((await title()) !== "décembre 2026") errors.push(`scrolled to December, the title reads "${await title()}"`);
+    await page.screenshot({ path: file.replace(/-(light|dark)\.png$/, "-december-$1.png") });
+    if (await page.locator(".ct-cal-today").isDisabled()) errors.push("Today is off in December");
+    await page.locator(".ct-cal-today").tap();
+    await page.waitForTimeout(700);
+    if ((await onScreen()) !== "2026-10") errors.push(`Today went to ${await onScreen()}`);
+    // Past the months drawn: others come, and what's on screen stays.
+    await scrollTo("2027-04");
+    await page.waitForTimeout(100);
+    const place = () => page.evaluate(() => {
+      const box = document.querySelector(".fc-multimonth");
+      const month = box.querySelector("[data-date='2027-04']");
+      return Math.round(month.getBoundingClientRect().top);
+    });
+    const before = await place();
+    await page.waitForTimeout(500);
+    const after = await page.evaluate(() => [...document.querySelectorAll(".fc-multimonth-month")].at(-1).dataset.date);
+    if (after !== "2027-10") errors.push(`the months drawn end in ${after}, not 2027-10`);
+    if ((await place()) !== before) errors.push(`April moved by ${(await place()) - before}px when more months came`);
+    if ((await title()) !== "avril 2027") errors.push(`more months came and the title reads "${await title()}"`);
+    await page.locator(".ct-cal-today").tap();
+    await page.waitForTimeout(700);
+    if ((await onScreen()) !== "2026-10") errors.push(`Today, from April, went to ${await onScreen()}`);
+    // A day: its back button, then the same month.
     const day = await page.locator(".fc-daygrid-day[data-date='2026-10-21'] .fc-daygrid-day-frame").boundingBox();
     await page.touchscreen.tap(day.x + day.width / 2, day.y + day.height - 8);
     await page.waitForTimeout(300);
-    const title = await page.locator(".ct-cal-title").textContent();
-    if (title !== "mer. 21 octobre") errors.push(`a tap on the 21st of the month opened "${title}"`);
+    if ((await title()) !== "mer. 21 octobre") errors.push(`a tap on the 21st of the month opened "${await title()}"`);
     if (await page.locator(".modal-container").count()) errors.push("a tap on a day of the month opened a form");
+    if ((await back.textContent()) !== "octobre") errors.push(`the day's back button reads "${await back.textContent()}"`);
+    await page.screenshot({ path: file.replace(/-(light|dark)\.png$/, "-back-$1.png") });
+    await back.tap();
+    await page.waitForTimeout(300);
+    if ((await title()) !== "octobre 2026" || (await onScreen()) !== "2026-10") errors.push(`back from a day: "${await title()}", ${await onScreen()}`);
   }
   if (name === "phone-day") {
     await page.screenshot({ path: file });
+    if (!(await page.locator(".ct-calendar-grid[data-ignore-swipe]").count())) errors.push("Obsidian would take the day's swipes for its own");
+    await swipe(-120);
+    await page.waitForTimeout(300);
+    if ((await title()) !== "ven. 16 octobre") errors.push(`a swipe to the left opened "${await title()}"`);
+    await swipe(120);
+    await page.waitForTimeout(300);
+    if ((await title()) !== "jeu. 15 octobre") errors.push(`a swipe to the right opened "${await title()}"`);
+    // The agenda, from its button, and back.
+    await page.locator(".ct-cal-tool").first().tap();
+    await page.waitForTimeout(300);
+    if (!(await page.locator(".fc-listWeek-view").count())) errors.push("the agenda's button didn't open it");
+    await page.screenshot({ path: file.replace(/-(light|dark)\.png$/, "-agenda-$1.png") });
+    await page.locator(".ct-cal-tool").first().tap();
+    await page.waitForTimeout(300);
+    if ((await title()) !== "jeu. 15 octobre") errors.push(`back from the agenda: "${await title()}"`);
     const event = await page.locator(".fc-timegrid-event:has-text('Jury de projet')").first().boundingBox();
     await page.touchscreen.tap(event.x + event.width / 2, event.y + 10);
     await page.waitForTimeout(300);
@@ -1386,7 +1478,7 @@ for (const [name, width, height, scale = 2] of run) {
       const box = await settings.boundingBox();
       if (box) await page.setViewportSize({ width, height: Math.max(height, Math.ceil(box.y + box.height)) });
       await settings.screenshot({ path: file });
-    } else if (!["calendar-time", "calendar-new", "task-preview", "new-task-tags", "slot-picker", "date-picker", "new-event", "phone-month", "phone-day", "phone-views", "phone-add"].includes(name)) await page.screenshot({ path: file });
+    } else if (!["calendar-time", "calendar-new", "task-preview", "new-task-tags", "slot-picker", "date-picker", "new-event", "phone-month", "phone-day", "phone-tasks", "phone-add"].includes(name)) await page.screenshot({ path: file });
     console.log(`${errors.length ? "✗" : "✓"} ${name}-${theme}${errors.length ? `  ${errors.join(" | ")}` : ""}`);
     await page.close();
   }

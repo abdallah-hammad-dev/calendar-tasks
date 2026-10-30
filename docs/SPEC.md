@@ -134,6 +134,9 @@ Free content: context, links to any file, small steps as plain `- [ ]` (never sy
   tasks, a collection is where they live (and the list on the phone). Its note then says which. A name that matches no collection holding tasks (any case
   accepted) gets a notice and the task stays. Time blocks go in their task's collection; new events in the
   default one (the new event form can pick another).
+- **No collection holds tasks** (Davis's own "Default Calendar" holds events only): a notice says where to make one
+  (on the phone: `⋯` → Collections). The task notes made meanwhile get their reminders as soon as one exists
+  (made here, or seen at a sync), not at the next start (2026-10-30).
 
 ### 4.2 Tags
 
@@ -536,6 +539,9 @@ tab with the week's number ("S43", at the start of each week in the month, in th
 views) opens that week; both only answer the pointer (no buttons), and
 popovers.
 
+- A phone (2026-10-30), as Apple Calendar: the month is home, the months one under the other, scrolled with the finger;
+  a tap on a day opens it, "‹ octobre" comes back, no menu of views. The agenda has a button in the day; a day and
+  the agenda turn with a swipe; the tasks have a button in the month.
 - Month / week / day / agenda (no week on phones); the last view is remembered. One color per collection;
   collections are toggled from the row under the toolbar, all alike, in the server's order: a dot in their color
   (hollow when hidden), their name, "Hide" / "Show" on hover. Their pencil (or a right-click) opens a card: name, a
