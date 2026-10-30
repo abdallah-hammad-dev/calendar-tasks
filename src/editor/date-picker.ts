@@ -1,4 +1,4 @@
-import { Modal, setIcon, type App } from "obsidian";
+import { Modal, Platform, setIcon, type App } from "obsidian";
 import { localZone, parseLocal, wallClock } from "../ical/time";
 import { language, t } from "../i18n";
 import { addDays, weekdayOf, type Ymd } from "./date-token";
@@ -155,6 +155,8 @@ export class DatePickerModal extends Modal {
     this.scope.register([], "PageDown", () => (this.moveMonth(1), false));
     this.scope.register([], "Enter", () => (this.choose(), false));
     this.read();
+    // On a phone or a tablet the keyboard would cover the month, which is what the picker is opened for.
+    if (Platform.isMobile) return;
     this.dayInput.focus();
     this.dayInput.select();
   }

@@ -1,4 +1,4 @@
-import { AbstractInputSuggest, Modal, Setting, SuggestModal, setIcon, type App } from "obsidian";
+import { AbstractInputSuggest, Modal, Platform, Setting, SuggestModal, setIcon, type App } from "obsidian";
 import type { Priority } from "../constants";
 import { formatLocalDate, localZone, parseLocal, wallClock } from "../ical/time";
 import { language, t } from "../i18n";
@@ -108,7 +108,9 @@ export class TaskModal extends Modal {
     const edit = this.opts.edit;
     this.modalEl.addClass("ct-task-modal");
     this.setTitle(t(edit ? "modal.editTask" : "modal.newTask"));
-    if (this.opts.preview) {
+    // A phone has no room beside the form, and under it the day was out of sight below the buttons (2026-10-30).
+    const preview = Platform.isPhone ? undefined : this.opts.preview;
+    if (preview) {
       this.modalEl.addClass("has-preview");
       this.contentEl.addClass("ct-task-split");
       this.form = this.contentEl.createDiv({ cls: "ct-task-form" });
@@ -190,8 +192,8 @@ export class TaskModal extends Modal {
       .setClass("ct-modal-buttons")
       .addButton((b) => b.setButtonText(t("modal.cancel")).onClick(() => this.close()))
       .addButton((b) => b.setButtonText(t(edit ? "modal.save" : "modal.create")).setCta().onClick(() => this.submit()));
-    if (this.opts.preview) {
-      this.preview = new DayPreview(this.contentEl.createDiv({ cls: "ct-task-preview" }), this.opts.preview, {
+    if (preview) {
+      this.preview = new DayPreview(this.contentEl.createDiv({ cls: "ct-task-preview" }), preview, {
         // Dragged over free time: a time block in the list, like typed then added.
         pick: (start, end, allDay) => this.addBlock({ start: localValue(start, allDay), end: localValue(end, allDay) }),
         move: (id, start, end, allDay) => this.moved(id, start, end, allDay),

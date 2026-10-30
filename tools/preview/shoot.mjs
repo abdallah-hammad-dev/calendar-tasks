@@ -90,6 +90,24 @@ const SCENARIOS = [
   ["event-note-declined", 900, 300],
   // Its event deleted: says so, nothing to show in the calendar, a button deletes the note.
   ["event-note-deleted", 900, 300],
+  // On an iPhone (393 × 852, Obsidian's floating header and navbar): each view, the forms and the pickers.
+  ["phone-month", 393, 852],
+  ["phone-day", 393, 852],
+  ["phone-list", 393, 852],
+  // The Tasks panel open: on a phone it takes the grid's place.
+  ["phone-panel", 393, 852],
+  ["phone-new-task", 393, 852],
+  ["phone-task-preview", 393, 852],
+  ["phone-edit-task", 393, 852],
+  ["phone-new-event", 393, 852],
+  ["phone-date-picker", 393, 852],
+  ["phone-slot-picker", 393, 852],
+  ["phone-task-note", 393, 852],
+  ["phone-event-note", 393, 852],
+  ["phone-settings", 393, 852],
+  ["phone-date-suggest", 393, 1200],
+  ["phone-task-links", 393, 852],
+  ["phone-task-fields", 393, 852],
 ];
 const wanted = process.argv.slice(2);
 const run = SCENARIOS.filter(([name]) => !wanted.length || wanted.includes(name));
@@ -101,6 +119,8 @@ function findAsar() {
     join(homedir(), "AppData/Local/Programs/Obsidian/resources/obsidian.asar"),
     "/Applications/Obsidian.app/Contents/Resources/obsidian.asar",
     "/opt/Obsidian/resources/obsidian.asar",
+    // The AppImage, while Obsidian runs (mounted under /tmp).
+    ...globSync("/tmp/.mount_[Oo]bsidi*/resources/obsidian.asar"),
   ];
   return candidates.find((p) => existsSync(p));
 }
@@ -113,6 +133,8 @@ function findChromium() {
       if (existsSync(join(base, dir, rel))) return join(base, dir, rel);
     }
   }
+  const system = ["/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome"].find((p) => existsSync(p));
+  if (system) return system;
   throw new Error("No Chromium found. Set CHROMIUM_PATH or run `npx playwright install chromium`.");
 }
 
@@ -572,12 +594,89 @@ async function agenda(page, errors) {
   );
   if (rows.some((r) => r.marks !== 1)) errors.push("each line should have one mark (a solid bar, a dashed one or the checkbox)");
   if (new Set(rows.map((r) => r.x)).size !== 1) errors.push(`titles should all start at the same place, start at ${[...new Set(rows.map((r) => r.x))].join(", ")}`);
-  const due = page.locator(".fc-list-event.ct-ev-deadline:has-text('Préparer slides') .fc-list-event-time");
+  const due = page.locator(".fc-list-event.ct-ev-deadline:has-text('Préparer slides') .fc-list-event-time .ct-ev-due-at");
   if (!(await due.locator(".ct-ev-due-icon").count()) || (await due.textContent()) !== "18:00") errors.push("a deadline's time should follow a flag");
+  // Only ours shows: FullCalendar's "08:35 – 08:55" came back after it once the row was drawn again (phones).
+  const shown = await page.$$eval(".fc-list-event.ct-ev-deadline .fc-list-event-time", (cells) =>
+    cells.flatMap((c) => (getComputedStyle(c).fontSize === "0px" ? [] : [...c.childNodes].filter((n) => n.nodeType === 3 && n.data.trim()).map((n) => n.data))),
+  );
+  if (shown.length) errors.push(`a deadline shows FullCalendar's times too: ${shown[0]}`);
   const over = await page.locator(".fc-list-event.ct-ev-event:has-text('Point Olera')").first().evaluate((el) => Number(getComputedStyle(el).opacity));
   const ahead = await page.locator(".fc-list-event.ct-ev-event:has-text('Jury de projet')").first().evaluate((el) => Number(getComputedStyle(el).opacity));
   if (!(over < 1) || ahead !== 1) errors.push(`what's over should fade, not what's ahead (opacity ${over}, ${ahead})`);
   if (!(await page.locator(".ct-key.is-lines").count()) && page.viewportSize().width > 600) errors.push("the key should draw the agenda's marks");
+}
+
+/**
+ * On an iPhone (2026-10-30, from the user's screenshots: a session's day ran off the form, the month's last week
+ * was under the navbar, the week's tab over Monday's number): nothing off the screen or out of its form, the
+ * calendar above the navbar with its toolbar on two lines, no week tabs; a tap on a day of the month opens it, a
+ * tap on an event its card. Takes the screenshot itself where it taps (`file`), before the tap.
+ */
+async function phone(page, name, file, errors) {
+  const outside = await page.evaluate(() => {
+    const form = document.querySelector(".modal-content")?.getBoundingClientRect();
+    const left = form?.left ?? 0;
+    const right = form?.right ?? innerWidth;
+    return [...document.querySelectorAll("input, button, .ct-select")]
+      .filter((el) => {
+        const r = el.getBoundingClientRect();
+        return r.width && r.height && !el.closest(".mobile-navbar, .view-header") && (r.left < left - 0.5 || r.right > right + 0.5);
+      })
+      .map((el) => el.getAttribute("placeholder") || el.textContent.trim() || el.className);
+  });
+  if (outside.length) errors.push(`out of the screen or the form: ${outside.slice(0, 3).join(", ")}`);
+  if (name === "phone-date-suggest") {
+    // Obsidian keeps the list within the screen: what it holds must fit, not run under its right edge.
+    const cut = await page.$$eval(".ct-date-suggestion-day, .ct-date-suggestion-day > *", (days) =>
+      days
+        .filter((d) => d.scrollWidth > d.clientWidth + 1 || d.getBoundingClientRect().right > d.closest(".suggestion-container").getBoundingClientRect().right - 1)
+        .map((d) => d.textContent),
+    );
+    if (cut.length) errors.push(`suggestions cut: ${cut.slice(0, 3).join(" | ")}`);
+  }
+  if (name === "phone-task-fields") {
+    // A deadline typed at the end of a line that wraps.
+    const line = page.locator(".cm-line:has-text('Appeler mamie')");
+    const box = await line.boundingBox();
+    await page.touchscreen.tap(box.x + box.width - 4, box.y + box.height / 2);
+    await page.keyboard.press("End");
+    await page.keyboard.type("@deadline ven 14h @tag famille ");
+    await page.waitForTimeout(200);
+  }
+  if (!["phone-month", "phone-day", "phone-list"].includes(name)) return;
+  const layout = await page.evaluate(() => {
+    const bar = document.querySelector(".ct-cal-bar");
+    const lines = new Set([...bar.children].map((c) => Math.round(c.getBoundingClientRect().top + c.getBoundingClientRect().height / 2)));
+    return {
+      lines: lines.size,
+      bottom: document.querySelector(".fc").getBoundingClientRect().bottom,
+      navbar: document.querySelector(".mobile-navbar").getBoundingClientRect().top,
+      weeks: document.querySelectorAll(".fc-daygrid-week-number, a.fc-timegrid-axis-cushion").length,
+      title: document.querySelector(".ct-cal-title").textContent,
+    };
+  });
+  if (layout.lines > 2) errors.push(`the toolbar takes ${layout.lines} lines`);
+  if (layout.bottom > layout.navbar + 0.5) errors.push(`the calendar goes under the navbar (${Math.round(layout.bottom - layout.navbar)}px)`);
+  if (layout.weeks) errors.push("week numbers on a phone");
+  if (name === "phone-day" && layout.title !== "jeudi 15 octobre") errors.push(`the day's title reads "${layout.title}"`);
+  if (name === "phone-month") {
+    await page.screenshot({ path: file });
+    const day = await page.locator(".fc-daygrid-day[data-date='2026-10-21'] .fc-daygrid-day-frame").boundingBox();
+    await page.touchscreen.tap(day.x + day.width / 2, day.y + day.height - 8);
+    await page.waitForTimeout(300);
+    const title = await page.locator(".ct-cal-title").textContent();
+    if (title !== "mercredi 21 octobre") errors.push(`a tap on the 21st of the month opened "${title}"`);
+    if (await page.locator(".modal-container").count()) errors.push("a tap on a day of the month opened a form");
+  }
+  if (name === "phone-day") {
+    await page.screenshot({ path: file });
+    const event = await page.locator(".fc-timegrid-event:has-text('Jury de projet')").first().boundingBox();
+    await page.touchscreen.tap(event.x + event.width / 2, event.y + 10);
+    await page.waitForTimeout(300);
+    if (!(await page.locator(".modal .ct-card").count())) errors.push("a tap on an event didn't open its card");
+    else await page.screenshot({ path: file.replace(/-(light|dark)\.png$/, "-card-$1.png") });
+  }
 }
 
 /** Real mouse input on the calendar: drag a task from the "To plan" panel, then click an empty slot. */
@@ -795,9 +894,9 @@ const browser = await launch();
 // (`deviceScaleFactor`) lays out in CSS pixels and scales the paint: it blurred bars Windows draws sharp, and passed
 // dashes Windows drew unequal (2026-10-20). So a browser per scale, the screen's own, with only the size emulated.
 const scaled = new Map();
-async function open(width, height, scale) {
+async function open(width, height, scale, touch = false) {
   // French, like the harness: native date and time fields follow the locale (13:37, not 01:37 PM).
-  if (scale === 2) return browser.newPage({ viewport: { width, height }, deviceScaleFactor: scale, locale: "fr-FR" });
+  if (scale === 2) return browser.newPage({ viewport: { width, height }, deviceScaleFactor: scale, locale: "fr-FR", hasTouch: touch });
   if (!scaled.has(scale)) scaled.set(scale, await launch([`--force-device-scale-factor=${scale}`]));
   const page = await scaled.get(scale).newPage({ viewport: null, locale: "fr-FR" });
   // deviceScaleFactor 0: the screen's.
@@ -806,13 +905,13 @@ async function open(width, height, scale) {
 }
 for (const [name, width, height, scale = 2] of run) {
   for (const theme of ["light", "dark"]) {
-    const page = await open(width, height, scale);
+    const page = await open(width, height, scale, name.startsWith("phone-"));
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
     // Obsidian's bundled fonts aren't extracted; ignore those 404s.
     page.on("console", (m) => m.type() === "error" && !m.text().includes("ERR_FILE_NOT_FOUND") && errors.push(m.text()));
-    if (name.startsWith("calendar-list") || name === "task-fields") await page.clock.setFixedTime(new Date(2026, 9, 15, 11, 0));
-    await page.goto(`file://${join(cache, "index.html")}?scenario=${name}&theme=${theme}`);
+    if (name.startsWith("calendar-list") || name.startsWith("phone-") || name === "task-fields") await page.clock.setFixedTime(new Date(2026, 9, 15, 11, 0));
+    await page.goto(`file://${join(cache, "index.html")}?scenario=${name}&theme=${theme}${name.startsWith("phone-") ? "&phone=1" : ""}`);
     await page.waitForFunction(() => window.__ready === true, null, { timeout: 10000 }).catch(() => errors.push("timed out"));
     await page.waitForTimeout(150);
     if (name === "calendar-interact") await interact(page, errors);
@@ -924,7 +1023,7 @@ for (const [name, width, height, scale = 2] of run) {
       await page.evaluate((occ) => window.__reveal(occ, "2026-10-12T10:00"), id);
       if (!(await target.evaluate((el) => el.classList.contains("ct-ev-reveal")))) errors.push("a revealed event should blink");
     }
-    if (name.startsWith("calendar-list")) await agenda(page, errors);
+    if (name.startsWith("calendar-list") || name === "phone-list") await agenda(page, errors);
     if (name.startsWith("calendar-marks")) await evenMarks(page, errors, scale);
     if (name === "calendar-month" || name === "calendar-month-narrow") await packedDays(page, errors);
     if (name === "calendar-month") {
@@ -1196,13 +1295,14 @@ for (const [name, width, height, scale = 2] of run) {
       if ((await page.locator(".ct-popover .ct-card-task").count()) !== 3) errors.push("the group's card doesn't list its 3 tasks");
     }
     const file = join(out, `${name}-${theme}.png`);
-    if (name.startsWith("settings")) {
+    if (name.startsWith("phone-")) await phone(page, name, file, errors);
+    if (name.startsWith("settings") || name === "phone-settings") {
       // Only what's in the viewport gets painted: grow it to the whole settings page first.
       const settings = page.locator(".cw-preview-settings");
       const box = await settings.boundingBox();
       if (box) await page.setViewportSize({ width, height: Math.max(height, Math.ceil(box.y + box.height)) });
       await settings.screenshot({ path: file });
-    } else if (!["calendar-time", "calendar-new", "task-preview", "new-task-tags", "slot-picker", "date-picker", "new-event"].includes(name)) await page.screenshot({ path: file });
+    } else if (!["calendar-time", "calendar-new", "task-preview", "new-task-tags", "slot-picker", "date-picker", "new-event", "phone-month", "phone-day"].includes(name)) await page.screenshot({ path: file });
     console.log(`${errors.length ? "✗" : "✓"} ${name}-${theme}${errors.length ? `  ${errors.join(" | ")}` : ""}`);
     await page.close();
   }

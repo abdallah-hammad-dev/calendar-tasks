@@ -13,6 +13,10 @@ user at each one.
   real app.css in headless Chromium → `tools/preview/out/*.png`, light + dark. **Look at them after any UI
   change.** Scenarios in `tools/preview/harness.ts`; browser stand-in for `obsidian` in
   `tools/preview/obsidian-browser.ts` (copied from claude-workspace, plus `getLanguage`, global `createEl`…).
+  `phone-…` scenarios are an iPhone (393 × 852, `is-phone`, touch, Obsidian's floating header and navbar drawn
+  around the view): `phone()` in shoot.mjs fails on anything off the screen or out of its form, the calendar under
+  the navbar, a toolbar over two lines, week numbers; it taps a day of the month and an event. Finds Obsidian's
+  AppImage while it runs and a system Chrome; else `OBSIDIAN_ASAR` / `CHROMIUM_PATH`.
 - `npm run deploy` — build + copy into `./test-vault`; `TEST_VAULT=/mnt/c/Users/abdal/Documents/ct-test-vault`
   for a vault Windows Obsidian can open. Refuses non-empty folders without the `.calendar-tasks-test-vault` marker.
 - Release: `npm version patch|minor|major` then `git push --follow-tags` (`docs/releasing.md`). Never hand-edit the
@@ -493,6 +497,21 @@ user at each one.
   without an `input` event (that reopened the list). Bases groups by the whole list: `[famille, urgent]` is one
   group "famille, urgent" (checked in Obsidian); `file.hasTag("famille")` filters one tag (checked too). The
   `projectTag` setting, project notes and the `project:` property are gone; old `project:` values are left alone.
+- **Phones** (2026-10-30, first try on the iPhone, the user: "un peu dégueu", "rajouter une tâche c pas du tout
+  ergonomique"): the toolbar is two lines (‹ › period, Today; the views, then the actions as icons), the
+  collections one line that scrolls, the view padded by Obsidian's `--view-bottom-spacing` (the month's last week
+  was under the floating navbar). No week numbers (the month's tab covered Monday's number). The month's lines are
+  a mark and the title, cut, no times (`is-compact`), its checkbox doesn't tick; a tap in a day (`dateClick`, touch
+  only selects after a long press) or on "+N" opens that day. The day view has no column header, its weekday is
+  in the title. Self-hosted LiveSync's status, drawn over the top of every view, is hidden in ours. The task form
+  has no day preview (it was under the buttons), the deadline and sessions' fields share one line, menus and tags
+  sit beside their name, Cancel / Create stay at the bottom; its rows don't shrink (`flex-shrink: 0`: the form is
+  a scrolling flex column, the title shrank to 28px). The date picker doesn't focus its day field on mobile (the
+  keyboard covered the month). A deadline's time in the agenda is our span in FullCalendar's cell, whose own text
+  stays at `font-size: 0`: taken out, Preact put it back after ours when the row was drawn again
+  ("08:3508:35 – 08:55" on the phone). The `@` assistant's readings wrap in their column on mobile (Obsidian caps
+  the list at the screen's width: "chaque mardi 09:00–…" was cut). The Tasks panel, which replaces the grid on
+  mobile, says to tap a task (`view.tasksPanel.descTouch`) and has no grips.
 
 ## Gotchas (inherited from claude-workspace)
 - Never declare class fields that shadow Obsidian base-class members (`containerEl`, `contentEl`, `titleEl`,

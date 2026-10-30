@@ -1,7 +1,7 @@
-import { Calendar, type DayHeaderContentArg, type EventContentArg, type EventInput } from "@fullcalendar/core";
+import { Calendar, type DayHeaderContentArg, type EventContentArg, type EventInput, type MoreLinkContentArg } from "@fullcalendar/core";
 import frLocale from "@fullcalendar/core/locales/fr";
 import dayGridPlugin from "@fullcalendar/daygrid";
-import interactionPlugin, { Draggable } from "@fullcalendar/interaction";
+import interactionPlugin, { Draggable, type DateClickArg } from "@fullcalendar/interaction";
 import listPlugin from "@fullcalendar/list";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import { ItemView, Platform, setIcon, setTooltip, type WorkspaceLeaf } from "obsidian";
@@ -275,7 +275,18 @@ export class CalendarView extends ItemView {
       navLinks: true,
       navLinkDayClick: "timeGridDay",
       navLinkWeekClick: "timeGridWeek",
-      weekNumbers: true,
+      // A phone's month has no room for the week's tab: it covered Monday's number (2026-10-30).
+      weekNumbers: !Platform.isPhone,
+      // A phone: a tap in a day of the month opens it, as "+2" does (a popover of a 50px day says nothing).
+      ...(Platform.isPhone
+        ? {
+            dateClick: (info: DateClickArg) => {
+              if (info.view.type === "dayGridMonth") this.calendar?.changeView("timeGridDay", info.date);
+            },
+            moreLinkClick: "timeGridDay",
+            moreLinkContent: (arg: MoreLinkContentArg) => `+${arg.num}`,
+          }
+        : {}),
       weekNumberContent: (arg) => t("view.weekShort", { n: arg.num ?? "" }),
       scrollTime: "08:00:00",
       snapDuration: SNAP_MS,
@@ -288,7 +299,11 @@ export class CalendarView extends ItemView {
       eventTimeFormat: { hour: "2-digit", minute: "2-digit", hour12: false },
       defaultRangeSeparator: " – ",
       // A day of the month: the bars, the day's deadlines, its work sessions, then what has a time (`monthGroup`).
-      views: { dayGridMonth: { eventOrder: "monthGroup,start,-duration,allDay,title" } },
+      views: {
+        dayGridMonth: { eventOrder: "monthGroup,start,-duration,allDay,title" },
+        // A phone's day: the weekday goes into the title, not into a column header that took a fifth of the screen.
+        ...(Platform.isPhone ? { timeGridDay: { dayHeaders: false, titleFormat: { weekday: "long", day: "numeric", month: "long" } } } : {}),
+      },
       events: (info, success) => success(this.inputs(info.start, info.end)),
       eventContent: (arg) => this.eventContent(arg),
       dayHeaderContent: (arg) => this.dayHeader(arg),
@@ -327,11 +342,14 @@ export class CalendarView extends ItemView {
         if (color) arg.el.style.setProperty("--ct-ev-color", color);
         // The agenda shows a deadline's moment after a flag, as its marker in the grid says "⚑ 18:00" (not the
         // marker's length), so it doesn't read as an event at that time.
+        // FullCalendar's own text stays in the cell, hidden (styles.css): a row drawn again puts it back where it
+        // was, so taken out it came back after ours ("08:3508:35 – 08:55" on a phone, 2026-10-30).
         const time = occ.kind === "deadline" ? arg.el.querySelector<HTMLElement>(".fc-list-event-time") : null;
-        if (time) {
-          time.empty();
-          setIcon(time.createSpan({ cls: "ct-ev-due-icon" }), "flag");
-          time.appendText(occ.allDay ? t("view.allDay") : hm(occ.start));
+        if (time && !time.querySelector(".ct-ev-due-at")) {
+          time.addClass("is-due");
+          const at = time.createSpan({ cls: "ct-ev-due-at" });
+          setIcon(at.createSpan({ cls: "ct-ev-due-icon" }), "flag");
+          at.appendText(occ.allDay ? t("view.allDay") : hm(occ.start));
         }
         const relay = occ.invitation?.relay;
         const relayText = relay ? (relay.startsWith("failed") ? t("view.rsvpFailed", { reason: relay.slice(7) || "?" }) : relay === "pending" ? t("view.rsvpPending") : "") : "";
@@ -643,6 +661,14 @@ export class CalendarView extends ItemView {
         if (end && end.toDateString() === start.toDateString()) time.createSpan({ text: ` – ${clock(end)}` });
         if (occ.location) time.createSpan({ cls: "ct-ev-place", text: ` · ${occ.location}` });
       }
+    } else if (type === "dayGridMonth" && Platform.isPhone && (!occ.allDay || task)) {
+      // A phone's day is 50px wide: its mark and the title, no times (2026-10-30: they took the whole line); the day
+      // is a tap away. The checkbox doesn't tick here: a tap opens the card.
+      el.addClass("is-line", "is-compact");
+      const mark = el.createSpan({ cls: "ct-ev-mark" });
+      if (occ.kind === "deadline") this.checkbox(mark, occ.taskUid, arg.event.classNames.includes("ct-ev-done"), false);
+      else mark.createSpan({ cls: `ct-ev-bar${occ.kind === "timeblock" ? " is-dashed" : ""}` });
+      el.createSpan({ cls: "ct-ev-name", text: occ.title });
     } else if (type === "dayGridMonth" && (!occ.allDay || task)) {
       // Month: one aligned line each, after a bar as in Apple Calendar (solid: event, dashed: work session) or the
       // checkbox (deadline). What lasts within a day takes two: its start over its end, the bar along both
@@ -732,10 +758,13 @@ export class CalendarView extends ItemView {
     arrow("chevron-right", "view.next", () => cal.next());
     const view = cal.view;
     const now = Date.now();
-    const today = nav.createEl("button", { cls: "ct-cal-today", text: t("chip.today") });
+    const today = createEl("button", { cls: "ct-cal-today", text: t("chip.today") });
     today.disabled = now >= view.activeStart.getTime() && now < view.activeEnd.getTime();
     today.addEventListener("click", () => cal.today());
+    // A phone: ‹ › and the period, Today at the end of that line; the views and the actions (icons) on the next.
+    if (!Platform.isPhone) nav.append(today);
     bar.createDiv({ cls: "ct-cal-title", text: view.title });
+    if (Platform.isPhone) bar.append(today);
 
     const right = bar.createDiv({ cls: "ct-cal-right" });
     const seg = right.createDiv({ cls: "ct-segmented" });
@@ -760,7 +789,8 @@ export class CalendarView extends ItemView {
       setTooltip(b, tooltip);
       b.addEventListener("click", run);
     };
-    action("plus", t("command.newTask"), t("command.newTask"), () => this.host.newTask());
+    // The command's icon: on a phone it stands alone, next to Obsidian's "+" for a new note.
+    action("list-plus", t("command.newTask"), t("command.newTask"), () => this.host.newTask());
     // As iOS's Edit / Done: while moving, the button says how to finish.
     if (!view.type.startsWith("list")) {
       action(this.moving ? "check" : "move", t(this.moving ? "view.move.done" : "view.move"), t(this.moving ? "view.move.on" : "view.move.off"), () => this.setMoving(!this.moving), this.moving);
@@ -861,7 +891,8 @@ export class CalendarView extends ItemView {
       this.host.setPlanUnplannedOnly(!only);
       this.renderPanel();
     });
-    panel.createDiv({ cls: "ct-plan-hint", text: t("view.tasksPanel.desc") });
+    // Mobile: the panel takes the grid's place (styles.css), so nothing to drag onto.
+    panel.createDiv({ cls: "ct-plan-hint", text: t(Platform.isMobile ? "view.tasksPanel.descTouch" : "view.tasksPanel.desc") });
     const tasks = only ? this.toPlan.filter((x) => !x.blocks) : this.toPlan;
     if (!tasks.length) panel.createDiv({ cls: "ct-plan-empty", text: t(only && this.toPlan.length ? "view.allPlanned" : "view.noOpenTasks") });
     for (const task of tasks) {

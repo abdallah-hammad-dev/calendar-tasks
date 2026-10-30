@@ -5,7 +5,7 @@
 import { defaultKeymap } from "@codemirror/commands";
 import { EditorState } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
-import { editorInfoField, Menu } from "obsidian";
+import { editorInfoField, Menu, setIcon } from "obsidian";
 import { CalendarView, type CalendarHost } from "../../src/calendar/CalendarView";
 import { wholeDevicePixels } from "../../src/calendar/device-pixels";
 import { expandItem } from "../../src/calendar/expand";
@@ -31,6 +31,13 @@ import type { TaskInfo } from "../../src/tasks/task-index";
 const q = new URLSearchParams(location.search);
 const scenario = q.get("scenario") ?? "calendar-week";
 document.body.classList.add(q.get("theme") === "dark" ? "theme-dark" : "theme-light");
+// "phone-…" scenarios (shoot.mjs adds `phone=1`): Obsidian on an iPhone, its floating header and navbar included.
+const phone = q.get("phone") === "1";
+if (phone) {
+  document.body.classList.add("is-mobile", "is-phone", "is-ios", "is-floating-nav");
+  document.body.style.setProperty("--safe-area-inset-top", "47px");
+  document.body.style.setProperty("--safe-area-inset-bottom", "34px");
+}
 const TZ = "Europe/Paris";
 const done = () => ((window as unknown as { __ready: boolean }).__ready = true);
 
@@ -105,8 +112,31 @@ const TASKS: Record<string, { title: string; done: boolean }> = {
   t8: { title: "Rédiger le mémoire", done: false },
 };
 
+/**
+ * A view's `.workspace-leaf-content` as Obsidian lays it out on an iPhone: in the root split, under the floating
+ * header (sidebar, title, "…"), above the floating navbar. What the view draws under either is hidden for real.
+ */
+function phoneFrame(content: HTMLElement): void {
+  const root = document.body.createDiv({ cls: "workspace" }).createDiv({ cls: "workspace-split mod-root" });
+  const tabs = root.createDiv({ cls: "workspace-tabs mod-top mod-active mod-visible" });
+  tabs.style.flex = "1";
+  const leaf = tabs.createDiv({ cls: "workspace-tab-container" }).createDiv({ cls: "workspace-leaf mod-active" });
+  leaf.appendChild(content);
+  content.style.height = "100%";
+  const header = createDiv({ cls: "view-header" });
+  content.prepend(header);
+  const action = (parent: HTMLElement, icon: string) => setIcon(parent.createDiv({ cls: "clickable-icon view-action" }), icon);
+  action(header.createDiv({ cls: "view-header-left" }), "sidebar-left");
+  header.createDiv({ cls: "view-header-title-container" }).createDiv({ cls: "view-header-title", text: t("view.calendar") });
+  action(header.createDiv({ cls: "view-actions" }), "more-horizontal");
+  const navbar = document.body.createDiv({ cls: "mobile-navbar" }).createDiv({ cls: "mobile-navbar-actions" });
+  for (const icon of ["chevron-left", "chevron-right", "search", "plus", "copy", "menu"]) {
+    setIcon(navbar.createDiv({ cls: "mobile-navbar-action" }).createEl("button", { cls: "clickable-icon" }), icon);
+  }
+}
+
 /** `inTab`: inside an Obsidian tab beside a sidebar, whose `contain: strict` shifts `position: fixed` children. */
-function calendar(view: "timeGridWeek" | "dayGridMonth" | "listWeek", inTab = false): void {
+function calendar(view: "timeGridWeek" | "timeGridDay" | "dayGridMonth" | "listWeek", inTab = false): void {
   const queued = new Set<string>();
   // "calendar-drag": moves are written as the plugin writes them: the data changes at once (a deadline's reminder
   // too, TaskSync.setDue), the view redraws, then again once pushed. A redraw from elsewhere comes right after (a
@@ -194,7 +224,7 @@ function calendar(view: "timeGridWeek" | "dayGridMonth" | "listWeek", inTab = fa
     },
     pickSlot: () => undefined,
     newTask: () => undefined,
-    planPanelOpen: () => view === "timeGridWeek",
+    planPanelOpen: () => view === "timeGridWeek" || scenario === "phone-panel",
     setPlanPanelOpen: () => undefined,
     task: (uid) => TASKS[uid] ?? null,
     toggleTask: () => undefined,
@@ -216,7 +246,8 @@ function calendar(view: "timeGridWeek" | "dayGridMonth" | "listWeek", inTab = fa
   const v = new CalendarView(leaf as never, host);
   (window as unknown as { __reveal: (id: string, start: string) => void }).__reveal = (id, start) => v.reveal(id, start);
   v.containerEl.style.height = "100vh";
-  if (inTab) {
+  if (phone) phoneFrame(v.containerEl);
+  else if (inTab) {
     const tab = document.body.createDiv({ cls: "workspace-leaf" });
     Object.assign(tab.style, { position: "fixed", top: "40px", left: "260px", right: "0", bottom: "0" });
     v.containerEl.style.height = "100%";
@@ -636,16 +667,20 @@ function slotPicker(): void {
 function dateSuggest(): void {
   const popup = new DateSuggest({} as never, { task: () => null, edit: () => undefined, knownTags: () => KNOWN_TAGS });
   const editing = { path: "Tâches/Sport.md", due: "2026-10-19T07:00", repeat: "FREQ=WEEKLY;BYDAY=MO,TH" };
-  ["", "deadline ven ", "session chaque mardi ", "tag ", "priorité ", "edit:"].forEach((col_typed, col) => {
+  // A phone: one under the other, as wide as Obsidian lets them be there (its own max-width and max-height).
+  const states = phone ? ["", "deadline ven ", "session chaque mardi ", "edit:"] : ["", "deadline ven ", "session chaque mardi ", "tag ", "priorité ", "edit:"];
+  states.forEach((col_typed, col) => {
     const edit = col_typed.startsWith("edit:");
     const typed = edit ? col_typed.slice(5) : col_typed;
     (popup as unknown as { editing: unknown }).editing = edit ? editing : null;
-    const left = 16 + col * 420;
+    const left = phone ? 10 : 16 + col * 420;
+    const top = phone ? 12 + col * 300 : 12;
     const line = document.body.createDiv({ cls: "markdown-source-view mod-cm6" }).createDiv({ cls: "cm-line" });
-    Object.assign(line.style, { position: "absolute", left: `${left}px`, top: "12px" });
+    Object.assign(line.style, { position: "absolute", left: `${left}px`, top: `${top}px` });
     line.setText(edit ? `- [[Sport]] @${typed}` : `- [ ] Rendre le rapport @${typed}`);
     const box = document.body.createDiv({ cls: "suggestion-container" });
-    Object.assign(box.style, { position: "absolute", left: `${left}px`, top: "48px", maxWidth: "400px" }); // as wide as it needs, as in Obsidian
+    Object.assign(box.style, { position: "absolute", left: `${left}px`, top: `${top + 36}px` }); // as wide as it needs, as in Obsidian
+    if (!phone) box.style.maxWidth = "400px";
     const list = box.createDiv({ cls: "suggestion" });
     popup.getSuggestions({ query: typed, editor: {} } as never).forEach((s, i) => {
       const item = list.createDiv({ cls: i === 0 ? "suggestion-item is-selected" : "suggestion-item" });
@@ -664,6 +699,22 @@ else if (scenario === "calendar-month" || scenario === "calendar-month-narrow" |
 else if (scenario.startsWith("calendar-marks-week")) calendar("timeGridWeek");
 else if (scenario.startsWith("calendar-marks-list")) calendar("listWeek");
 else if (scenario === "calendar-month-drag") calendar("dayGridMonth", true);
+else if (scenario === "phone-month") calendar("dayGridMonth");
+else if (scenario === "phone-day") calendar("timeGridDay");
+else if (scenario === "phone-list") calendar("listWeek");
+else if (scenario === "phone-panel") calendar("timeGridDay");
+else if (scenario === "phone-new-task") newTask();
+else if (scenario === "phone-task-preview") taskPreview();
+else if (scenario === "phone-edit-task") editTask();
+else if (scenario === "phone-new-event") newEvent();
+else if (scenario === "phone-date-picker") datePicker();
+else if (scenario === "phone-slot-picker") slotPicker();
+else if (scenario === "phone-task-note") taskNote();
+else if (scenario === "phone-event-note") eventNote();
+else if (scenario === "phone-settings") settings();
+else if (scenario === "phone-date-suggest") dateSuggest();
+else if (scenario === "phone-task-links") taskLinks();
+else if (scenario === "phone-task-fields") taskFields();
 else if (scenario === "task-links") taskLinks();
 else if (scenario === "task-fields") taskFields();
 else if (scenario === "settings") settings();

@@ -500,6 +500,16 @@ a.internal-link.ct-task-done {
   gap: var(--size-4-2);
 }
 
+/* A phone: the buttons go on two lines when they don't fit on one (OK ran off the edge, 2026-10-30). */
+.is-phone .ct-dp-foot {
+  flex-wrap: wrap;
+  gap: var(--size-4-2);
+}
+
+.is-phone .ct-dp-foot-end {
+  margin-inline-start: auto;
+}
+
 /* The answer: the day, the time (or from / to), each in its field; quick times, and what it reads. */
 .ct-dp-when {
   display: flex;
@@ -642,6 +652,68 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-task-tags-input 
   max-width: none;
 }
 
+/*
+ * A phone (2026-10-30, the user: "pas du tout ergonomique"; Obsidian stacks every row, the sessions' fields ran
+ * off the left edge): the deadline and the sessions keep their name above, their fields on one line that fits;
+ * a menu or the tags sit beside their name; Cancel / Create stay at the bottom while the form scrolls.
+ */
+/* The phone's form is a scrolling flex column: taller than the screen, its rows shrank (the title to 28px). */
+.is-phone .ct-task-modal .ct-task-fields > * {
+  flex-shrink: 0;
+}
+
+.is-phone .ct-task-modal .ct-task-fields > .setting-item {
+  gap: var(--size-4-2);
+  padding: var(--size-4-2) 0;
+}
+
+.is-phone .ct-task-modal .ct-modal-buttons > .setting-item-info {
+  display: none;
+}
+
+.is-phone .ct-task-modal .ct-task-fields > .setting-item > .setting-item-control {
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  gap: var(--size-4-1);
+}
+
+.is-phone .ct-task-modal .setting-item-control input.ct-when-day {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+}
+
+.is-phone .ct-task-modal .setting-item-control input.ct-when-time {
+  flex: 0 1 4.6em;
+  width: auto;
+  min-width: 0;
+  padding-inline: var(--size-4-2);
+}
+
+.is-phone .ct-task-modal .setting-item-control > .clickable-icon {
+  flex: none;
+}
+
+.is-phone .ct-task-modal .ct-task-fields > .setting-item:has(> .setting-item-control > :is(.ct-select, .ct-task-tags-input)) {
+  flex-direction: row;
+  align-items: center;
+}
+
+.is-phone .ct-task-modal .ct-task-fields > .setting-item > .setting-item-control:has(> :is(.ct-select, .ct-task-tags-input)) {
+  flex: 0 1 60%;
+  width: auto;
+}
+
+.is-phone .ct-task-modal .ct-task-fields > .setting-item.ct-modal-buttons {
+  position: sticky;
+  bottom: calc(var(--size-4-4) * -1);
+  z-index: 1;
+  margin-top: 0;
+  padding: var(--size-4-3) 0 var(--size-4-4);
+  border-top: none;
+  background: var(--modal-background);
+}
+
 /* Beside the day: the buttons at the bottom, level with it. */
 .ct-task-form {
   display: flex;
@@ -690,16 +762,6 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-task-tags-input 
   display: flex;
   flex: 0 0 300px;
   min-height: 440px;
-}
-
-.is-phone .ct-task-split {
-  flex-direction: column;
-}
-
-.is-phone .ct-task-preview {
-  flex-basis: auto;
-  min-height: 0;
-  height: 320px;
 }
 
 .ct-day-preview {
@@ -783,6 +845,25 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-task-tags-input 
 .ct-form-grid .ct-form-text {
   width: 100%;
   min-width: 0;
+}
+
+/* A phone: names may wrap ("Pour une tâche"), so the day keeps room for "20/10/2026" (it was cut, 2026-10-30). */
+.is-phone .ct-form-grid {
+  column-gap: var(--size-4-1);
+}
+
+.is-phone .ct-form-name {
+  max-width: 6em;
+  padding-inline-end: var(--size-4-1);
+}
+
+.is-phone .ct-when-pair {
+  grid-template-columns: minmax(0, 1fr) 4.2em;
+  gap: var(--size-4-1);
+}
+
+.is-phone .ct-when-pair input {
+  padding-inline: var(--size-4-2);
 }
 
 /* Start and end (src/calendar/when-fields.ts): a day and a time, the time hidden for "All day" (the day stays put). */
@@ -943,6 +1024,22 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-task-tags-input 
   font-size: var(--font-ui-smaller);
 }
 
+/* A phone: the list is as wide as the screen at most; a long reading wraps in its column (it was cut, 2026-10-30). */
+.is-mobile :is(.suggestion, .prompt-results):has(> .ct-date-suggestion) {
+  grid-template-columns: max-content minmax(0, 1fr);
+}
+
+.is-mobile .ct-date-suggestion-day,
+.is-mobile .ct-date-suggestion-day .ct-when-part {
+  min-width: 0;
+  white-space: normal;
+}
+
+.is-mobile .ct-date-suggestion-day .ct-chip-icon {
+  align-self: flex-start;
+  margin-top: 0.15em;
+}
+
 /* —— Calendar view (spec §7.1) ——
    FullCalendar lays out the grid and handles dragging; the toolbar, events, day headers and popovers are ours. */
 .ct-calendar {
@@ -1007,6 +1104,71 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-task-tags-input 
 .ct-cal-action.is-active {
   background: var(--interactive-accent);
   color: var(--text-on-accent);
+}
+
+/*
+ * A phone (2026-10-30, the user: "un peu dégueu"): ‹ › the period and Today on a line, the views and the actions
+ * (icons) on the next, the collections on one line that scrolls, and room at the bottom for Obsidian's floating
+ * navbar (the month's last week was under it).
+ */
+.is-phone .ct-calendar {
+  padding: var(--size-4-2) var(--size-4-3) var(--view-bottom-spacing, 0);
+}
+
+.is-phone .ct-cal-bar {
+  flex-wrap: wrap;
+  gap: var(--size-4-2);
+}
+
+.is-phone .ct-cal-nav {
+  gap: 0;
+}
+
+.is-phone .ct-cal-title {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--font-ui-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.is-phone .ct-cal-right {
+  flex: 1 1 100%;
+  flex-wrap: nowrap;
+  margin-inline-start: 0;
+}
+
+.is-phone .ct-segmented {
+  flex: 1 1 auto;
+}
+
+.is-phone .ct-segmented > button {
+  flex: 1 1 0;
+  padding-inline: var(--size-4-1);
+}
+
+.is-phone .ct-cal-action {
+  padding: var(--size-4-1) var(--size-4-2);
+}
+
+.is-phone .ct-cal-action-text {
+  display: none;
+}
+
+.is-phone .ct-calendar-legend {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.is-phone .ct-calendar-legend > * {
+  flex: none;
+}
+
+/* Self-hosted LiveSync writes its status over the top of every view: here, over the toolbar (2026-10-30). */
+.workspace-leaf-content[data-type="calendar-tasks-calendar"] .livesync-status {
+  display: none;
 }
 
 /*
@@ -1423,6 +1585,10 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-task-tags-input 
   flex: 1 1 auto;
   border: none;
   padding: 0;
+}
+
+.is-mobile .ct-plan-grip {
+  display: none;
 }
 
 /* The grid. */
@@ -2051,6 +2217,33 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-task-tags-input 
   white-space: normal;
 }
 
+/* A phone's month: the mark, narrow, then as much of the title as fits, cut (no "…": it took half the room). */
+.ct-ev-content.is-line.is-compact {
+  gap: 2px;
+  padding: 0 1px;
+  font-size: var(--font-ui-smaller);
+}
+
+.ct-ev-content.is-compact .ct-ev-mark {
+  width: auto;
+}
+
+.ct-ev-content.is-compact .ct-ev-bar {
+  width: 5px;
+}
+
+.ct-calendar .fc .fc-daygrid-event .ct-ev-content.is-compact .ct-ev-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+/* "+2": the day it opens says the rest. */
+.is-phone .ct-calendar .fc .fc-daygrid-more-link {
+  font-size: var(--font-ui-smaller);
+}
+
 .ct-calendar .fc .fc-daygrid-dot-event:hover,
 .ct-calendar .fc .fc-dayGridMonth-view .fc-daygrid-block-event.ct-ev-deadline:hover,
 .ct-calendar .fc .fc-dayGridMonth-view .fc-daygrid-block-event.ct-ev-timeblock:hover {
@@ -2148,6 +2341,15 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-task-tags-input 
 .ct-calendar .fc .fc-list-event-time .ct-ev-due-icon {
   margin-inline-end: 4px;
   vertical-align: -1px;
+}
+
+/* A deadline's cell: our flag and time; FullCalendar's text ("08:35 – 08:55") stays in it, at no size. */
+.ct-calendar .fc .fc-list-event-time.is-due {
+  font-size: 0;
+}
+
+.ct-calendar .fc .fc-list-event-time.is-due .ct-ev-due-at {
+  font-size: var(--font-ui-small);
 }
 
 .ct-calendar .fc .fc-list-event.ct-ev-overdue .fc-list-event-time {

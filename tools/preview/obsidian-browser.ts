@@ -161,7 +161,9 @@ export const MarkdownRenderer = {
 
 // ───────────────────────── basics ─────────────────────────
 
-export const Platform = { isDesktopApp: true, isMobile: false };
+// `?phone=1`: Obsidian on an iPhone (the harness adds the body's classes and the app's frame).
+const phone = new URLSearchParams(location.search).get("phone") === "1";
+export const Platform = { isDesktopApp: !phone, isMobile: phone, isPhone: phone, isIosApp: phone };
 export const getLanguage = (): string => new URLSearchParams(location.search).get("lang") ?? "fr";
 export const Keymap = { isModEvent: () => false };
 export function debounce<T extends (...a: unknown[]) => unknown>(fn: T): T {
