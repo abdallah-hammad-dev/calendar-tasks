@@ -281,7 +281,11 @@ user at each one.
   way. So `isClick` (`dateSelection` empty: nothing drawn) means an hour from the half hour; held, it's those 5 minutes;
   a drag shows at once. A finger's long press and a whole day draw at once, and a finger's one step stays an hour.
   `newEventPopover` anchors on what `calendar.select` draws, in the same tick. `calendar-interact` and `task-preview`
-  check it.
+  check it. **A second finger ends a press** (`secondFinger`, 2026-10-31, on the user's iPhone: "sa marche au debut,
+  ensuite g desoume au max, et sa marche plus meme en rezoomant"): each finger of a pinch set FullCalendar's long-press
+  timer in the same variable, so the first ran out with none down and left a drag that never ended, every press ignored
+  after it. Only on free time and with a pinch that scrolls nothing, as at the end of the zoom. `phone-day` drives real
+  touches through CDP, `pinch` and `longPress`, on a day with nothing in it: a finger on an event starts no timer.
   A press beside the events while a `.menu` is open stops at the grid (capture: pointerdown, mousedown,
   touchstart; 2026-10-25, it started a new event): FullCalendar never sees it (no selection, no unselect of an open
   form), and Obsidian's Menu, which listens on the window, closes on the `click` that follows. `calendar-interact`

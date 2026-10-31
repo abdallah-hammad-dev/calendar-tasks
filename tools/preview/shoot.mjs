@@ -878,6 +878,12 @@ async function phone(page, name, file, errors) {
     await swipe(120);
     await page.waitForTimeout(300);
     if ((await title()) !== "jeudi 15") errors.push(`a swipe to the right opened "${await title()}"`);
+    await longPress(page, errors, file, "a day with something all day");
+    await days.filter({ hasText: "18" }).tap();
+    await page.waitForTimeout(300);
+    await longPress(page, errors, file, "a day with nothing all day");
+    await days.filter({ hasText: "15" }).tap();
+    await page.waitForTimeout(300);
     // The agenda, from its button, and back.
     await page.locator(".ct-cal-tool").first().tap();
     await page.waitForTimeout(300);
@@ -891,7 +897,87 @@ async function phone(page, name, file, errors) {
     await page.waitForTimeout(300);
     if (!(await page.locator(".modal .ct-card").count())) errors.push("a tap on an event didn't open its card");
     else await page.screenshot({ path: file.replace(/-(light|dark)\.png$/, "-card-$1.png") });
+    await page.locator(".modal .modal-header-button").first().click();
+    await page.waitForTimeout(200);
+    // A pinch leaves a finger's long press working (2026-10-31, on the user's iPhone: "sa marche au debut, ensuite g
+    // desoume au max, et sa marche plus meme en rezoomant", the hours sliding under the finger). Done in the free time
+    // of an empty day: a finger on an event starts no wait, and a pinch that scrolls cancels it.
+    const slot = () => page.evaluate(() => document.querySelector(".fc-timegrid-slot-lane").getBoundingClientRect().height);
+    const tall = await slot();
+    await days.filter({ hasText: "18" }).tap();
+    await page.waitForTimeout(300);
+    await pinch(page, 0.3);
+    await page.waitForTimeout(300);
+    await pinch(page, 0.3);
+    await page.waitForTimeout(300);
+    await pinch(page, 0.3);
+    await page.waitForTimeout(1300);
+    const ghost = await page.locator(".fc-event-mirror, .modal").count();
+    if (ghost) errors.push(`a pinch left ${ghost} selection or form behind it`);
+    if ((await slot()) >= tall) errors.push(`a pinch should zoom out: ${tall}px then ${await slot()}px`);
+    await longPress(page, errors, file, "after a pinch at the end of the zoom", "10:00:00", "11:00:00");
+    await pinch(page, 2.5);
+    await page.waitForTimeout(1300);
+    await longPress(page, errors, file, "zoomed back in", "12:00:00", "13:30:00");
   }
+}
+
+/** Two fingers on the hours, the second just after the first, spreading by `factor`, both let go within half a second. */
+async function pinch(page, factor) {
+  const cdp = await page.context().newCDPSession(page);
+  const box = await page.evaluate(() => {
+    const r = document.querySelector(".fc-timegrid-body").closest(".fc-scroller").getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  });
+  const fingers = (gap) => [{ x: box.x, y: box.y - gap, id: 0 }, { x: box.x, y: box.y + gap, id: 1 }];
+  const send = (type, touchPoints) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints });
+  await send("touchStart", fingers(100).slice(0, 1));
+  await page.waitForTimeout(30);
+  await send("touchStart", fingers(100));
+  for (let i = 1; i <= 8; i++) {
+    await send("touchMove", fingers(100 * (1 + ((factor - 1) * i) / 8)));
+    await page.waitForTimeout(30);
+  }
+  await send("touchEnd", []);
+}
+
+/**
+ * A finger held on free time, then dragged: a range, drawn as it grows, for a new event. It's never quite still (real
+ * fingers send moves all through the hold), and the hours under it shouldn't scroll.
+ */
+async function longPress(page, errors, file, what, from = "12:00:00", until = "13:30:00") {
+  const cdp = await page.context().newCDPSession(page);
+  const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y }] });
+  const at = await page.locator(`.fc-timegrid-slot-lane[data-time='${from}']`).boundingBox();
+  const to = await page.locator(`.fc-timegrid-slot-lane[data-time='${until}']`).boundingBox();
+  const x = at.x + at.width / 2;
+  const y = at.y + 4;
+  const scroller = () => page.evaluate(() => document.querySelector(".fc-timegrid-body").closest(".fc-scroller").scrollTop);
+  const scrolled = await scroller();
+  await touch("touchStart", x, y);
+  for (let i = 0; i < 12; i++) {
+    await page.waitForTimeout(100);
+    await touch("touchMove", x + (i % 2), y + (i % 3));
+  }
+  const held = await page.locator(".fc-event-mirror, .fc-highlight").count();
+  const steps = 10;
+  for (let i = 1; i <= steps; i++) {
+    await touch("touchMove", x, y + ((to.y - at.y) * i) / steps);
+    await page.waitForTimeout(30);
+  }
+  await page.waitForTimeout(100);
+  const mirror = await page.locator(".fc-event-mirror").first().boundingBox();
+  await touch("touchEnd");
+  await page.waitForTimeout(400);
+  const after = await scroller();
+  const form = await page.locator(".modal").count();
+  console.log(`long press, ${what}:`, JSON.stringify({ held, mirror: mirror?.height, wanted: to.y - at.y, scrolled, after, form }));
+  if (!held) errors.push(`${what}: a long press should show the range it starts`);
+  if (!mirror || mirror.height < (to.y - at.y) * 0.7) errors.push(`${what}: dragged after a long press, the range should grow, is ${mirror?.height}px`);
+  if (after !== scrolled) errors.push(`${what}: a long press then a drag shouldn't scroll the hours`);
+  if (!form) errors.push(`${what}: a long press then a drag should open the new event form`);
+  await page.locator(".modal .modal-header-button").first().click();
+  await page.waitForTimeout(200);
 }
 
 /** Real mouse input on the calendar: drag a task from the "To plan" panel, then click an empty slot. */

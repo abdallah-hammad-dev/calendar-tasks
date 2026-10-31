@@ -82,6 +82,20 @@ function holdPress(selecting) {
   }, HOLD_MS);
 }
 
+/**
+ * A second finger: a pinch, so the press under way is no long press. Runs in FullCalendar's module on a
+ * `FeaturefulElementDragging`, given the press or the move that shows it.
+ */
+function secondFinger(dragging, ev) {
+  if (!dragging.isInteracting || dragging.isDragging || !(ev.origEvent.touches?.length > 1)) return false;
+  clearTimeout(dragging.delayTimeoutId);
+  dragging.delayTimeoutId = null;
+  dragging.isInteracting = false;
+  allowSelection(document.body);
+  allowContextMenu(document.body);
+  return true;
+}
+
 /** What's changed in FullCalendar: each line must be there once, or the build fails, so an update can't drop a fix silently. */
 const PATCHES = [
   {
@@ -93,10 +107,16 @@ const PATCHES = [
     // it, and `isClick` (src/calendar/selection.ts) tells which it was. Nothing at all while held wasn't better (asked
     // the same day: a long press showed nothing, and no way to book 5 minutes). `selectMinDistance` would leave a dead
     // click: a press moved 2px over a step is neither a selection nor a `dateClick`.
+    // And each finger of a pinch starts its own wait for a long press, in the one variable, so the first was never
+    // cleared: it ran out with no finger down, the drag "started" and never ended, and every press was ignored from then
+    // on, the hours sliding under the finger (2026-10-31, on the user's iPhone). It takes free time under the fingers
+    // and a pinch that scrolls nothing, as at the end of the zoom.
     module: /@fullcalendar[\\/]interaction[\\/]index\.c?js$/,
-    prepend: [`const HOLD_MS = ${HOLD_MS};`, stillPressed, holdPress],
+    prepend: [`const HOLD_MS = ${HOLD_MS};`, stillPressed, holdPress, secondFinger],
     replace: [
       ["hitDragging.useSubjectCenter = settings.useEventCenter;", "hitDragging.useSubjectCenter = false;"],
+      ["this.onPointerDown = (ev) => {\n            if (!this.isDragging) {", "this.onPointerDown = (ev) => {\n            if (!secondFinger(this, ev) && !this.isDragging) {"],
+      ["this.onPointerMove = (ev) => {\n            if (this.isInteracting) {", "this.onPointerMove = (ev) => {\n            if (!secondFinger(this, ev) && this.isInteracting) {"],
       ["this.component.context.calendarApi.unselect(ev); // unselect previous selections", "this.component.context.calendarApi.unselect(ev); // unselect previous selections\n            holdPress(this);"],
       [
         "context.dispatch({ type: 'SELECT_DATES', selection: dragSelection });",
