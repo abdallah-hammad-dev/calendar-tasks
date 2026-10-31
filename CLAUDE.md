@@ -286,6 +286,35 @@ user at each one.
   timer in the same variable, so the first ran out with none down and left a drag that never ended, every press ignored
   after it. Only on free time and with a pinch that scrolls nothing, as at the end of the zoom. `phone-day` drives real
   touches through CDP, `pinch` and `longPress`, on a day with nothing in it: a finger on an event starts no timer.
+  **A start dragged up stays there** (`dragEnds`, 2026-10-31, the user: "on est bloque exactement la ou on a clique
+  niveau heure de debut"): FullCalendar always joins the pointer to the step pressed, so coming back down brought the
+  start with it. Past `TURN_PX` (6, 2026-10-31: at 12 a start moved up 10 minutes didn't count, the user: "ça a redescendu
+  à 6h10 avant de s'étendre") up then back, the start stays at the highest step reached and the end follows the
+  pointer, the block jumping to it; under that it's a shaky hand. The price: a start dragged too high can't come down
+  in the same drag, which the draft below makes up for. A drag down first still shrinks on the way back, the usual
+  correction of an overshoot.
+  **Let go, a time stays a draft** (`openDraft`, 2026-10-31, the user: "quand tu relache on peut tjr continuer a glisse
+  le haut le bas le tout et ensuite on rempli", the popup "en meme temps", and on mobile "tu appuie sur un bouton et la
+  ya le popup"): timed selections only (all-day and month ones go on as before, `reselect`, the form at once). The
+  selection becomes an event of its own (`DRAFT_ID`, class `ct-ev-draft`, drawn as the selection, no source so
+  `refetchEvents` leaves it), which `eventAllow` keeps in its row and `eventDrop`/`eventResize` send to `draftMoved`
+  instead of the host. A computer has its form open beside it (`renderEventForm`'s `follow`, `renderWhenFields`'s `set`:
+  the other way round from `preview`), a press outside closes both; a phone's bar turns into Cancel, the times, Next
+  (`renderPhoneToolbar`), Next opens the modal, and however the form closes the draft goes (`closeDraft`). No long press
+  on it: `tools/fullcalendar-patch.mjs` skips FullCalendar's "select the event first" for `DRAFT_ID` at the three places
+  it asks, and a finger's stretch starts at the first pixel (past that iOS has started scrolling). A finger's grips reach
+  18px out of the block, so they don't cover a short one. `eventResizableFromStart` is global, so Move mode stretches
+  from the top too, with a grip there. The grips are 4px high, a whole number of device pixels at 125 % and 150 %, or
+  they came out unlike (`evenGrips` in `calendar-marks-week-125`/`-150`). `draft` in `calendar-interact` and `phoneDraft`
+  in `phone-day` check it. **A second finger also stops a drag under way** where it started (`pinched`): a draft moves at
+  the first touch, and a pinch over it moved it instead of zooming. **A stretch stops short of the other end**
+  (`stopShort`, 2026-11-01, the user: "sa se resnap en 1h d'event"): past it, FullCalendar's `computeMutation` gave up and
+  the event went back to what it was when pressed; it now holds the last step before, 5 minutes in the grid, in Move
+  mode too.
+  **The edge** (same day, "ca s'arrete de monter a un moment et ensuite sa glisse"): the grid scrolled from 50px, the
+  block held under the pointer, and 10px past the grid the whole selection was dropped. Now `SCROLL_EDGE_PX` (24), for
+  event drags too; a selection of time stays in the grid (`insideGrid`) and goes on scrolling past it (`pastEdges`, not
+  for events: dragged up to the all-day row, they'd scroll the hours away). `selectDrag` in `calendar-interact` checks it.
   A press beside the events while a `.menu` is open stops at the grid (capture: pointerdown, mousedown,
   touchstart; 2026-10-25, it started a new event): FullCalendar never sees it (no selection, no unselect of an open
   form), and Obsidian's Menu, which listens on the window, closes on the `click` that follows. `calendar-interact`
@@ -440,7 +469,7 @@ user at each one.
   on (2026-10-20: the session just placed is stretched next; `calendar-interact` drops one, then pulls its edge). The
   `calendar-drag` preview checks nothing moves while locked, then exact landings (event, work session, deadline).
   Move mode shows through `.ct-calendar.is-moving` (frame on `.ct-calendar-grid`, `.fc-event:not(.fc-event-draggable)`
-  faded, `.fc-event-resizer-end` shown with a grip) and `renderLegend` (the hint replaces `.ct-key`); Escape ends it
+  faded, `.fc-event-resizer` shown with a grip at each end) and `renderLegend` (the hint replaces `.ct-key`); Escape ends it
   only when this calendar is the active view (the keydown is on window).
   In the month, FullCalendar drags a `position: fixed` copy, which Obsidian's `.workspace-leaf { contain: strict }`
   placed from the tab's corner (far from the pointer): `fixedMirrorParent` is `CalendarView.dragLayer`, a

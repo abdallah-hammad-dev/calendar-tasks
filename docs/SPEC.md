@@ -595,7 +595,7 @@ popovers.
   behind it (side by side always, as in Apple Calendar, halved a 3-hour event for a deadline at its end). Narrow,
   titles wrap whole words and the repeat icon makes room.
 - **Precision: 5 minutes** (Apple Calendar's): dragging and resizing snap to 5 minutes, and a dragged event shows
-  the time it lands on. A click on an empty slot gives an hour from the half hour clicked; on a computer, a press held a moment shows 5 minutes, and that's what it books when let go, and a drag shows from the first move. **To the minute**: the
+  the time it lands on. A click on an empty slot gives an hour from the half hour clicked; on a computer, a press held a moment shows 5 minutes, and that's what it books when let go, and a drag shows from the first move. Dragged up then back down, the start stays as high as it went and the end follows the pointer. The hours scroll only right at the grid's edge and past it, where a selection stays at the edge rather than being lost. Let go, a time stays: its top, its bottom and its middle go on moving it, the form following (see below). **To the minute**: the
   new event form and an event's card (click its time) have Start / End, each a day field and a time field (2026-10-19:
   the date-time fields opened the system's calendar), and "All day", which hides the times; moving the start keeps
   the length, what isn't understood or an end not after the start is marked and blocks saving, and the selection on
@@ -643,8 +643,8 @@ popovers.
   faire exprès"): a "Move" toggle in the toolbar, off whenever the calendar opens (2026-10-20, confirmed: it's a
   mode for a moment, the one that changes the calendar, and must read as such; never remembered). It shows all over, not only on
   its button (2026-10-19, asked; Apple's jiggling icons as the idea, not the look): the button turns to "✓ Done",
-  the grid is framed in the accent, what can't move fades, what can be stretched shows a grip at its bottom, and the
-  key under the toolbar gives way to the hint ("Drag to move, pull the bottom edge to change the length"; in the
+  the grid is framed in the accent, what can't move fades, what can be stretched shows a grip at each end, and the
+  key under the toolbar gives way to the hint ("Drag to move, pull an edge to change the length"; in the
   month "Drag onto another day"; "Esc to finish"). Escape or Done ends it; the agenda (nothing drags) ends it too. Off, a press on an event only
   opens its card. Dropping a task from the Tasks panel and changing times in a card work either way (both are on
   purpose); a task dropped turns Move mode on, so the session just placed can be stretched at once (2026-10-20,
@@ -654,7 +654,7 @@ popovers.
   changes its reminder at once, then its note (2026-10-19: "ça revient puis ça se redéplace" when the calendar
   redrew before the note's change reached the reminder). While something is held, the calendar doesn't redraw
   (2026-10-19: a redraw from the move just before showed the old one again beside the one in hand); it does once
-  it's dropped. **Selecting a range** creates an event (title, collection, or a task it's a work session for: picking it names the event, unless a title was typed), in a popover beside the selection, which stays drawn until the popover closes (a modal on phones). A click beside the events while a menu is open
+  it's dropped. **Selecting a range** creates an event (title, collection, or a task it's a work session for: picking it names the event, unless a title was typed), in a popover beside the selection, which stays drawn until the popover closes. A range of hours stays adjustable meanwhile: dragged by its top, its bottom or its middle, with a grip at each end (pulled past the other end, a grip stops 5 minutes short of it, here and in Move mode), the form's times follow it, what's typed there stays, and times typed move it. On a phone it's adjusted first, without a long press, the bar saying Cancel, its times, Next; Next opens the form in a modal, and closing the form takes the range away. Whole days have no such step: the form opens at once, in a modal on phones. A click beside the events while a menu is open
   only closes the menu (2026-10-25, the user: closing the right-click menu that way started a new event); a click on an
   event still does what it does, as anywhere in Obsidian.
 - Editing an event's details (title, times, place, collection, task) is its form (the pencil above); the

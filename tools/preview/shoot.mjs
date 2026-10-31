@@ -511,6 +511,52 @@ async function packedDays(page, errors) {
 }
 
 /**
+ * The grips of a new event's time, in device pixels, wherever the time falls: alike at both ends, at 125 %. Read down
+ * the block's middle against a column beside the bar, which cancels its border and the hour lines.
+ */
+async function evenGrips(page, errors, scale) {
+  const col = await page.locator(".fc-timegrid-col[data-date='2026-10-18']").boundingBox();
+  const noon = await page.locator(".fc-timegrid-slot-lane[data-time='12:00:00']").boundingBox();
+  await page.mouse.click(col.x + col.width / 2, noon.y + 2);
+  await page.waitForTimeout(300);
+  // Its time, in a narrow column, runs under the bar.
+  await page.addStyleTag({ content: ".ct-ev-draft .fc-event-main { visibility: hidden; }" });
+  const seen = new Set();
+  for (const time of ["12h", "12h05", "12h10", "12h20", "12h35", "12h50"]) {
+    await page.locator(".ct-popover .ct-when-time").first().fill(time);
+    await page.waitForTimeout(100);
+    const png = (await page.screenshot()).toString("base64");
+    const rows = await page.evaluate(
+      async ([png, scale]) => {
+        const img = new Image();
+        img.src = `data:image/png;base64,${png}`;
+        await img.decode();
+        const canvas = document.createElement("canvas");
+        [canvas.width, canvas.height] = [img.width, img.height];
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0);
+        const data = ctx.getImageData(0, 0, img.width, img.height).data;
+        const at = (x, y) => [...data.slice((y * img.width + x) * 4, (y * img.width + x) * 4 + 3)];
+        return [...document.querySelectorAll(".ct-ev-draft .fc-event-resizer")].map((el) => {
+          const r = el.getBoundingClientRect();
+          const mid = Math.round((r.left + r.width / 2) * scale);
+          let n = 0;
+          for (let y = Math.floor(r.top * scale) - 2; y < Math.ceil(r.bottom * scale) + 2; y++) {
+            if (Math.max(...at(mid, y).map((v, i) => Math.abs(v - at(mid - Math.round(14 * scale), y)[i]))) > 12) n++;
+          }
+          return n;
+        });
+      },
+      [png, scale],
+    );
+    for (const n of rows) seen.add(n);
+  }
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(150);
+  if (seen.size !== 1 || seen.has(0)) errors.push(`the grips should all be as thick, at ${scale * 100} %: ${[...seen].join(", ")} device pixels`);
+}
+
+/**
  * The marks read from the screenshot's pixels (see SCENARIOS). A pixel is ink when it differs from the background
  * by more than half the most any pixel there does; runs of ink and gaps down a column give a bar's dots.
  */
@@ -882,6 +928,8 @@ async function phone(page, name, file, errors) {
     await days.filter({ hasText: "18" }).tap();
     await page.waitForTimeout(300);
     await longPress(page, errors, file, "a day with nothing all day");
+    await longPress(page, errors, file, "up then down", "12:00:00", "14:00:00", "11:00:00");
+    await phoneDraft(page, errors, file);
     await days.filter({ hasText: "15" }).tap();
     await page.waitForTimeout(300);
     // The agenda, from its button, and back.
@@ -945,7 +993,7 @@ async function pinch(page, factor) {
  * A finger held on free time, then dragged: a range, drawn as it grows, for a new event. It's never quite still (real
  * fingers send moves all through the hold), and the hours under it shouldn't scroll.
  */
-async function longPress(page, errors, file, what, from = "12:00:00", until = "13:30:00") {
+async function longPress(page, errors, file, what, from = "12:00:00", until = "13:30:00", via = null, keep = false) {
   const cdp = await page.context().newCDPSession(page);
   const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y }] });
   const at = await page.locator(`.fc-timegrid-slot-lane[data-time='${from}']`).boundingBox();
@@ -961,8 +1009,17 @@ async function longPress(page, errors, file, what, from = "12:00:00", until = "1
   }
   const held = await page.locator(".fc-event-mirror, .fc-highlight").count();
   const steps = 10;
+  // Up first when asked: the start stays there, on the way down to `until`.
+  const top = via && (await page.locator(`.fc-timegrid-slot-lane[data-time='${via}']`).boundingBox());
+  if (top) {
+    for (let i = 1; i <= steps; i++) {
+      await touch("touchMove", x, y + ((top.y - at.y) * i) / steps);
+      await page.waitForTimeout(30);
+    }
+  }
+  const from2 = top ? top.y - at.y : 0;
   for (let i = 1; i <= steps; i++) {
-    await touch("touchMove", x, y + ((to.y - at.y) * i) / steps);
+    await touch("touchMove", x, y + from2 + ((to.y - at.y - from2) * i) / steps);
     await page.waitForTimeout(30);
   }
   await page.waitForTimeout(100);
@@ -971,13 +1028,218 @@ async function longPress(page, errors, file, what, from = "12:00:00", until = "1
   await page.waitForTimeout(400);
   const after = await scroller();
   const form = await page.locator(".modal").count();
-  console.log(`long press, ${what}:`, JSON.stringify({ held, mirror: mirror?.height, wanted: to.y - at.y, scrolled, after, form }));
+  const draft = await page.locator(".ct-ev-draft").count();
   if (!held) errors.push(`${what}: a long press should show the range it starts`);
-  if (!mirror || mirror.height < (to.y - at.y) * 0.7) errors.push(`${what}: dragged after a long press, the range should grow, is ${mirror?.height}px`);
+  const wanted = to.y - (top ?? at).y;
+  if (!mirror || mirror.height < wanted * 0.7) errors.push(`${what}: dragged after a long press, the range should grow to ${wanted}px, is ${mirror?.height}px`);
+  if (top && mirror && Math.abs(mirror.y - top.y) > 6) errors.push(`${what}: the start should stay as high as it went, at ${top.y}, is at ${mirror.y}`);
   if (after !== scrolled) errors.push(`${what}: a long press then a drag shouldn't scroll the hours`);
-  if (!form) errors.push(`${what}: a long press then a drag should open the new event form`);
-  await page.locator(".modal .modal-header-button").first().click();
+  if (form) errors.push(`${what}: let go, the form should wait for "Next"`);
+  if (!draft) errors.push(`${what}: let go, the time should stay to be adjusted`);
+  if (keep) return;
+  await page.locator(".ct-cal-back").first().tap();
   await page.waitForTimeout(200);
+  if (await page.locator(".ct-ev-draft").count()) errors.push(`${what}: "Cancel" should take the time away`);
+}
+
+/**
+ * A finger on the time just let go, with no long press: its bottom, its top, its middle. The bar says where it is, the
+ * hours don't scroll, and "Next" opens the form on it; the form closed, it's gone.
+ */
+async function phoneDraft(page, errors, file) {
+  await longPress(page, errors, file, "to adjust", "12:00:00", "13:00:00", null, true);
+  const cdp = await page.context().newCDPSession(page);
+  const block = page.locator(".ct-ev-draft").first();
+  const hour = (await page.locator(".fc-timegrid-slot-lane[data-time='13:00:00']").boundingBox()).y - (await page.locator(".fc-timegrid-slot-lane[data-time='12:00:00']").boundingBox()).y;
+  const scroller = () => page.evaluate(() => document.querySelector(".fc-timegrid-body").closest(".fc-scroller").scrollTop);
+  const scrolled = await scroller();
+  const bar = async () => ((await page.locator(".ct-cal-title").textContent()) ?? "").trim();
+  const drag = async (x, y, by, want, what) => {
+    const send = (type, py) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y: py }] });
+    await send("touchStart", y);
+    for (let i = 1; i <= 10; i++) {
+      await page.waitForTimeout(20);
+      await send("touchMove", y + (by * i) / 10);
+    }
+    await page.waitForTimeout(60);
+    await send("touchEnd");
+    await page.waitForTimeout(200);
+    if ((await bar()) !== want) errors.push(`${what}: the bar says ${await bar()}, not ${want}`);
+  };
+  const b1 = await block.boundingBox();
+  const x = b1.x + b1.width / 2;
+  await page.screenshot({ path: file.replace(/-(light|dark)\.png$/, "-draft-$1.png") });
+  await drag(x, b1.y + b1.height + 10, hour, "12:00 – 14:05", "its bottom, just under it");
+  const b2 = await block.boundingBox();
+  await drag(x, b2.y - 10, -hour, "11:00 – 14:05", "its top, just over it");
+  const b3 = await block.boundingBox();
+  await drag(x, b3.y + b3.height / 2, hour / 2, "11:30 – 14:35", "its middle");
+  if ((await scroller()) !== scrolled) errors.push(`adjusting it scrolled the hours: ${scrolled}px, then ${await scroller()}px`);
+  if (await page.locator(".fc-event-selected").count()) errors.push("adjusting it should leave it as it's drawn, not selected");
+  await page.screenshot({ path: file.replace(/-(light|dark)\.png$/, "-draft-moved-$1.png") });
+  // A pinch to see closer leaves it there, under the fingers or not.
+  const hourNow = async () => (await page.locator(".fc-timegrid-slot-lane[data-time='13:00:00']").boundingBox()).y - (await page.locator(".fc-timegrid-slot-lane[data-time='12:00:00']").boundingBox()).y;
+  await pinch(page, 1.4);
+  await page.waitForTimeout(400);
+  if ((await bar()) !== "11:30 – 14:35") errors.push(`a pinch should leave it there, the bar says ${await bar()}`);
+  if ((await hourNow()) <= hour) errors.push(`a pinch over it should still zoom: an hour was ${hour}px, is ${await hourNow()}px`);
+  const b4 = await block.boundingBox();
+  await drag(x, b4.y + b4.height + 10, 0, "11:30 – 14:35", "a grip touched");
+  await page.evaluate(() => window.__refresh());
+  await page.waitForTimeout(200);
+  if ((await bar()) !== "11:30 – 14:35") errors.push(`a refresh should leave it there, the bar says ${await bar()}`);
+  const b5 = await block.boundingBox();
+  await drag(x, b5.y - 10, b5.height + hour + 10, "14:30 – 14:35", "its top past its bottom");
+  await page.locator(".ct-cal-tools .ct-cal-back").tap();
+  await page.waitForTimeout(300);
+  const times = page.locator(".modal .ct-when-time");
+  const read = `${await times.nth(0).inputValue()} ${await times.nth(1).inputValue()}`;
+  if (read !== "14h30 14h35") errors.push(`"Next" should open the form on its times, reads ${read}`);
+  await page.locator(".modal .ct-task-title-input").fill("Atelier");
+  await page.locator(".modal .mod-cta").tap();
+  await page.waitForTimeout(200);
+  const made = await page.evaluate(() => window.__submitted);
+  if (made !== "Atelier|2026-10-18T14:30|2026-10-18T14:35") errors.push(`"Create" should take it as it stands, got ${made}`);
+  if (await page.locator(".ct-ev-draft, .modal").count()) errors.push("created, the form and the time should go");
+  if ((await bar()) === "14:30 – 14:35") errors.push("the bar should come back");
+}
+
+/**
+ * Selecting by dragging, with a real mouse: the block as it stands while held, on a free day. Dragged up then back the
+ * start stays as high as it went, a shaky hand changes nothing, and past the grid's edge the selection isn't lost.
+ */
+async function selectDrag(page, errors) {
+  const scroller = () => page.evaluate(() => document.querySelector(".fc-timegrid-body").closest(".fc-scroller").scrollTop);
+  const shown = () => page.evaluate(() => [...document.querySelectorAll(".fc-event-mirror")].pop()?.textContent.trim() ?? "nothing");
+  const opened = await scroller();
+  const col = await page.locator(".fc-timegrid-col[data-date='2026-10-18']").boundingBox();
+  const x = col.x + col.width / 2;
+  const hour = (await page.locator(".fc-timegrid-slot-lane[data-time='13:00:00']").boundingBox()).y - (await page.locator(".fc-timegrid-slot-lane[data-time='12:00:00']").boundingBox()).y;
+  const noon = (await page.locator(".fc-timegrid-slot-lane[data-time='12:00:00']").boundingBox()).y + 2;
+  const hours = async (path, want, what) => {
+    await page.mouse.move(x, noon);
+    await page.mouse.down();
+    for (const h of path) {
+      await page.mouse.move(x, noon + h * hour, { steps: 12 });
+      await page.waitForTimeout(40);
+    }
+    const got = await shown();
+    await page.mouse.up();
+    await page.waitForTimeout(150);
+    if (!got.startsWith(want)) errors.push(`${what}: selected ${got}, not ${want}`);
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(150);
+  };
+  await hours([-1], "11:00 – 12:05", "up, let go");
+  await hours([-1, -0.5], "11:00 – 11:35", "up then back a little");
+  await hours([-1, 1], "11:00 – 13:05", "up then down past the press");
+  await hours([-1, 1, -0.5], "11:00 – 11:35", "up, down, then back up");
+  await hours([-1, 1, -1.5], "10:30 – 11:05", "up, down, then higher");
+  await hours([-0.1, 1], "12:00 – 13:05", "a shaky hand, then down");
+  await hours([-0.17, 1], "11:50 – 13:05", "10 minutes up, then down");
+  await hours([1, 0.5], "12:00 – 12:35", "down then back a little");
+  await hours([1, -1], "11:00 – 12:05", "down then up past the press");
+  // The block goes on with the pointer almost to the edge, the grid scrolling only there, and past it.
+  const box = await page.evaluate(() => { const r = document.querySelector(".fc-timegrid-body").closest(".fc-scroller").getBoundingClientRect(); return { top: r.top, bottom: r.bottom }; });
+  await page.mouse.move(x, noon);
+  await page.mouse.down();
+  await page.mouse.move(x, box.top + 40, { steps: 12 });
+  const before = await scroller();
+  await page.waitForTimeout(300);
+  if ((await scroller()) !== before) errors.push("40px from the edge, the grid shouldn't scroll");
+  await page.mouse.move(x, box.top - 30, { steps: 4 });
+  await page.waitForTimeout(400);
+  const past = await shown();
+  const scrolled = await scroller();
+  if (scrolled >= before) errors.push(`past the grid's edge, it should go on scrolling: ${before}px, then ${scrolled}px`);
+  if (past === "nothing") errors.push("past the grid's edge, the selection shouldn't be lost");
+  await page.mouse.up();
+  await page.waitForTimeout(200);
+  if (!(await page.locator(".ct-popover").count())) errors.push("let go past the grid's edge, the selection should open its form");
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(150);
+  await page.evaluate((top) => (document.querySelector(".fc-timegrid-body").closest(".fc-scroller").scrollTop = top), opened);
+  await draft(page, errors, x, await page.locator(".fc-timegrid-slot-lane[data-time='12:00:00']").boundingBox(), hour);
+}
+
+/**
+ * Let go, the time stays: its bottom, its top and its middle move it, its form following and what's typed there staying;
+ * times typed move it; pressed elsewhere it goes, and "Create" takes it as it stands.
+ */
+async function draft(page, errors, x, noon, hour) {
+  const block = page.locator(".ct-ev-draft").first();
+  const times = page.locator(".ct-popover .ct-when-time");
+  const seen = async () => `${await times.nth(0).inputValue()} ${await times.nth(1).inputValue()}`;
+  const drag = async (y, by, want, what) => {
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x, y + by, { steps: 10 });
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    if ((await seen()) !== want) errors.push(`${what}: the form says ${await seen()}, not ${want}`);
+    if (!(await page.locator(".ct-popover").count()) || !(await block.count())) errors.push(`${what}: the form and the time should stay`);
+    const [pop, ev] = [await page.locator(".ct-popover").boundingBox(), await block.boundingBox()];
+    if (pop && ev && pop.x < ev.x + ev.width && ev.x < pop.x + pop.width && pop.y < ev.y + ev.height && ev.y < pop.y + pop.height) errors.push(`${what}: the form covers the time`);
+  };
+  await page.mouse.move(x, noon.y + 2);
+  await page.mouse.down();
+  await page.mouse.move(x, noon.y + 2 + hour * 2, { steps: 12 });
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  if ((await seen()) !== "12h 14h05") errors.push(`let go, the form says ${await seen()}`);
+  if (await page.locator(".fc-event-mirror").count()) errors.push("let go, the block should be the time itself, no selection left");
+  await page.locator(".ct-popover .ct-task-title-input").fill("Atelier");
+  const b1 = await block.boundingBox();
+  await drag(b1.y + b1.height - 1, hour, "12h 15h05", "its bottom");
+  const b2 = await block.boundingBox();
+  await drag(b2.y + 1, -hour, "11h 15h05", "its top");
+  const b3 = await block.boundingBox();
+  await drag(b3.y + b3.height / 2, hour / 2, "11h30 15h35", "its middle");
+  // Pulled past its other end, a grip stops 5 minutes short of it, there, and doesn't go back to where it started.
+  const b6 = await block.boundingBox();
+  await drag(b6.y + 1, b6.height + hour, "15h30 15h35", "its top past its bottom");
+  const b7 = await block.boundingBox();
+  await drag(b7.y + 1, hour / 2, "15h30 15h35", "its top, already as short as it gets");
+  await times.nth(0).fill("11h30");
+  await page.waitForTimeout(100);
+  const b8 = await block.boundingBox();
+  await drag(b8.y + b8.height - 1, -(b8.height + hour), "11h30 11h35", "its bottom past its top");
+  await times.nth(1).fill("15h35");
+  await page.waitForTimeout(100);
+  if ((await page.locator(".ct-popover .ct-task-title-input").inputValue()) !== "Atelier") errors.push("the title typed should stay");
+  // A sync while it's being set changes nothing.
+  await page.evaluate(() => window.__refresh());
+  await page.waitForTimeout(200);
+  if (!(await block.count()) || !(await page.locator(".ct-popover").count())) errors.push("a refresh should leave the time and its form");
+  await times.nth(0).fill("10h");
+  await page.waitForTimeout(100);
+  if (!((await block.textContent()) ?? "").includes("10:00")) errors.push(`a typed start should move the time: ${await block.textContent()}`);
+  await times.nth(1).fill("12h");
+  await page.waitForTimeout(100);
+  const b4 = await block.boundingBox();
+  await drag(b4.y + b4.height - 1, hour, "10h 13h", "dragged after typing");
+  await page.screenshot({ path: "tools/preview/out/calendar-draft.png" });
+  // A press in the grid: this one goes with its form, and a new one starts there.
+  await page.mouse.click(x, noon.y + 2 + hour * 6);
+  await page.waitForTimeout(300);
+  if ((await page.locator(".ct-ev-draft").count()) !== 1 || (await page.locator(".ct-popover").count()) !== 1) errors.push("a click elsewhere should leave one new time and its form");
+  if (await page.locator(".ct-popover .ct-task-title-input").inputValue()) errors.push("a click elsewhere should start a new form");
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(150);
+  if (await page.locator(".ct-popover, .ct-ev-draft").count()) errors.push("Escape should take the form and the time away");
+  await page.mouse.move(x, noon.y + 2);
+  await page.mouse.down();
+  await page.mouse.move(x, noon.y + 2 + hour * 2, { steps: 12 });
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  await page.locator(".ct-popover .ct-task-title-input").fill("Atelier");
+  const b5 = await block.boundingBox();
+  await drag(b5.y + b5.height - 1, hour, "12h 15h05", "before Create");
+  await page.locator(".ct-popover .mod-cta").click();
+  await page.waitForTimeout(150);
+  const made = await page.evaluate(() => window.__submitted);
+  if (made !== "Atelier|2026-10-18T12:00|2026-10-18T15:05") errors.push(`Create should take it as it stands, got ${made}`);
+  if (await page.locator(".ct-popover, .ct-ev-draft").count()) errors.push("Create should take the form and the time away");
 }
 
 /** Real mouse input on the calendar: drag a task from the "To plan" panel, then click an empty slot. */
@@ -1010,6 +1272,16 @@ async function interact(page, errors) {
     const moved = (await page.evaluate(() => window.__moved)) ?? "";
     const [from, to] = moved.split("-").map((hm) => Number(hm.slice(0, 2)) * 60 + Number(hm.slice(3, 5)));
     if (!(to - from >= 100)) errors.push(`the session just placed should stretch to about two hours, got "${moved}"`);
+    // Its top pulled past its bottom stops 5 minutes short of it (2026-11-01, on a draft, the same stretch).
+    const long = await page.locator(`.fc-timegrid-col[data-date='2026-10-13'] .fc-timegrid-event.ct-ev-timeblock:has-text("${task}")`).boundingBox();
+    await page.mouse.move(long.x + long.width / 2, long.y + 1);
+    await page.mouse.down();
+    await page.mouse.move(long.x + long.width / 2, long.y + long.height + at15.height, { steps: 12 });
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    const short = (await page.evaluate(() => window.__moved)) ?? "";
+    const [start, end] = short.split("-").map((hm) => Number(hm.slice(0, 2)) * 60 + Number(hm.slice(3, 5)));
+    if (end !== to || end - start !== 5) errors.push(`a session's top pulled past its bottom should stop 5 minutes short of ${moved}, got "${short}"`);
   }
   // Dragging an event lands on 5-minute steps, and its card shows where (25 px ≈ 30 min down, give or take a step).
   const olera = page.locator(".fc-timegrid-event:has-text('Point Olera')").first();
@@ -1030,7 +1302,7 @@ async function interact(page, errors) {
   await page.mouse.click(fri.x + fri.width / 2, at13.y + at13.height / 2);
   await page.waitForTimeout(300);
   if (await page.locator(".menu").count()) errors.push("a click elsewhere should close the menu");
-  if (await page.locator(".ct-popover, .fc-event-mirror").count()) {
+  if (await page.locator(".ct-popover, .ct-ev-draft").count()) {
     errors.push("the click that closed a menu started a new event");
     await page.keyboard.press("Escape");
     await page.waitForTimeout(200);
@@ -1041,7 +1313,7 @@ async function interact(page, errors) {
   const [px, py] = [fri.x + fri.width / 2, at13.y + at13.height / 2];
   const range = page.locator(".fc-event-mirror, .fc-timegrid-col-bg .fc-highlight");
   const minutes = async () => {
-    const [, h1, m1, h2, m2] = ((await page.locator(".fc-event-mirror").first().textContent()) ?? "").match(/(\d\d):(\d\d) – (\d\d):(\d\d)/)?.map(Number) ?? [];
+    const [, h1, m1, h2, m2] = ((await page.locator(".fc-event-mirror, .ct-ev-draft").first().textContent()) ?? "").match(/(\d\d):(\d\d) – (\d\d):(\d\d)/)?.map(Number) ?? [];
     return h2 * 60 + m2 - (h1 * 60 + m1);
   };
   await page.mouse.move(px, py);
@@ -1074,19 +1346,19 @@ async function interact(page, errors) {
   await page.mouse.click(fri.x + fri.width / 2, at13.y + at13.height / 2);
   await page.waitForTimeout(300);
   if (!(await page.locator(".ct-popover").count())) errors.push("no new event form after clicking a slot");
-  if (!(await page.locator(".fc-event-mirror").count())) errors.push("the selection went away behind its form");
-  const selected = (await page.locator(".fc-event-mirror").first().textContent()) ?? "";
+  if (!(await page.locator(".ct-ev-draft").count())) errors.push("the selection went away behind its form");
+  const selected = (await page.locator(".ct-ev-draft").first().textContent()) ?? "";
   if (!selected.includes("13:00") || !selected.includes("14:00")) errors.push(`a click should select an hour from 13:00, got "${selected}"`);
-  const [form, hour] = [await box(".ct-popover"), await box(".fc-event-mirror")];
+  const [form, hour] = [await box(".ct-popover"), await box(".ct-ev-draft")];
   if (form && hour && Math.min(Math.abs(form.x + form.width - hour.x), Math.abs(hour.x + hour.width - form.x)) > 20) errors.push("the form should open beside the selection");
   // The start's time typed to the minute moves the selection, its length kept; then the end's.
   await page.locator(".ct-popover .ct-when-time").first().fill("13h37");
   await page.waitForTimeout(100);
-  let typed = (await page.locator(".fc-event-mirror").first().textContent()) ?? "";
+  let typed = (await page.locator(".ct-ev-draft").first().textContent()) ?? "";
   if (!typed.includes("13:37") || !typed.includes("14:37")) errors.push(`a typed start should move the selection to 13:37 – 14:37, got "${typed}"`);
   await page.locator(".ct-popover .ct-when-time").nth(1).fill("14h10");
   await page.waitForTimeout(100);
-  typed = (await page.locator(".fc-event-mirror").first().textContent()) ?? "";
+  typed = (await page.locator(".ct-ev-draft").first().textContent()) ?? "";
   if (!typed.includes("14:10")) errors.push(`a typed end should end the selection at 14:10, got "${typed}"`);
   if (!(await page.locator(".ct-popover").count())) errors.push("typing a time closed the form");
   // A menu of the form (its collection), closed by a click in the grid: the form and its selection stay.
@@ -1096,8 +1368,8 @@ async function interact(page, errors) {
   await page.mouse.click(tue.x + tue.width / 2, at13.y + at13.height / 2);
   await page.waitForTimeout(300);
   if (await page.locator(".menu").count()) errors.push("a click in the grid should close the form's menu");
-  if (!(await page.locator(".ct-popover").count()) || !(await page.locator(".fc-event-mirror").count())) errors.push("the click that closed the form's menu closed the form");
-  typed = (await page.locator(".fc-event-mirror").first().textContent()) ?? "";
+  if (!(await page.locator(".ct-popover").count()) || !(await page.locator(".ct-ev-draft").count())) errors.push("the click that closed the form's menu closed the form");
+  typed = (await page.locator(".ct-ev-draft").first().textContent()) ?? "";
   if (!typed.includes("13:37")) errors.push(`the click that closed the form's menu moved the selection: "${typed}"`);
 }
 
@@ -1360,7 +1632,10 @@ for (const [name, width, height, scale = 2] of run) {
     await page.goto(`file://${join(cache, "index.html")}?scenario=${name}&theme=${theme}${name.startsWith("phone-") ? "&phone=1" : ""}`);
     await page.waitForFunction(() => window.__ready === true, null, { timeout: 10000 }).catch(() => errors.push("timed out"));
     await page.waitForTimeout(150);
-    if (name === "calendar-interact") await interact(page, errors);
+    if (name === "calendar-interact") {
+      await selectDrag(page, errors);
+      await interact(page, errors);
+    }
     if (name === "task-fields") await taskFields(page, errors, theme);
     if (name === "calendar-drag") await drag(page, errors, theme);
     if (name === "calendar-month-drag") await monthDrag(page, errors, theme);
@@ -1471,6 +1746,7 @@ for (const [name, width, height, scale = 2] of run) {
     }
     if (name.startsWith("calendar-list") || name === "phone-list") await agenda(page, errors);
     if (name.startsWith("calendar-marks")) await evenMarks(page, errors, scale);
+    if (name === "calendar-marks-week-125" || name === "calendar-marks-week-150") await evenGrips(page, errors, scale);
     if (name === "calendar-month" || name === "calendar-month-narrow") await packedDays(page, errors);
     if (name === "calendar-month") {
       // Every line looks alike, whatever it is: a work session all day isn't a block (it was, under its line's mark),

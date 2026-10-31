@@ -1359,7 +1359,8 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-task-tags-input 
 
 /*
  * Move mode, all over the calendar: the grid framed in the accent, what can't move faded, what can shows a grab
- * cursor and (week and day) its stretch grip, and the hint under the toolbar in the accent.
+ * cursor and (week and day) its stretch grips, and the hint under the toolbar in the accent. A new event's time, once
+ * let go, has the same grips.
  */
 .ct-calendar.is-moving .ct-calendar-grid {
   outline: 2px solid var(--interactive-accent);
@@ -1375,21 +1376,31 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-task-tags-input 
   opacity: 0.4;
 }
 
-.ct-calendar.is-moving .fc .fc-timegrid-event .fc-event-resizer-end {
+.ct-calendar.is-moving .fc .fc-timegrid-event .fc-event-resizer,
+.ct-calendar .fc .fc-timegrid-event.ct-ev-draft .fc-event-resizer {
   display: block;
 }
 
-.ct-calendar.is-moving .fc .fc-timegrid-event .fc-event-resizer-end::after {
+.ct-calendar.is-moving .fc .fc-timegrid-event .fc-event-resizer::after,
+.ct-calendar .fc .fc-timegrid-event.ct-ev-draft .fc-event-resizer::after {
   content: "";
   position: absolute;
   left: 50%;
-  bottom: 3px;
   width: 16px;
-  height: 3px;
+  /* 4: a whole number of pixels at 125 % and 150 %, so both grips come out alike wherever they fall. */
+  height: 4px;
   margin-left: -8px;
   border-radius: 2px;
   background: var(--ct-ev-color, var(--interactive-accent));
   opacity: 0.7;
+}
+
+.ct-calendar .fc .fc-timegrid-event .fc-event-resizer-start::after {
+  top: 3px;
+}
+
+.ct-calendar .fc .fc-timegrid-event .fc-event-resizer-end::after {
+  bottom: 3px;
 }
 
 .ct-move-hint {
@@ -2786,18 +2797,51 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-task-tags-input 
 }
 
 /* The selected range: the accent color, and no dangling "–" after its time (it has no title yet). */
-.ct-calendar .fc .fc-event-mirror {
+.ct-calendar .fc :is(.fc-event-mirror, .ct-ev-draft) {
   border: 1px solid var(--interactive-accent);
   background: hsla(var(--accent-h), var(--accent-s), var(--accent-l), 0.2);
   color: var(--text-normal);
 }
 
-.ct-calendar .fc .fc-event-mirror .fc-event-main {
+.ct-calendar .fc :is(.fc-event-mirror, .ct-ev-draft) .fc-event-main {
   color: var(--text-normal);
 }
 
-.ct-calendar .fc .fc-event-mirror .fc-event-time::after {
+.ct-calendar .fc :is(.fc-event-mirror, .ct-ev-draft) .fc-event-time::after {
   content: none;
+}
+
+/*
+ * A new event's time once let go moves by its middle: a grab cursor. For a finger its grips reach out of it, so they're
+ * wide without covering a short block; the bars stay on its edges.
+ */
+.ct-calendar .fc .ct-ev-draft {
+  cursor: grab;
+}
+
+.is-phone .ct-calendar .fc .ct-ev-draft {
+  --fc-event-resizer-thickness: 24px;
+}
+
+.is-phone .ct-calendar .fc .ct-ev-draft .fc-event-resizer-start {
+  top: -18px;
+}
+
+.is-phone .ct-calendar .fc .ct-ev-draft .fc-event-resizer-end {
+  bottom: -18px;
+}
+
+.is-phone .ct-calendar .fc .ct-ev-draft .fc-event-resizer::after {
+  width: 32px;
+  margin-left: -16px;
+}
+
+.is-phone .ct-calendar .fc .ct-ev-draft .fc-event-resizer-start::after {
+  top: 17px;
+}
+
+.is-phone .ct-calendar .fc .ct-ev-draft .fc-event-resizer-end::after {
+  bottom: 17px;
 }
 
 /* Popovers: a new event beside the selection, an event's card beside the event. */

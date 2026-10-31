@@ -235,7 +235,7 @@ function editWhen(line: HTMLElement, occ: Occurrence, actions: EventCardActions)
   foot?.hide();
   line.replaceWith(box);
   const save = () => value && actions.move(value);
-  const first = renderWhenFields(box, value, (w) => {
+  const { first } = renderWhenFields(box, value, (w) => {
     value = w;
     ok.disabled = !w;
   });

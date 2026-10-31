@@ -71,9 +71,9 @@ export const isValid = (w: When) => !!w.start && (w.end === null || (!!w.end && 
  * Start and end in a form's grid (spec §7.1): a day and a time each, one thing per field (2026-10-19: the date-time
  * fields opened the system's calendar and read as one), and "All day", which hides the times. Moving the start
  * keeps the length; what isn't understood, or an end not after the start, is marked. `onChange` gets each value,
- * null while it isn't valid. Returns the start's day field.
+ * null while it isn't valid. Returns the start's day field, and `set`, for times changed from outside the fields.
  */
-export function renderWhenFields(el: HTMLElement, initial: When, onChange: (w: When | null) => void): HTMLInputElement {
+export function renderWhenFields(el: HTMLElement, initial: When, onChange: (w: When | null) => void): { first: HTMLInputElement; set: (w: When) => void } {
   let w = { ...initial };
   // The times to come back to when "All day" is unticked.
   let times = { start: initial.allDay ? "09:00" : initial.start.slice(11), end: initial.allDay || !initial.end ? "10:00" : initial.end.slice(11) };
@@ -155,5 +155,10 @@ export function renderWhenFields(el: HTMLElement, initial: When, onChange: (w: W
     report();
   });
   show();
-  return start.day;
+  const set = (next: When) => {
+    w = { ...next };
+    if (!w.allDay) times = { start: w.start.slice(11), end: w.end?.slice(11) || times.end };
+    show();
+  };
+  return { first: start.day, set };
 }

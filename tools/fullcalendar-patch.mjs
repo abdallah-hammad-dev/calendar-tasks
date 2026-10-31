@@ -83,17 +83,95 @@ function holdPress(selecting) {
 }
 
 /**
- * A second finger: a pinch, so the press under way is no long press. Runs in FullCalendar's module on a
- * `FeaturefulElementDragging`, given the press or the move that shows it.
+ * Up to here, in pixels, a drag is a shaky hand: it neither goes up nor turns back. Not more: at 12 a start moved up 10
+ * minutes didn't count (2026-10-31).
+ */
+const TURN_PX = 6;
+/** The event a new event's time is drawn as (`DRAFT_ID` in src/calendar/selection.ts). */
+const DRAFT_ID = "ct-draft";
+/** How close to the grid's edge, in pixels, a drag scrolls it. FullCalendar's 50 is an hour of a phone's day. */
+const SCROLL_EDGE_PX = 24;
+
+/**
+ * The hits a selection of time runs between, given the one under the pointer. FullCalendar always runs it from the step
+ * pressed, so a start dragged up came back down with the pointer (2026-10-31, the user: "on est bloque exactement la ou
+ * on a clique niveau heure de debut"). Dragged up then back, the start stays as high as it went and the end follows the
+ * pointer; until it's clearly on its way back, nothing moves. Runs in FullCalendar's module on its `DateSelecting`.
+ */
+function dragEnds(selecting, hit) {
+  const start = (h) => h.dateSpan.range.start.getTime();
+  const anchor = (selecting.anchor ??= selecting.hitDragging.initialHit);
+  if (hit.dateSpan.allDay || Math.floor(start(hit) / 86400000) !== Math.floor(start(anchor) / 86400000)) {
+    selecting.top = null;
+    return [anchor, hit];
+  }
+  const y = selecting.hitDragging.pointerY;
+  selecting.anchorY ??= y;
+  selecting.topY = Math.min(selecting.topY ?? y, y);
+  if (start(hit) < start(selecting.top ?? anchor)) selecting.top = hit;
+  const { top, topY, anchorY } = selecting;
+  if (!top || anchorY - topY < TURN_PX) return [anchor, hit];
+  if (y - topY < TURN_PX) return [anchor, top];
+  Object.assign(selecting, { anchor: top, anchorY: topY, top: null, topY: y });
+  return [top, hit];
+}
+
+/** From a drag's start: what `dragEnds` remembers goes, and one of time keeps to the grid (`insideGrid`), scrolling past its edge too. */
+function freshSelection(selecting) {
+  Object.assign(selecting, { anchor: null, anchorY: null, top: null, topY: null });
+  const timed = !selecting.hitDragging.initialHit.dateSpan.allDay;
+  selecting.hitDragging.keepInGrid = timed;
+  selecting.dragging.autoScroller.pastEdges = timed;
+}
+
+/**
+ * Where a selection of time looks for its hit: past the top or bottom of the hours, at their edge. FullCalendar found
+ * nothing there, and dropped hours selected 10px over the line (2026-10-31). Runs on its `HitDragging`, given `y`,
+ * which it keeps for `dragEnds`: the pointer's own record isn't set yet on a drag's first step.
+ */
+function insideGrid(hitDragging, y) {
+  hitDragging.pointerY = y;
+  const grid = hitDragging.keepInGrid ? hitDragging.offsetTrackers[hitDragging.initialHit.componentId] : null;
+  const box = grid?.scrollCaches[0]?.clientRect;
+  if (!box) return y;
+  const top = grid.computeTop();
+  return Math.min(Math.max(y, box.top + 1, top), box.bottom - 1, top + grid.origRect.bottom - grid.origRect.top - 1);
+}
+
+/**
+ * A second finger: a pinch, so the press under way is no long press, and a drag under way stops where it started, as
+ * if nothing had been aimed at (`pinched`): a new event's time moves at the first touch, and a pinch over it moved it
+ * (2026-10-31). Runs in FullCalendar's module on a `FeaturefulElementDragging`, given the press or the move that shows it.
  */
 function secondFinger(dragging, ev) {
-  if (!dragging.isInteracting || dragging.isDragging || !(ev.origEvent.touches?.length > 1)) return false;
+  if (!dragging.isInteracting || !(ev.origEvent.touches?.length > 1)) return false;
+  if (dragging.isDragging) {
+    dragging.pinched = true;
+    dragging.emitter.trigger("dragmove", ev);
+    dragging.pinched = false;
+    dragging.setMirrorIsVisible(false);
+    dragging.setMirrorNeedsRevert(false);
+    dragging.onPointerUp(ev);
+    return true;
+  }
   clearTimeout(dragging.delayTimeoutId);
   dragging.delayTimeoutId = null;
   dragging.isInteracting = false;
   allowSelection(document.body);
   allowContextMenu(document.body);
   return true;
+}
+
+/**
+ * A stretch past the event's other end stops at the last step before it: FullCalendar gave up there and the event went
+ * back to what it was when pressed (2026-11-01, the user: "sa se resnap en 1h d'event"). `hit0`'s span is one step.
+ * Runs in FullCalendar's module; returns where `hit1` stands for the stretch.
+ */
+function stopShort(hit0, hit1, isFromStart, range) {
+  const { start, end } = hit0.dateSpan.range;
+  const room = (end - start) * Math.floor((range.end - range.start - 1) / (end - start));
+  const date1 = hit1.dateSpan.range.start;
+  return new Date(isFromStart ? Math.min(date1, start.valueOf() + room) : Math.max(date1, start.valueOf() - room));
 }
 
 /** What's changed in FullCalendar: each line must be there once, or the build fails, so an update can't drop a fix silently. */
@@ -112,12 +190,44 @@ const PATCHES = [
     // on, the hours sliding under the finger (2026-10-31, on the user's iPhone). It takes free time under the fingers
     // and a pinch that scrolls nothing, as at the end of the zoom.
     module: /@fullcalendar[\\/]interaction[\\/]index\.c?js$/,
-    prepend: [`const HOLD_MS = ${HOLD_MS};`, stillPressed, holdPress, secondFinger],
+    // And selecting: see `dragEnds`, `insideGrid` and SCROLL_EDGE_PX (2026-10-31, the user: "ca s'arrete de monter a un
+    // moment et ensuite sa glisse mais vers le haut": the grid scrolled an hour from its edge, the block held under the
+    // pointer). `pastEdges`: the pointer past the grid, it goes on scrolling, for selections of time only (dragging an
+    // event up to the all-day row would scroll the hours away).
+    prepend: [`const HOLD_MS = ${HOLD_MS};`, `const TURN_PX = ${TURN_PX};`, stillPressed, holdPress, secondFinger, stopShort, dragEnds, freshSelection, insideGrid],
     replace: [
       ["hitDragging.useSubjectCenter = settings.useEventCenter;", "hitDragging.useSubjectCenter = false;"],
+      // A finger moves and stretches what's being set at once, no long press: it's there for that.
+      [
+        "(ev.isTouch && eventInstanceId !== component.props.eventSelection) ?",
+        `(ev.isTouch && eventInstanceId !== component.props.eventSelection && eventRange.def.publicId !== "${DRAFT_ID}") ?`,
+      ],
+      [
+        "(ev.isTouch && this.component.props.eventSelection !== eventRange.instance.instanceId));",
+        `(ev.isTouch && this.component.props.eventSelection !== eventRange.instance.instanceId && eventRange.def.publicId !== "${DRAFT_ID}"));`,
+      ],
+      [
+        "let date1 = hit1.dateSpan.range.start;\n    let delta = diffDates(date0, date1, dateEnv, hit0.largeUnit);",
+        "let date1 = stopShort(hit0, hit1, isFromStart, instanceRange);\n    if (date1.valueOf() === date0.valueOf()) return null;\n    let delta = diffDates(date0, date1, dateEnv, hit0.largeUnit);",
+      ],
+      // And at the first pixel: past that, the browser has started scrolling, and the drag is over.
+      [
+        "this.dragging.minDistance = component.context.options.eventDragMinDistance;",
+        "this.dragging.minDistance = ev.isTouch ? 0 : component.context.options.eventDragMinDistance;",
+      ],
+      // (Nor selected: it would be drawn as a touched event, with dots for grips.)
+      [
+        "if (eventInstanceId !== this.component.props.eventSelection) {\n                    initialContext.dispatch({ type: 'SELECT_EVENT', eventInstanceId });",
+        `if (eventInstanceId !== this.component.props.eventSelection && eventRange.def.publicId !== "${DRAFT_ID}") {\n                    initialContext.dispatch({ type: 'SELECT_EVENT', eventInstanceId });`,
+      ],
       ["this.onPointerDown = (ev) => {\n            if (!this.isDragging) {", "this.onPointerDown = (ev) => {\n            if (!secondFinger(this, ev) && !this.isDragging) {"],
       ["this.onPointerMove = (ev) => {\n            if (this.isInteracting) {", "this.onPointerMove = (ev) => {\n            if (!secondFinger(this, ev) && this.isInteracting) {"],
-      ["this.component.context.calendarApi.unselect(ev); // unselect previous selections", "this.component.context.calendarApi.unselect(ev); // unselect previous selections\n            holdPress(this);"],
+      ["this.component.context.calendarApi.unselect(ev); // unselect previous selections", "this.component.context.calendarApi.unselect(ev); // unselect previous selections\n            holdPress(this);\n            freshSelection(this);"],
+      ["dragSelection = joinHitsIntoSelection(initialHit, hit, context.pluginHooks.dateSelectionTransformers);", "dragSelection = joinHitsIntoSelection(...dragEnds(this, hit), context.pluginHooks.dateSelectionTransformers);"],
+      ["let hit = this.queryHitForOffset(ev.pageX + this.coordAdjust.left, ev.pageY + this.coordAdjust.top);\n        if (forceHandle", "let hit = this.dragging.pinched ? null : this.queryHitForOffset(ev.pageX + this.coordAdjust.left, insideGrid(this, ev.pageY + this.coordAdjust.top));\n        if (forceHandle"],
+      ["this.edgeThreshold = 50; // pixels", `this.edgeThreshold = ${SCROLL_EDGE_PX}; // pixels`],
+      ["let topDist = top - rect.top;", "let topDist = this.pastEdges ? Math.max(0, top - rect.top) : top - rect.top;"],
+      ["let bottomDist = rect.bottom - top;", "let bottomDist = this.pastEdges ? Math.max(0, rect.bottom - top) : rect.bottom - top;"],
       [
         "context.dispatch({ type: 'SELECT_DATES', selection: dragSelection });",
         "context.dispatch(stillPressed(this, hit) ? { type: 'UNSELECT_DATES' } : { type: 'SELECT_DATES', selection: dragSelection });",

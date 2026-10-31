@@ -186,7 +186,9 @@ function calendar(view: "timeGridWeek" | "timeGridDay" | "dayGridMonth" | "listW
       calendars: { a: "Perso", b: "Travail" },
       calendarUrl: "a",
       tasks: [{ uid: "1", title: "Rédiger le mémoire" }],
-      submit: () => undefined,
+      submit: (c) => {
+        (window as unknown as { __submitted: string }).__submitted = `${c.title}|${c.when.start}|${c.when.end}`;
+      },
     }),
     // As the plugin does (`main.editEventOptions`): the form filled in, its changes written in place, drawn at once.
     editEvent: (o) => ({
@@ -246,6 +248,7 @@ function calendar(view: "timeGridWeek" | "timeGridDay" | "dayGridMonth" | "listW
   const leaf = { app: { workspace: { on: () => ({}), getActiveViewOfType: () => v }, loadLocalStorage: () => null, saveLocalStorage: () => undefined } };
   const v = new CalendarView(leaf as never, host);
   (window as unknown as { __reveal: (id: string, start: string) => void }).__reveal = (id, start) => v.reveal(id, start);
+  (window as unknown as { __refresh: () => void }).__refresh = () => v.refresh();
   v.containerEl.style.height = "100vh";
   if (phone) phoneFrame(v.containerEl);
   else if (inTab) {

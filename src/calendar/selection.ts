@@ -3,6 +3,8 @@ import { Platform } from "obsidian";
 
 /** Dragging and resizing move by 5 minutes, like Apple Calendar. */
 export const SNAP_MS = 5 * 60_000;
+/** The event a new event's time is drawn as until it's filled in (`CalendarView.openDraft`; `tools/fullcalendar-patch.mjs` knows it). */
+export const DRAFT_ID = "ct-draft";
 
 /**
  * Whether a selection is a click, which takes an hour: what's selected is what shows when it's let go, and a click

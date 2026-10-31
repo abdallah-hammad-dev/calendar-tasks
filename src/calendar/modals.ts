@@ -22,6 +22,8 @@ export interface EventFormOptions {
   when: When;
   /** The times were changed in the form: show them on the calendar. */
   preview?: (when: When) => void;
+  /** Gives the form what to call when its times are changed from outside (on the calendar). */
+  follow?: (show: (when: When) => void) => void;
   calendars: Record<string, string>;
   calendarUrl: string;
   tasks: { uid: string; title: string }[];
@@ -73,12 +75,18 @@ export function renderEventForm(el: HTMLElement, opts: EventFormOptions, close: 
   enter(input);
   // One grid for every line: icon, name, field, in columns that line up.
   const grid = el.createDiv({ cls: "ct-form-grid" });
-  renderWhenFields(grid, opts.when, (w) => {
+  const when = renderWhenFields(grid, opts.when, (w) => {
     valid = !!w;
     if (create) create.disabled = !w;
     if (!w) return;
     choice.when = w;
     opts.preview?.(w);
+  });
+  opts.follow?.((w) => {
+    valid = true;
+    if (create) create.disabled = false;
+    choice.when = w;
+    when.set(w);
   });
   const place = formRow(grid, "map-pin", t("modal.place")).createEl("input", { cls: "ct-form-text", type: "text" });
   place.value = choice.location;

@@ -21,9 +21,9 @@ import {
 } from "./event-card";
 import { closeDeadlines, monthGroup, monthGroupStarts, type Occurrence } from "./expand";
 import { EventModal, renderEventForm, type EventFormOptions } from "./modals";
-import { isClick, SNAP_MS } from "./selection";
+import { DRAFT_ID, isClick, SNAP_MS } from "./selection";
 import type { PartStat } from "./vevent";
-import { localDate, type When } from "./when-fields";
+import { localDate, localValue, type When } from "./when-fields";
 
 export const CALENDAR_VIEW = "calendar-tasks-calendar";
 
@@ -179,6 +179,8 @@ export class CalendarView extends ItemView {
   private readonly dayWatch = new ResizeObserver(() => this.fitDay());
   /** The selection is being moved to the times typed in the new event form (not a new selection). */
   private reselecting = false;
+  /** A new event's time, open until it's filled in or cancelled (`openDraft`); `show`: tells its form when it's moved. */
+  private draft: { show: (when: When) => void } | null = null;
   /**
    * Move mode: only then do events, work sessions and deadlines move or stretch when dragged, so nothing moves by
    * accident. Off whenever the calendar opens.
@@ -278,24 +280,31 @@ export class CalendarView extends ItemView {
         const found = this.host.newEvent(info.start, info.end, info.allDay);
         const opts = found && { ...found, preview: (w: When) => this.reselect(w) };
         if (!opts) this.calendar?.unselect();
+        else if (!info.allDay) this.openDraft(opts, info.start, info.end);
         else if (Platform.isPhone) new EventModal(this.app, opts, () => this.calendar?.unselect()).open();
         else this.newEventPopover(opts);
       },
       unselect: () => {
-        if (this.popover?.kind === "new") this.closePopover();
+        if (this.popover?.kind === "new" && !this.draft) this.closePopover();
       },
+      eventResizableFromStart: true,
+      eventAllow: (span, event) => event?.id !== DRAFT_ID || span.allDay === event.allDay,
       eventDragStart: () => (this.dragging = true),
       eventDragStop: () => this.letGo(),
       eventResizeStart: () => (this.dragging = true),
       eventResizeStop: () => this.letGo(),
-      eventDrop: (info) =>
+      eventDrop: (info) => {
+        if (info.event.id === DRAFT_ID) return this.draftMoved();
         void this.host
           .move(info.event.extendedProps.occ as Occurrence, info.event.start!, info.event.end, info.event.allDay)
-          .then((ok) => ok || info.revert()),
-      eventResize: (info) =>
+          .then((ok) => ok || info.revert());
+      },
+      eventResize: (info) => {
+        if (info.event.id === DRAFT_ID) return this.draftMoved();
         void this.host
           .move(info.event.extendedProps.occ as Occurrence, info.event.start!, info.event.end, info.event.allDay)
-          .then((ok) => ok || info.revert()),
+          .then((ok) => ok || info.revert());
+      },
       initialView: this.firstView(),
       ...(this.host.initialDate ? { initialDate: this.host.initialDate() } : {}),
       ...(this.host.language().startsWith("fr") ? { locale: frLocale } : {}),
@@ -374,6 +383,7 @@ export class CalendarView extends ItemView {
         if (scroller) this.dayWatch.observe(scroller);
       },
       datesSet: (arg) => {
+        this.closeDraft();
         this.closePopover();
         this.host.saveView(arg.view.type === MONTHS_VIEW ? "dayGridMonth" : arg.view.type);
         if (Platform.isPhone) {
@@ -500,7 +510,7 @@ export class CalendarView extends ItemView {
     // An event's card closes on a click elsewhere (the new event popover closes with its selection), and on Escape.
     this.registerDomEvent(document, "mousedown", (e) => {
       const target = e.target as HTMLElement | null;
-      if (!this.popover || this.popover.kind === "new" || !target || this.popover.el.contains(target) || target.closest(".menu, .modal-container")) return;
+      if (!this.popover || (this.popover.kind === "new" && !this.draft) || !target || this.popover.el.contains(target) || target.closest(".menu, .modal-container, .ct-ev-draft")) return;
       this.closePopover();
     });
     // Escape closes the card first, then ends move mode (in this calendar's tab).
@@ -897,6 +907,15 @@ export class CalendarView extends ItemView {
    * "le octobre à côté de tâches c pas très beau"): `.ct-cal-tools` keeps them apart for a grid in styles.css.
    */
   private renderPhoneToolbar(bar: HTMLElement, cal: Calendar): void {
+    const draft = this.draft && cal.getEventById(DRAFT_ID);
+    if (draft) {
+      const cancel = bar.createEl("button", { cls: "ct-cal-back", text: t("modal.cancel") });
+      cancel.addEventListener("click", () => this.closeDraft());
+      bar.createDiv({ cls: "ct-cal-title", text: `${clock(draft.start!)} – ${clock(draft.end!)}` });
+      const next = bar.createDiv({ cls: "ct-cal-tools" }).createEl("button", { cls: "ct-cal-back", text: t("view.draft.next") });
+      next.addEventListener("click", () => this.fillDraft());
+      return;
+    }
     const view = cal.view;
     const tasks = this.host.planPanelOpen();
     const month = view.type === MONTHS_VIEW && !tasks;
@@ -1056,7 +1075,7 @@ export class CalendarView extends ItemView {
       "touchstart",
       (e) => {
         const touch = e.touches[0];
-        from = touch && e.touches.length === 1 && !this.moving ? { x: touch.clientX, y: touch.clientY } : null;
+        from = touch && e.touches.length === 1 && !this.moving && !this.draft ? { x: touch.clientX, y: touch.clientY } : null;
       },
       { passive: true },
     );
@@ -1299,6 +1318,64 @@ export class CalendarView extends ItemView {
     commit = renderCalendarCard(pop, c, { ...actions, close: () => this.closePopover() });
   }
 
+  /**
+   * A new event's time, let go (2026-10-31, the user: "quand tu relache on peut tjr continuer a glisse le haut le bas le
+   * tout et ensuite on rempli"): an event of its own, which moves and stretches from both ends as in move mode. On a
+   * computer its form is open beside it and follows it; on a phone the bar says when it's right, then comes the form.
+   * Removed with its form, or by "Cancel". The popover first: it anchors on the selection.
+   */
+  private openDraft(opts: EventFormOptions, start: Date, end: Date): void {
+    this.closeDraft();
+    this.draft = { show: () => undefined };
+    if (!Platform.isPhone) {
+      this.newEventPopover({
+        ...opts,
+        preview: (w) => this.placeDraft(w),
+        follow: (show) => {
+          if (this.draft) this.draft.show = show;
+        },
+      });
+    }
+    this.calendar?.unselect();
+    this.calendar?.addEvent({ id: DRAFT_ID, start, end, allDay: false, classNames: ["ct-ev-draft"], editable: true, durationEditable: true });
+    this.renderToolbar();
+  }
+
+  /** The times typed in its form, drawn. */
+  private placeDraft(w: When): void {
+    if (w.end !== null) this.calendar?.getEventById(DRAFT_ID)?.setDates(localDate(w.start), localDate(w.end), { allDay: w.allDay });
+  }
+
+  /** It was dragged or stretched: its form follows, and moves out of its way. */
+  private draftMoved(): void {
+    const event = this.calendar?.getEventById(DRAFT_ID);
+    if (!event?.start || !event.end) return;
+    this.draft?.show({ start: localValue(event.start, event.allDay), end: localValue(event.end, event.allDay), allDay: event.allDay });
+    this.renderToolbar();
+    window.setTimeout(() => {
+      const [pop, el] = [this.popover?.el, this.contentEl.querySelector(".ct-ev-draft:not(.fc-event-mirror)")];
+      if (!pop || !el) return;
+      const [a, b] = [pop.getBoundingClientRect(), el.getBoundingClientRect()];
+      if (a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom) this.place(pop, b);
+    }, 0);
+  }
+
+  /** A phone: its time is right, on to the form. */
+  private fillDraft(): void {
+    const event = this.calendar?.getEventById(DRAFT_ID);
+    const found = event?.start && event.end ? this.host.newEvent(event.start, event.end, event.allDay) : null;
+    if (!found) return this.closeDraft();
+    new EventModal(this.app, { ...found, preview: (w) => this.placeDraft(w) }, () => this.closeDraft()).open();
+  }
+
+  private closeDraft(): void {
+    if (!this.draft) return;
+    this.draft = null;
+    this.calendar?.getEventById(DRAFT_ID)?.remove();
+    if (this.popover?.kind === "new") this.closePopover();
+    this.renderToolbar();
+  }
+
   /** The times typed in the new event form, drawn as the selection (its form stays open). */
   private reselect(w: When): void {
     if (w.end === null) return;
@@ -1437,7 +1514,10 @@ export class CalendarView extends ItemView {
   /** The new event form beside the selected range (which stays drawn behind it). */
   private newEventPopover(opts: EventFormOptions): void {
     const anchor = this.contentEl.querySelector(".fc-event-mirror, .fc-highlight")?.getBoundingClientRect() ?? null;
-    const pop = this.openPopover("new", anchor, () => this.calendar?.unselect());
+    const pop = this.openPopover("new", anchor, () => {
+      this.closeDraft();
+      this.calendar?.unselect();
+    });
     const head = pop.createDiv({ cls: "ct-popover-head" });
     head.createDiv({ cls: "ct-popover-title", text: t("modal.newEvent") });
     const x = head.createEl("button", { cls: "clickable-icon", attr: { "aria-label": t("modal.cancel") } });
