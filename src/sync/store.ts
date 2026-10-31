@@ -94,13 +94,23 @@ export class IdbStore implements CacheStore {
     return this.db;
   }
 
+  /** A transaction, on a new connection if the system closed this one (iOS does, with the app in the background). */
+  private async transaction(mode: IDBTransactionMode): Promise<IDBTransaction> {
+    try {
+      return (await this.open()).transaction(IdbStore.STORE, mode);
+    } catch (e) {
+      if (!(e instanceof Error) || e.name !== "InvalidStateError") throw e;
+      this.db = null;
+      return (await this.open()).transaction(IdbStore.STORE, mode);
+    }
+  }
+
   private async run<T>(mode: IDBTransactionMode, op: (s: IDBObjectStore) => IDBRequest): Promise<T> {
-    const db = await this.open();
+    const tx = await this.transaction(mode);
     return new Promise<T>((resolve, reject) => {
-      const tx = db.transaction(IdbStore.STORE, mode);
       const req = op(tx.objectStore(IdbStore.STORE));
       tx.oncomplete = () => resolve(req.result as T);
-      tx.onerror = () => reject(tx.error ?? new Error("IndexedDB transaction failed"));
+      tx.onerror = tx.onabort = () => reject(tx.error ?? new Error("IndexedDB transaction failed"));
     });
   }
 }

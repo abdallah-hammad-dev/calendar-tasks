@@ -156,6 +156,10 @@ user at each one.
   and the network still keep the change for the next sync.
 - **An empty full listing for a calendar we hold items for is believed only on the second sync in a row**
   (`emptySeen`): otherwise one bad server answer marks every task note done and unlinked.
+- **The cache survives iOS closing its database** (2026-11-01, Self-hosted LiveSync showed "The database connection is
+  closing" on the user's iPhone, and `IdbStore` kept one connection forever): `IdbStore.transaction` opens a new one on
+  `InvalidStateError`, and an aborted transaction rejects (with no request pending, only `abort` fires, and the save
+  waited forever). `store.save` is awaited by every write, so a closed connection failed them.
 - **One reminder per task note on several devices** (2026-10-30, LiveSync delivers a note within a second: a note
   written without `caldav_uid`, given it a moment later, reached the other device bare, which made a second VTODO).
   Notes the plugin makes (line conversion, the form, the Claude tool) go through `TaskSync.createNote` (main's
