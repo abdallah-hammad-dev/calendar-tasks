@@ -265,10 +265,10 @@ a.internal-link.ct-task-done {
   cursor: pointer;
 }
 
+/* Through Obsidian's variable, which sizes its tick too: a `width` left 18px of tick in 15px of box on an iPhone. */
 .ct-task-header-state .task-list-item-checkbox {
+  --checkbox-size: 1.15em;
   margin: 0;
-  width: 1.15em;
-  height: 1.15em;
 }
 
 .ct-task-header.is-done .ct-task-header-state {
@@ -1168,6 +1168,71 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-task-tags-input 
   white-space: nowrap;
 }
 
+/* Away from the month, as iOS's bars: back on the left, the title in the middle, whatever the sides hold. */
+.is-phone .ct-cal-bar:has(> .ct-cal-back) {
+  display: grid;
+  grid-template-columns: 1fr minmax(0, auto) 1fr;
+}
+
+.is-phone .ct-cal-bar:has(> .ct-cal-back) > .ct-cal-back {
+  justify-self: start;
+}
+
+.ct-cal-tools {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--size-4-2);
+}
+
+/* A phone's day: its week above it, each day under its initial, as Apple Calendar's. */
+.ct-cal-days {
+  display: none;
+}
+
+.is-phone .ct-cal-days.is-shown {
+  display: grid;
+  flex: none;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+.is-phone .ct-calendar .ct-cal-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  height: auto;
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-normal);
+}
+
+.ct-cal-day-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  color: var(--text-normal);
+  font-size: var(--font-ui-medium);
+}
+
+.ct-cal-day.is-today .ct-cal-day-number {
+  color: var(--text-accent);
+  font-weight: var(--font-semibold);
+}
+
+.ct-cal-day.is-selected .ct-cal-day-number {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-weight: var(--font-semibold);
+}
+
 /* Today: its date in a frame, as a calendar's page; faint while today is on screen. */
 .is-phone .ct-cal-today.is-date {
   flex: none;
@@ -1834,9 +1899,128 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-task-tags-input 
   height: var(--ct-slot-h, 26px);
 }
 
+/*
+ * How the time is cut up (2026-10-31, the user: "on voit ce qu'est une heure, mais pas trop"): each line fainter than
+ * the one it divides, down to the 5 minutes a drag lands on, solid (FullCalendar's dots are uneven at 125 %). A time
+ * sits on its line, not in the middle of the row under it: "10:00" read as 10:07 once zoomed in. It takes no height:
+ * 5-minute rows are shorter than a line of text, which would stretch them, and the zoom with them; the same goes for
+ * the space FullCalendar puts in an empty row. Hence the room over midnight's.
+ */
+.ct-calendar {
+  --ct-line-hour: var(--background-modifier-border-focus);
+  --ct-line-half: var(--background-modifier-border);
+  --ct-line-quarter: color-mix(in srgb, var(--background-modifier-border) 60%, transparent);
+  --ct-line-step: color-mix(in srgb, var(--background-modifier-border) 30%, transparent);
+}
+
+.ct-calendar .fc .fc-timegrid-slot-lane {
+  border-top: 1px solid var(--ct-line-step);
+}
+
+.ct-calendar .fc .fc-timegrid-slot-lane:is([data-time$=":15:00"], [data-time$=":45:00"]) {
+  border-top-color: var(--ct-line-quarter);
+}
+
+.ct-calendar .fc .fc-timegrid-slot-lane[data-time$=":30:00"] {
+  border-top-color: var(--ct-line-half);
+}
+
+.ct-calendar .fc .fc-timegrid-slot-lane[data-time$=":00:00"] {
+  border-top-color: var(--ct-line-hour);
+}
+
+/* Midnight's line and the one closing the day, which FullCalendar hides as a table's first and last. */
+.ct-calendar .fc .fc-timegrid-slots table {
+  border-block-style: none;
+}
+
+.ct-calendar .fc .fc-timegrid-slots tr:last-child .fc-timegrid-slot-lane {
+  border-bottom: 1px solid var(--ct-line-hour);
+}
+
+.ct-calendar .fc .fc-timegrid-slot:empty::before {
+  content: none;
+}
+
+.ct-calendar .fc .fc-timegrid-slot-label {
+  border: none;
+  vertical-align: top;
+}
+
+.ct-calendar .fc .fc-timegrid-slot-label-frame {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: 0;
+}
+
+.ct-calendar .fc .fc-timegrid-body {
+  min-height: 0;
+  margin-block: var(--size-4-3);
+}
+
+/*
+ * A phone's day, as Apple Calendar's (2026-10-31, the user: "fait pas trop mobile"): no table around it, a line per
+ * hour. All-day things only when there are
+ * some or something to drop there (move mode), the row folded rather than `display: none`: FullCalendar measures it,
+ * and kept a width of 0 for the next day that has some. Events up to the edge, or the lines stick out beside them. The
+ * line for now without its arrow, which the label kept away from it. No scrollbar; no tint for today, with one column.
+ */
+.is-phone .ct-calendar .fc-timeGridDay-view {
+  --fc-today-bg-color: transparent;
+  --ct-line-hour: var(--fc-border-color);
+}
+
+.is-phone .ct-calendar .fc-timeGridDay-view .fc-scrollgrid,
+.is-phone .ct-calendar .fc-timeGridDay-view .fc-scrollgrid :is(td, th) {
+  border: none;
+}
+
+.is-phone .ct-calendar .fc-timeGridDay-view .fc-timegrid-slot-lane:not(.fc-timegrid-slot-minor) {
+  border-top: 1px solid var(--fc-border-color);
+}
+
+.is-phone .ct-calendar .fc-timeGridDay-view :is(.fc-timegrid-axis-cushion, .fc-timegrid-slot-label-cushion) {
+  padding-inline: 0 var(--size-4-2);
+  font-size: var(--font-ui-smaller);
+}
+
+.is-phone .ct-calendar .fc-timeGridDay-view .fc-timegrid-divider {
+  display: none;
+}
+
+.is-phone .ct-calendar:not(.is-moving) .fc-timeGridDay-view .fc-scrollgrid-section:has(.fc-daygrid-body):not(:has(.fc-event)) .fc-scroller-harness {
+  height: 0;
+}
+
+.is-phone .ct-calendar .fc-timeGridDay-view .fc-daygrid-day-events {
+  margin-bottom: var(--size-4-1);
+}
+
+.is-phone .ct-calendar .fc-timeGridDay-view .fc-timegrid-col-events {
+  margin-inline-end: 0;
+}
+
+.is-phone .ct-calendar .fc-timeGridDay-view .fc-timegrid-now-indicator-arrow {
+  display: none;
+}
+
+.is-phone .ct-calendar .fc-timeGridDay-view .fc-scrollgrid-section:has(.fc-daygrid-body .fc-event) > td {
+  border-bottom: 1px solid var(--fc-border-color);
+}
+
+.is-phone .ct-calendar .fc-timeGridDay-view .fc-scroller {
+  scrollbar-width: none;
+}
+
+.is-phone .ct-calendar .fc-timeGridDay-view .fc-scroller::-webkit-scrollbar {
+  display: none;
+}
+
 /* Zoomed in, the half and quarter hours are written too, fainter than the hours. */
 .ct-calendar .fc .ct-slot-minor .fc-timegrid-slot-label-cushion {
   color: var(--text-faint);
+  font-size: var(--font-smallest);
 }
 
 .ct-cal-zoom {

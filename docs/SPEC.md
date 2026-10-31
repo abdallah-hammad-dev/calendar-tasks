@@ -541,7 +541,10 @@ popovers.
 
 - A phone (2026-10-30), as Apple Calendar: the month is home, the months one under the other, scrolled with the finger;
   a tap on a day opens it, "‹ octobre" comes back, no menu of views. The agenda has a button in the day; a day and
-  the agenda turn with a swipe; the tasks have a button in the month.
+  the agenda turn with a swipe; the tasks have a button in the month. Away from the month the title is in the middle
+  of the bar, as iOS's (2026-10-31). The day has its week above it, a tap goes to a day, and no table around it: a line
+  per hour, all-day things only when there are some. Today opens at the time it is, another day in the morning, and
+  the hours on screen stay from one day to the next.
 - Month / week / day / agenda (no week on phones); the last view is remembered. One color per collection;
   collections are toggled from the row under the toolbar, all alike, in the server's order: a dot in their color
   (hollow when hidden), their name, "Hide" / "Show" on hover. Their pencil (or a right-click) opens a card: name, a
@@ -592,15 +595,17 @@ popovers.
   behind it (side by side always, as in Apple Calendar, halved a 3-hour event for a deadline at its end). Narrow,
   titles wrap whole words and the repeat icon makes room.
 - **Precision: 5 minutes** (Apple Calendar's): dragging and resizing snap to 5 minutes, and a dragged event shows
-  the time it lands on. A click on an empty slot gives an hour from the half hour clicked. **To the minute**: the
+  the time it lands on. A click on an empty slot gives an hour from the half hour clicked; on a computer, a press held a moment shows 5 minutes, and that's what it books when let go, and a drag shows from the first move. **To the minute**: the
   new event form and an event's card (click its time) have Start / End, each a day field and a time field (2026-10-19:
   the date-time fields opened the system's calendar), and "All day", which hides the times; moving the start keeps
   the length, what isn't understood or an end not after the start is marked and blocks saving, and the selection on
   the calendar follows what's typed. The form is one grid (icon, name, field on every line: Start, End, All day,
   Place, Collection, For a task), no description lines, no tooltip on a field that shows its name.
 - **Zoom** (week and day): Ctrl/⌘ + wheel, a trackpad or touch pinch, or the − / + buttons make the hours taller
-  (26 to 312 px an hour, 52 by default, kept per device); the time under the pointer stays put. Taller hours get
-  quarter-hour lines and their half / quarter hours written, fainter. A deadline stays one line high.
+  (26 to 312 px an hour, 52 by default, kept per device); the time under the pointer stays put. Zooming out stops
+  once the 24 hours fill the grid, between midnight's two lines; only a window too short for 26 px scrolls. Taller hours get
+  more lines (half hours, quarters, then 5 minutes), each kind fainter than the one it divides, and their times
+  written smaller, each on its line. A deadline stays one line high.
 - **Click** shows the event's card beside it (a modal on phones): when, ↻, place, collection, the task it's a time
   block for, a checkbox for a deadline's task, Accept / Maybe / Decline for an invitation (and where my answer stands, §4.6), "Create the note" while
   the event has none (notes are made on first open, §4.3; 2026-10-19), then "Open the note" (or "Open the task"; the

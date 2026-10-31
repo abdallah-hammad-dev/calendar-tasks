@@ -15,10 +15,11 @@ user at each one.
   `tools/preview/obsidian-browser.ts` (copied from claude-workspace, plus `getLanguage`, global `createEl`…).
   `phone-…` scenarios are an iPhone (393 × 852, `is-phone`, touch, Obsidian's floating header and navbar drawn
   around the view): `phone()` in shoot.mjs fails on anything off the screen or out of its form, the calendar less
-  than 8px above the navbar, a toolbar over one line, a week's number touching a day's, a sheet not at the bottom,
+  than 8px above the navbar, a toolbar over one line, a title off the middle of the bar away from the month, a tick
+  wider than its box, a week's number touching a day's, a sheet not at the bottom,
   a form without one ✕ and one ✓ beside its title, a task's title more than 32px under its header; it scrolls the
-  months (more must come, what's on screen staying), taps a day and comes back, swipes a day, opens the agenda and
-  the tasks, an event and "+" (then New event). `phone-new-task-keyboard` sets `--keyboard-height` and draws a
+  months (more must come, what's on screen staying), taps a day and comes back, swipes a day, goes through its week
+  (an empty day, and back), opens the agenda and the tasks, an event and "+" (then New event). `phone-new-task-keyboard` sets `--keyboard-height` and draws a
   keyboard: the tags must show above it, their suggestions above them, and no empty sheet under the form. The
   stand-in's menus close on a tap, as Obsidian's, and its Modal has Obsidian's ✕. Uses the newest of Obsidian's
   updates (`~/.config/obsidian/obsidian-*.asar`…), then the installed one, and a system Chrome; else `OBSIDIAN_ASAR`
@@ -81,7 +82,8 @@ user at each one.
   time blocks, invitations; `findOccurrence` by RECURRENCE-ID; `pickOccurrence`), `event-notes.ts` (one note per
   occurrence, follows moves/renames one way), `catalog.ts` (uid → item), `CalendarView.ts` (FullCalendar v6 for
   layout and dragging; our toolbar, `eventContent`, `dayHeaderContent` and popovers; drag/resize/select/right-click
-  go to the host), `event-card.ts` (an event's card: popover or phone modal), `vevent.ts` (VEVENT edits in
+  go to the host), `selection.ts` (`SNAP_MS`, `isClick`, shared with `day-preview.ts`), `event-card.ts` (an event's
+  card: popover or phone modal), `vevent.ts` (VEVENT edits in
   place: new event, `editEvent` (what the form changed; move / rename go through it) on an occurrence as an
   exception, EXDATE, `setPartstat`, `isMirror`, `endSeries`), `modals.ts` (`renderEventForm` / `EventModal`: the
   event form, new or edit; `ConfirmModal`), `calendars.ts` (the colors offered).
@@ -272,7 +274,14 @@ user at each one.
   `calendar-list` previews set the browser clock (`page.clock`) to Thursday 15 at 11:00 for Today / past.
   The checkbox stops `mousedown`/`touchstart`/`pointerdown` (no drag) and prevents mousedown's default: focusing
   the event lays FullCalendar's `.fc-event:focus::before` overlay over it and the release opened the card.
-  Snap 5 min (`SNAP_MS`); a click selects one snap, so `select` turns it into an hour from the half hour.
+  Snap 5 min (`SNAP_MS`, `selection.ts`). **What shows when it's let go is what's selected** (2026-10-31, the user: a
+  click showed 5 minutes, then the hour, "un peu beug"; then nothing while held wasn't better, and 5 minutes couldn't
+  be booked, nor could they before): `stillPressed` in `tools/fullcalendar-patch.mjs` keeps a mouse's selection of time
+  off the screen on the step pressed, `holdPress` draws it after `HOLD_MS` (300), and the release reports it either
+  way. So `isClick` (`dateSelection` empty: nothing drawn) means an hour from the half hour; held, it's those 5 minutes;
+  a drag shows at once. A finger's long press and a whole day draw at once, and a finger's one step stays an hour.
+  `newEventPopover` anchors on what `calendar.select` draws, in the same tick. `calendar-interact` and `task-preview`
+  check it.
   A press beside the events while a `.menu` is open stops at the grid (capture: pointerdown, mousedown,
   touchstart; 2026-10-25, it started a new event): FullCalendar never sees it (no selection, no unselect of an open
   form), and Obsidian's Menu, which listens on the window, closes on the `click` that follows. `calendar-interact`
@@ -283,6 +292,19 @@ user at each one.
   view + `slotOptions(zoom)`; FullCalendar measures its slats only when it renders and `updateSize()` doesn't
   render, so `setZoom` sets a new `slotLabelClassNames` function to force one. Wheel steps are capped (±20 px of
   `deltaY`): Chromium reports CSS pixels, so a notch is worth less on a dense screen, and a pinch sends small ones.
+  **How the time is cut up** (2026-10-31, the user: "on voit ce qu'est une heure, mais pas trop", more precise when
+  zoomed, down to 5 minutes if it makes sense): `slotOptions` gives lines at 30, 15, then 5 minutes (from 190px per
+  hour) and times every hour, 30, 15, then 5 minutes (from 270px); `--ct-line-hour` … `--ct-line-step` draw each kind
+  fainter than the one it divides (by `data-time`, so the task form's preview has them too), solid: FullCalendar's dots
+  are uneven at 125 %. A time sits on its line, in a frame of no height: in the middle of its row "10:00" read as 10:07,
+  and a line of text stretched 5-minute rows, so the zoom jumped; FullCalendar's space in an empty row is gone for
+  the same reason. `calendar-zoom` checks the times on their lines, the rows' height and the four kinds.
+  **Zooming out stops once the 24 hours fill the grid** (2026-10-31, the user: "on peut trop dezoomer, enormement
+  d'espace en bas"): `fitDay`, on a `ResizeObserver` of the day's scroller (the window, and the all-day row's height
+  from one week to the next), sets `dayFit`, and `hourHeight()` is the larger of it and the zoom. All the way out the
+  zoom is `ZOOM.min`, so the day keeps filling the grid as the fit changes; under 26px an hour, in a short window, it
+  scrolls. Midnight's line and the one closing the day are an hour's: FullCalendar's tables hide their first and
+  last (`border-block-style`), whatever a cell asks for, so `calendar-zoom` reads them from the screenshot, at 125 % too.
   `eventContent` reads times from `arg.event` (not the occurrence) so a dragged mirror shows where it lands.
   The deadline marker's time hides through a container query, scoped to `.fc-timegrid-event` (month lines are as
   wide as their text: a size container collapsed them).
@@ -324,7 +346,9 @@ user at each one.
 - **Task note header** (`src/editor/task-header.ts`, `main.updateTaskHeaders`): prepended to the MarkdownView's
   `contentEl` (above both the source and reading views, outside their scrollers, so it never scrolls and survives
   mode switches and re-renders); `.ct-task-view` makes `.view-content` a flex column. Properties are hidden with
-  `--metadata-display-editing/reading: none` on that element (setting `showTaskProperties` turns it off).
+  `--metadata-display-editing/reading: none` on that element (setting `showTaskProperties` turns it off). Its
+  checkbox is sized by `--checkbox-size`, never a `width`: Obsidian draws its tick that size (2026-10-31, the user:
+  "bizarre" once ticked; 18px of tick in a 15px box on an iPhone, the same on a computer so nothing showed).
 - **Two kinds of repetition**: a repeating task (`@répéter`, RRULE on the VTODO, the deadline comes back when
   ticked) and a session that comes back (`@session chaque mardi 14h-16h`, RRULE on the VEVENT, `Block.repeat`).
   A task done for good ends its recurring sessions (`endSeries`: UNTIL = now; deleted if not started), hooked on
@@ -533,13 +557,21 @@ user at each one.
   scrolls, and they still open from it). Sync, Move and the
   collections are in the view's "⋯" (`onPaneMenu`), the collections in a sheet of their own (`openCollections`,
   the legend's chips). The view is padded by Obsidian's `--view-bottom-spacing` plus a gap (the month's last week
-  was under the floating navbar, then against it). Short titles ("jeu. 15 octobre", "12 – 18 oct."). The month
+  was under the floating navbar, then against it). Short titles ("jeudi 15", "12 – 18 oct."). The month
   draws no columns, only a line between weeks, the days' initials, each number centred, the week's number small
   and faint in the corner (its tab covered Monday's number, and without them the weeks were missed; Obsidian's
   mobile font is 15px: Monday's number needs `min-width` 1.75em and the week's no padding to stay apart). The
   month's lines are a mark and the title, cut, no times (`is-compact`), its checkbox doesn't tick; a tap in a day
   (`dateClick`, touch only selects after a long press) or on "+N" opens that day; a week's number opens the agenda.
-  The day view has no column header, its weekday is in the title. Self-hosted LiveSync's status, drawn over the
+  The day view has no column header, its weekday is in the title, its month on the back button. **Its look**
+  (2026-10-31, the user: "fait pas trop mobile", "le octobre à côté de tâches c pas très beau"): away from the month
+  the bar is a grid (`1fr minmax(0, auto) 1fr`, `.ct-cal-tools` its right side) with the title in the middle;
+  `renderDays` draws the week over the day (`.ct-cal-days`, a tap is `gotoDate`); styles.css takes the table away
+  (`.fc-timeGridDay-view`: a line per hour, no scrollbar, no tint for today, events to the edge). The empty all-day row is folded (`height: 0` on its harness, not in Move, where it's a place to drop), never
+  `display: none`: FullCalendar measured a width of 0 and kept it, the next day's all-day event was 2px wide
+  (`phone-day` goes to an empty day and back). `scrollTimeReset: false` keeps the hours from day to day; `openHours`,
+  a frame after a day opens, not on the way to an event (`revealing`): today an hour above now, another day 8:00 (the
+  iPhone showed a day from 00:00, which the preview didn't reproduce). Self-hosted LiveSync's status, drawn over the
   top of every view, is hidden in ours. The task and event forms are sheets (`formSheet`, src/ui/sheet.ts): from
   the bottom, above the keyboard (Obsidian sets `--keyboard-height` on `<html>` and doesn't resize the page: the
   keyboard covered the tags, their suggestions and the buttons), with Obsidian's own round buttons as in its forms

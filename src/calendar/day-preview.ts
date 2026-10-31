@@ -5,6 +5,7 @@ import timeGridPlugin from "@fullcalendar/timegrid";
 import { setIcon } from "obsidian";
 import { t } from "../i18n";
 import type { Occurrence } from "./expand";
+import { isClick, SNAP_MS } from "./selection";
 
 /** What the preview needs: the calendar's occurrences (visible collections) and their colors. */
 export interface PreviewSource {
@@ -25,7 +26,6 @@ export interface Placed {
 
 /** A deadline is a moment, drawn as a one-line marker this long (as in the calendar). */
 const MARK_MS = 20 * 60_000;
-const SNAP_MS = 5 * 60_000;
 const clock = (d: Date) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 
 /**
@@ -78,9 +78,8 @@ export class DayPreview {
       selectable: true,
       selectMirror: true,
       select: (info) => {
+        const end = isClick(this.calendar, info) ? new Date(info.start.getTime() + 3_600_000) : info.end;
         this.calendar.unselect();
-        // A click (no drag) is one 5-minute step: make it an hour from there.
-        const end = !info.allDay && info.end.getTime() - info.start.getTime() <= SNAP_MS ? new Date(info.start.getTime() + 3_600_000) : info.end;
         this.on.pick(info.start, end, info.allDay);
       },
       eventDrop: (info) => this.on.move(info.event.id, info.event.start!, info.event.end, info.event.allDay),

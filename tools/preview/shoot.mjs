@@ -60,6 +60,7 @@ const SCENARIOS = [
   ["calendar-marks-week-150", 1200, 820, 1.5],
   ["calendar-marks-list-125", 1200, 820, 1.25],
   ["calendar-marks-list-150", 1200, 820, 1.5],
+  ["calendar-zoom-125", 1200, 820, 1.25],
   ["task-links", 760, 520],
   // A real editor: an `@` typed is a field labelled with its keyword, a block once it has its value; Backspace
   // selects a block, then deletes it; a click on one opens its field. On a task already made, Backspace takes its
@@ -109,6 +110,7 @@ const SCENARIOS = [
   ["phone-date-picker", 393, 852],
   ["phone-slot-picker", 393, 852],
   ["phone-task-note", 393, 852],
+  ["phone-task-note-done", 393, 852],
   ["phone-event-note", 393, 852],
   ["phone-settings", 393, 852],
   ["phone-date-suggest", 393, 1200],
@@ -406,6 +408,7 @@ async function drag(page, errors, theme) {
     ["a deadline", ".fc-timegrid-event.ct-ev-deadline:has-text('Préparer slides')", dayW, -8 * hourH, "2026-10-16 10:00"],
   ];
   for (const [what, sel, dx, dy, want] of cases) {
+    await page.locator(sel).first().scrollIntoViewIfNeeded(); // A deadline at 18:00 sits at the fold: half of it is out of reach.
     const el = await box(sel);
     const before = await where(sel);
     await dragBy(page, el, dx, dy, join(out, `calendar-drag-${what.replace(/ /g, "-")}-${theme}.png`));
@@ -641,6 +644,9 @@ async function phone(page, name, file, errors) {
       .map((el) => el.getAttribute("placeholder") || el.textContent.trim() || el.className);
   });
   if (outside.length) errors.push(`out of the screen or the form: ${outside.slice(0, 3).join(", ")}`);
+  // Obsidian draws a tick `--checkbox-size` wide, whatever the box (2026-10-31: 18px in 15px, off to its lower right).
+  const ticks = await page.$$eval("input[type=checkbox]:checked", (boxes) => boxes.filter((b) => parseFloat(getComputedStyle(b, "::after").width) > b.offsetWidth + 0.5).length);
+  if (ticks) errors.push(`${ticks} ticks wider than their boxes`);
   const sheet = () =>
     page.evaluate(() => {
       const menu = document.querySelector(".menu");
@@ -702,7 +708,7 @@ async function phone(page, name, file, errors) {
       if (head.blank > 64) errors.push(`${Math.round(head.blank)}px of empty sheet under the form`);
     }
   }
-  if (name === "phone-task-note") {
+  if (name.startsWith("phone-task-note")) {
     // Right under the header's line (2026-10-30: Obsidian's padding for its floating header stayed there too).
     const gap = await page.evaluate(() => document.querySelector(".inline-title").getBoundingClientRect().top - document.querySelector(".ct-task-header").getBoundingClientRect().bottom);
     if (gap > 32) errors.push(`${Math.round(gap)}px between the task's header and its title`);
@@ -726,6 +732,16 @@ async function phone(page, name, file, errors) {
     grid.dispatchEvent(new TouchEvent("touchend", { bubbles: true, touches: [], changedTouches: [touch(200 + dx)] }));
   }, dx);
   const back = page.locator(".ct-cal-back");
+  // Away from the month, the title is in the middle of the bar, whatever its sides hold.
+  const offCentre = () => page.evaluate(() => {
+    const [bar, text] = [".ct-cal-bar", ".ct-cal-title"].map((s) => document.querySelector(s).getBoundingClientRect());
+    return Math.abs(bar.left + bar.width / 2 - (text.left + text.width / 2));
+  });
+  // The hour at the top of a day.
+  const hour = () => page.evaluate(() => {
+    const box = document.querySelector(".fc-timegrid-body").closest(".fc-scroller");
+    return Math.round((box.scrollTop / box.scrollHeight) * 24);
+  });
   if (name === "phone-add") {
     await page.locator(".ct-cal-tool").last().tap();
     await page.waitForTimeout(200);
@@ -749,6 +765,7 @@ async function phone(page, name, file, errors) {
       weekdays: getComputedStyle(document.querySelector(".ct-cal-weekdays")).display,
     }));
     if (tasks.title !== "Tâches" || tasks.back !== "octobre" || !tasks.panel || tasks.grid !== "none" || tasks.weekdays !== "none") errors.push(`the tasks: ${JSON.stringify(tasks)}`);
+    if ((await offCentre()) > 1) errors.push(`the tasks' title is ${await offCentre()}px off the middle`);
     await page.screenshot({ path: file });
     await back.tap();
     await page.waitForTimeout(300);
@@ -781,7 +798,8 @@ async function phone(page, name, file, errors) {
   if (layout.lines > 1) errors.push(`the toolbar takes ${layout.lines} lines`);
   if (layout.bottom > layout.navbar - 8) errors.push(`the calendar is ${Math.round(layout.navbar - layout.bottom)}px from the navbar`);
   if (layout.touching) errors.push(`${layout.touching} weeks' numbers touch a day's`);
-  if (name === "phone-day" && layout.title !== "jeu. 15 octobre") errors.push(`the day's title reads "${layout.title}"`);
+  if (name !== "phone-month" && (await offCentre()) > 1) errors.push(`the title is ${await offCentre()}px off the middle`);
+  if (name === "phone-day" && layout.title !== "jeudi 15") errors.push(`the day's title reads "${layout.title}"`);
   if (name === "phone-month") {
     await page.screenshot({ path: file });
     if (layout.title !== "octobre 2026" || (await onScreen()) !== "2026-10") errors.push(`the month opens on "${layout.title}", ${await onScreen()}`);
@@ -822,9 +840,10 @@ async function phone(page, name, file, errors) {
     const day = await page.locator(".fc-daygrid-day[data-date='2026-10-21'] .fc-daygrid-day-frame").boundingBox();
     await page.touchscreen.tap(day.x + day.width / 2, day.y + day.height - 8);
     await page.waitForTimeout(300);
-    if ((await title()) !== "mer. 21 octobre") errors.push(`a tap on the 21st of the month opened "${await title()}"`);
+    if ((await title()) !== "mercredi 21") errors.push(`a tap on the 21st of the month opened "${await title()}"`);
     if (await page.locator(".modal-container").count()) errors.push("a tap on a day of the month opened a form");
     if ((await back.textContent()) !== "octobre") errors.push(`the day's back button reads "${await back.textContent()}"`);
+    if ((await hour()) !== 8) errors.push(`another day opens at ${await hour()}:00, not 8:00`);
     await page.screenshot({ path: file.replace(/-(light|dark)\.png$/, "-back-$1.png") });
     await back.tap();
     await page.waitForTimeout(300);
@@ -833,12 +852,32 @@ async function phone(page, name, file, errors) {
   if (name === "phone-day") {
     await page.screenshot({ path: file });
     if (!(await page.locator(".ct-calendar-grid[data-ignore-swipe]").count())) errors.push("Obsidian would take the day's swipes for its own");
+    // Today opens an hour above the time it is. Its week over it; a tap goes to a day, the same hours on screen.
+    if ((await hour()) !== 10) errors.push(`today opens at ${await hour()}:00, not 10:00`);
+    const days = page.locator(".ct-cal-day");
+    if ((await days.allTextContents()).join(" ") !== "L12 M13 M14 J15 V16 S17 D18") errors.push(`the week reads "${(await days.allTextContents()).join(" ")}"`);
+    if ((await page.locator(".ct-cal-day.is-selected").textContent()) !== "J15") errors.push("the day shown isn't marked in its week");
+    await page.evaluate(() => (document.querySelector(".fc-timegrid-body").closest(".fc-scroller").scrollTop = 500));
+    const allDay = () => page.evaluate(() => Math.round(document.querySelector(".fc-daygrid-body").closest(".fc-scrollgrid-section").getBoundingClientRect().height));
+    const kept = await hour();
+    await days.filter({ hasText: "18" }).tap();
+    await page.waitForTimeout(300);
+    if ((await title()) !== "dimanche 18") errors.push(`a tap on the 18th opened "${await title()}"`);
+    if ((await hour()) !== kept) errors.push(`going to another day moved the hours from ${kept}:00 to ${await hour()}:00`);
+    if ((await days.allTextContents()).length !== 7 || (await page.locator(".ct-cal-day.is-selected").textContent()) !== "D18") errors.push("the week didn't follow the day");
+    if ((await allDay()) > 1) errors.push(`an all-day row of ${await allDay()}px with nothing in it`);
+    await page.screenshot({ path: file.replace(/-(light|dark)\.png$/, "-empty-$1.png") });
+    await days.filter({ hasText: "15" }).tap();
+    await page.waitForTimeout(300);
+    // Measured while folded, it came back 0 wide with `display: none` (its event 2px wide).
+    const bank = await page.locator(".fc-daygrid-event:has-text('Appeler la banque')").boundingBox();
+    if ((await allDay()) < 20 || !bank || bank.width < 200) errors.push(`back on a day with all-day things: a row of ${await allDay()}px, its event ${bank?.width}px wide`);
     await swipe(-120);
     await page.waitForTimeout(300);
-    if ((await title()) !== "ven. 16 octobre") errors.push(`a swipe to the left opened "${await title()}"`);
+    if ((await title()) !== "vendredi 16") errors.push(`a swipe to the left opened "${await title()}"`);
     await swipe(120);
     await page.waitForTimeout(300);
-    if ((await title()) !== "jeu. 15 octobre") errors.push(`a swipe to the right opened "${await title()}"`);
+    if ((await title()) !== "jeudi 15") errors.push(`a swipe to the right opened "${await title()}"`);
     // The agenda, from its button, and back.
     await page.locator(".ct-cal-tool").first().tap();
     await page.waitForTimeout(300);
@@ -846,7 +885,7 @@ async function phone(page, name, file, errors) {
     await page.screenshot({ path: file.replace(/-(light|dark)\.png$/, "-agenda-$1.png") });
     await page.locator(".ct-cal-tool").first().tap();
     await page.waitForTimeout(300);
-    if ((await title()) !== "jeu. 15 octobre") errors.push(`back from the agenda: "${await title()}"`);
+    if ((await title()) !== "jeudi 15") errors.push(`back from the agenda: "${await title()}"`);
     const event = await page.locator(".fc-timegrid-event:has-text('Jury de projet')").first().boundingBox();
     await page.touchscreen.tap(event.x + event.width / 2, event.y + 10);
     await page.waitForTimeout(300);
@@ -910,12 +949,50 @@ async function interact(page, errors) {
     await page.keyboard.press("Escape");
     await page.waitForTimeout(200);
   }
+  // A click shows nothing until it's let go (2026-10-31, the user: 5 minutes showed, then the hour, "un peu beug"). A
+  // press held shows its 5 minutes, and a drag what it goes over at once: what shows when it's let go is what's
+  // selected, so 5 minutes can be booked (asked the same day).
+  const [px, py] = [fri.x + fri.width / 2, at13.y + at13.height / 2];
+  const range = page.locator(".fc-event-mirror, .fc-timegrid-col-bg .fc-highlight");
+  const minutes = async () => {
+    const [, h1, m1, h2, m2] = ((await page.locator(".fc-event-mirror").first().textContent()) ?? "").match(/(\d\d):(\d\d) – (\d\d):(\d\d)/)?.map(Number) ?? [];
+    return h2 * 60 + m2 - (h1 * 60 + m1);
+  };
+  await page.mouse.move(px, py);
+  await page.mouse.down();
+  await page.waitForTimeout(60);
+  if (await range.count()) errors.push("a click shouldn't draw anything before it's let go");
+  await page.waitForTimeout(400);
+  if (!(await range.count()) || (await minutes()) !== 5) errors.push(`a press held should show its 5 minutes, shows ${await minutes()}`);
+  await page.mouse.move(px, py + at13.height, { steps: 4 });
+  await page.waitForTimeout(60);
+  if ((await minutes()) < 25) errors.push(`held, then dragged: ${await minutes()} minutes`);
+  await page.mouse.move(px, py, { steps: 4 });
+  await page.waitForTimeout(60);
+  if ((await minutes()) !== 5) errors.push(`back on the step it pressed, it should show 5 minutes, shows ${await minutes()}`);
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  if (!(await page.locator(".ct-popover").count())) errors.push("no form after a press held");
+  if ((await minutes()) !== 5) errors.push(`a press held should select 5 minutes, got ${await minutes()}`);
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(200);
+  await page.mouse.move(px, py);
+  await page.mouse.down();
+  await page.mouse.move(px, py + at13.height * 2, { steps: 4 });
+  if (!(await range.count())) errors.push("a drag should show at once");
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  if ((await minutes()) < 55 || (await minutes()) > 70) errors.push(`a drag should select what it went over, got ${await minutes()} minutes`);
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(200);
   await page.mouse.click(fri.x + fri.width / 2, at13.y + at13.height / 2);
   await page.waitForTimeout(300);
   if (!(await page.locator(".ct-popover").count())) errors.push("no new event form after clicking a slot");
   if (!(await page.locator(".fc-event-mirror").count())) errors.push("the selection went away behind its form");
   const selected = (await page.locator(".fc-event-mirror").first().textContent()) ?? "";
   if (!selected.includes("13:00") || !selected.includes("14:00")) errors.push(`a click should select an hour from 13:00, got "${selected}"`);
+  const [form, hour] = [await box(".ct-popover"), await box(".fc-event-mirror")];
+  if (form && hour && Math.min(Math.abs(form.x + form.width - hour.x), Math.abs(hour.x + hour.width - form.x)) > 20) errors.push("the form should open beside the selection");
   // The start's time typed to the minute moves the selection, its length kept; then the end's.
   await page.locator(".ct-popover .ct-when-time").first().fill("13h37");
   await page.waitForTimeout(100);
@@ -1032,7 +1109,16 @@ async function clipped(page) {
 }
 
 /** Ctrl + wheel up: the hours get taller (quarter hours drawn), the time under the pointer stays put. */
-async function zoom(page, errors, theme) {
+async function zoom(page, errors, theme, name, scale) {
+  // A time sits on its line, wherever the rows are: "10:00" in the middle of its row read as 10:07.
+  const offLine = () => page.$$eval(".fc-timegrid-slot-label-cushion", (labels) =>
+    labels.filter((l) => {
+      const lane = l.closest("tr").querySelector(".fc-timegrid-slot-lane").getBoundingClientRect().top;
+      const r = l.getBoundingClientRect();
+      return Math.abs(r.top + r.height / 2 - lane) > 1.5;
+    }).map((l) => l.textContent),
+  );
+  if ((await offLine()).length) errors.push(`times off their lines: ${(await offLine()).slice(0, 3).join(", ")}`);
   const slot = page.locator(".fc-timegrid-slot-lane").first();
   const before = (await slot.boundingBox())?.height ?? 0;
   const lane = await page.locator(".fc-timegrid-slot-lane[data-time='10:00:00']").first().boundingBox();
@@ -1061,6 +1147,104 @@ async function zoom(page, errors, theme) {
   const olera = await page.locator(".fc-timegrid-event:has-text('Point Olera')").first().boundingBox();
   const line = await page.locator(".fc-timegrid-slot-lane[data-time='10:00:00']").first().boundingBox();
   if (olera && line && Math.abs(olera.y - line.y) > 3) errors.push(`events don't follow the zoom: Point Olera at ${olera.y}, 10:00 at ${line.y}`);
+  // In there: lines to the 5 minutes, each kind fainter, whose rows stay as tall as the zoom says (a line of text would
+  // stretch them). All the way in, the times too.
+  const cut = await page.evaluate(() => {
+    const lane = (time) => document.querySelector(`.fc-timegrid-slot-lane[data-time='${time}']`);
+    const five = lane("10:05:00");
+    return {
+      height: five?.getBoundingClientRect().height,
+      wanted: parseFloat(getComputedStyle(five ?? document.body).getPropertyValue("--ct-slot-h")),
+      kinds: new Set(["10:00:00", "10:30:00", "10:15:00", "10:05:00"].map((t) => lane(t) && getComputedStyle(lane(t)).borderTopColor)).size,
+    };
+  });
+  if (!cut.height) errors.push("no 5-minute lines once zoomed in");
+  else if (Math.abs(cut.height - cut.wanted) > 0.6) errors.push(`5-minute rows ${cut.height}px tall, not ${cut.wanted}px`);
+  if (cut.kinds !== 4) errors.push(`${cut.kinds} kinds of lines, not 4 from the hour to the 5 minutes`);
+  if ((await offLine()).length) errors.push(`zoomed in, times off their lines: ${(await offLine()).slice(0, 3).join(", ")}`);
+  await page.mouse.move(lane.x + 200, lane.y);
+  await page.keyboard.down("Control");
+  for (let i = 0; i < 4; i++) {
+    await page.mouse.wheel(0, -100);
+    await page.waitForTimeout(40);
+  }
+  await page.keyboard.up("Control");
+  await page.waitForTimeout(200);
+  if (!(await page.locator(".fc-timegrid-slot-label[data-time='10:05:00'] .fc-timegrid-slot-label-cushion").count())) errors.push("no 5-minute times all the way in");
+  await page.screenshot({ path: join(out, `calendar-zoom-most-${theme}.png`) });
+  // All the way out: the 24 hours fill the grid, from midnight's line to the one closing the day, whatever its height.
+  const filled = (when) => page.evaluate((when) => {
+    const box = document.querySelector(".fc-timegrid-body").closest(".fc-scroller");
+    const lanes = [...document.querySelectorAll(".fc-timegrid-slot-lane")];
+    const [first, last] = [lanes[0], lanes.at(-1)].map((l) => l.getBoundingClientRect());
+    const [top, bottom] = [first.top - box.getBoundingClientRect().top, box.getBoundingClientRect().bottom - last.bottom];
+    const hour = getComputedStyle(lanes.find((l) => l.dataset.time === "10:00:00")).borderTopColor;
+    const issues = [];
+    if (box.scrollHeight > box.clientHeight) issues.push(`${box.scrollHeight - box.clientHeight}px to scroll`);
+    if (Math.abs(top - bottom) > 2.5) issues.push(`${Math.round(top)}px over midnight, ${Math.round(bottom)}px under the day`);
+    if (getComputedStyle(lanes[0].closest("table")).borderTopStyle === "hidden") issues.push("midnight's line hidden");
+    if (getComputedStyle(lanes[0]).borderTopColor !== hour) issues.push("midnight's line isn't an hour's");
+    if (getComputedStyle(lanes.at(-1)).borderBottomColor !== hour || getComputedStyle(lanes.at(-1)).borderBottomStyle !== "solid") issues.push("no hour's line closing the day");
+    return issues.map((i) => `${when}: ${i}`);
+  }, when);
+  // Windows tall enough for 26px an hour, the least. The fractional scales' pages have no viewport to set (see `open`).
+  const cdp = await page.context().newCDPSession(page);
+  const width = await page.evaluate(() => innerWidth);
+  const windowOf = async (height) => {
+    if (page.viewportSize()) await page.setViewportSize({ width, height });
+    else await cdp.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 0, mobile: false });
+    await page.waitForTimeout(250);
+  };
+  await windowOf(1000);
+  await page.keyboard.down("Control");
+  for (let i = 0; i < 16; i++) {
+    await page.mouse.wheel(0, 100);
+    await page.waitForTimeout(40);
+  }
+  await page.keyboard.up("Control");
+  await page.waitForTimeout(200);
+  errors.push(...(await filled("zoomed out")));
+  const zoomOut = page.locator(".ct-cal-zoom button").first();
+  if (!(await zoomOut.isDisabled())) errors.push("zooming out should stop once the day fills the grid");
+  await page.screenshot({ path: join(out, `${name}-out-${theme}.png`) });
+  // Painted, not only styled: FullCalendar's table hid midnight's line whatever its cell asked for.
+  const ink = await page.evaluate(
+    async ([png, scale]) => {
+      const img = new Image();
+      img.src = `data:image/png;base64,${png}`;
+      await img.decode();
+      const canvas = document.createElement("canvas");
+      [canvas.width, canvas.height] = [img.width, img.height];
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0);
+      const data = ctx.getImageData(0, 0, img.width, img.height).data;
+      const col = [...document.querySelectorAll(".fc-timegrid-col")].at(-1).getBoundingClientRect();
+      const x = Math.round(((col.left + col.right) / 2) * scale);
+      const at = (y) => [...data.slice((y * img.width + x) * 4, (y * img.width + x) * 4 + 3)];
+      const lanes = [...document.querySelectorAll(".fc-timegrid-slot-lane")];
+      const ten = lanes.find((l) => l.dataset.time === "10:00:00").getBoundingClientRect().top;
+      const bg = at(Math.round((ten + 6) * scale));
+      const inkAt = (y) => {
+        let most = 0;
+        for (let d = Math.floor((y - 2) * scale); d <= Math.ceil((y + 2) * scale); d++) most = Math.max(most, ...at(d).map((v, i) => Math.abs(v - bg[i])));
+        return most;
+      };
+      return { hour: inkAt(ten), midnight: inkAt(lanes[0].getBoundingClientRect().top), close: inkAt(lanes.at(-1).getBoundingClientRect().bottom) };
+    },
+    [(await page.screenshot()).toString("base64"), scale],
+  );
+  if (ink.midnight < ink.hour * 0.8) errors.push(`midnight's line is fainter than an hour's: ${ink.midnight} against ${ink.hour}`);
+  if (ink.close < ink.hour * 0.8) errors.push(`the line closing the day is fainter than an hour's: ${ink.close} against ${ink.hour}`);
+  await page.locator(".ct-cal-arrow").nth(1).click();
+  await page.waitForTimeout(250);
+  errors.push(...(await filled("on another week")));
+  for (const height of [1120, 960]) {
+    await windowOf(height);
+    errors.push(...(await filled(`in a window ${height}px high`)));
+  }
+  await page.locator(".ct-cal-zoom button").nth(1).click();
+  await page.waitForTimeout(150);
+  if (await zoomOut.isDisabled()) errors.push("zoomed back in, the way out should be open");
 }
 
 // Native date and time fields follow the system language, like Obsidian on a French system (13:37, not 01:37 PM).
@@ -1225,7 +1409,7 @@ for (const [name, width, height, scale = 2] of run) {
       if (lines.olera !== "10:00/11:00/true") errors.push(`an event should show its start over its end, shows ${lines.olera || "nothing"}`);
       if (!(lines.heights[1] > 0 && lines.heights[0] > lines.heights[1] * 1.5)) errors.push(`an event should take two lines, a deadline one: ${lines.heights.join(" vs ")}px`);
     }
-    if (name === "calendar-zoom") await zoom(page, errors, theme);
+    if (name.startsWith("calendar-zoom")) await zoom(page, errors, theme, name, scale);
     if (name === "new-task-tags") {
       // "#olera #f": the vault's tags with an "f", less the one already typed; a pick completes the word.
       const offered = await page.locator(".suggestion-container .suggestion-item").allTextContents();
@@ -1268,6 +1452,29 @@ for (const [name, width, height, scale = 2] of run) {
         await page.screenshot({ path: join(out, `${name}-dragged-${theme}.png`) });
         await page.locator(".ct-slot.is-new .clickable-icon").first().click();
         if ((await page.locator(".ct-slot.is-new").count()) !== 1 || (await page.locator(".ct-day-preview .ct-ev-placed").count()) !== 2) errors.push("✕ should take the slot off the list and the preview");
+        // A click: an hour, with nothing drawn from the press, as in the calendar.
+        const free = await lane("16:00:00");
+        if (free) {
+          await page.mouse.move(free.x + free.width / 2, free.y + 3);
+          await page.mouse.down();
+          await page.waitForTimeout(100);
+          if (await page.locator(".ct-day-preview .fc-event-mirror, .ct-day-preview .fc-highlight").count()) errors.push("a press on the preview should draw nothing");
+          await page.mouse.up();
+          await page.waitForTimeout(150);
+          const clicked = (await page.locator(".ct-slot.is-new .ct-slot-when").last().textContent()) ?? "";
+          if (!clicked.includes("16:00–17:00")) errors.push(`a click on the preview should add an hour from 16:00, got "${clicked}"`);
+          await page.locator(".ct-slot.is-new .clickable-icon").last().click();
+          // Held: its 5 minutes. The preview scrolled to what was placed: measure again.
+          const still = await lane("16:00:00");
+          await page.mouse.move(still.x + still.width / 2, still.y + 3);
+          await page.mouse.down();
+          await page.waitForTimeout(400);
+          await page.mouse.up();
+          await page.waitForTimeout(150);
+          const held = (await page.locator(".ct-slot.is-new .ct-slot-when").last().textContent()) ?? "";
+          if (!held.includes("16:00–16:05")) errors.push(`a press held on the preview should add 5 minutes from 16:00, got "${held}"`);
+          await page.locator(".ct-slot.is-new .clickable-icon").last().click();
+        }
       } else errors.push("no 13:00 / 16:00 lines in the preview");
       // Two slots added on other days, then a click on the first one, then in the deadline: each shows its day.
       const shown = async () => ((await page.locator(".ct-day-preview-day").textContent()) ?? "").toLowerCase();

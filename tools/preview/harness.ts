@@ -722,7 +722,7 @@ function dateSuggest(): void {
 // As the plugin does when it loads: the calendar's dots and bars in whole device pixels.
 wholeDevicePixels(window);
 
-if (["calendar-week", "calendar-drag", "calendar-interact", "calendar-card", "calendar-group", "calendar-edit", "calendar-time", "calendar-zoom", "calendar-new"].includes(scenario)) calendar("timeGridWeek");
+if (["calendar-week", "calendar-drag", "calendar-interact", "calendar-card", "calendar-group", "calendar-edit", "calendar-time", "calendar-zoom", "calendar-zoom-125", "calendar-new"].includes(scenario)) calendar("timeGridWeek");
 else if (scenario === "calendar-list" || scenario === "calendar-list-narrow") calendar("listWeek");
 else if (scenario === "calendar-month" || scenario === "calendar-month-narrow" || scenario.startsWith("calendar-marks-month")) calendar("dayGridMonth");
 else if (scenario.startsWith("calendar-marks-week")) calendar("timeGridWeek");
@@ -741,6 +741,7 @@ else if (scenario === "phone-new-event") newEvent();
 else if (scenario === "phone-date-picker") datePicker();
 else if (scenario === "phone-slot-picker") slotPicker();
 else if (scenario === "phone-task-note") taskNote();
+else if (scenario === "phone-task-note-done") taskNote("done");
 else if (scenario === "phone-event-note") eventNote();
 else if (scenario === "phone-settings") settings();
 else if (scenario === "phone-date-suggest") dateSuggest();

@@ -21,6 +21,7 @@ import {
 } from "./event-card";
 import { closeDeadlines, monthGroup, monthGroupStarts, type Occurrence } from "./expand";
 import { EventModal, renderEventForm, type EventFormOptions } from "./modals";
+import { isClick, SNAP_MS } from "./selection";
 import type { PartStat } from "./vevent";
 import { localDate, type When } from "./when-fields";
 
@@ -119,8 +120,6 @@ const hm = (value: string) => value.slice(11, 16);
 /** "14:05" from a Date (FullCalendar works in the local zone). */
 const clock = (d: Date) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 
-/** Dragging and resizing move by 5 minutes, like Apple Calendar. */
-const SNAP_MS = 5 * 60_000;
 /** A deadline is a moment, drawn as a one-line marker this long; closer deadlines share one marker. */
 const MARK_MS = 20 * 60_000;
 const DAY_MS = 86_400_000;
@@ -131,11 +130,15 @@ const ZOOM_KEY = "calendar-tasks-zoom";
 /** Half and quarter hours are written fainter than the hours. */
 const minorLabels = (arg: { date: Date }) => (arg.date.getMinutes() ? ["ct-slot-minor"] : []);
 
-/** Finer lines and more hours written as the hours get taller. */
+/**
+ * Finer lines and more times written as the hours get taller, as far as there's room for them (2026-10-31, the user:
+ * "quand on zoom j'aimerai plus precis", to the 5 minutes a drag lands on): lines stay 13px or more apart, 16 for the
+ * 5 minutes, which `styles.css` draws fainter and fainter.
+ */
 function slotOptions(zoom: number): { slotDuration: string; slotLabelInterval: string } {
   return {
-    slotDuration: zoom >= 104 ? "00:15:00" : "00:30:00",
-    slotLabelInterval: zoom >= 208 ? "00:15:00" : zoom >= 104 ? "00:30:00" : "01:00:00",
+    slotDuration: zoom >= 190 ? "00:05:00" : zoom >= 72 ? "00:15:00" : "00:30:00",
+    slotLabelInterval: zoom >= 270 ? "00:05:00" : zoom >= 190 ? "00:15:00" : zoom >= 100 ? "00:30:00" : "01:00:00",
   };
 }
 
@@ -149,6 +152,10 @@ export class CalendarView extends ItemView {
   private toolbar: HTMLElement | null = null;
   private legend: HTMLElement | null = null;
   private weekdays: HTMLElement | null = null;
+  /** The week over a phone's day. */
+  private days: HTMLElement | null = null;
+  /** A phone is on its day: going to another day keeps the hours on screen, opening it doesn't (`openHours`). */
+  private inDay = false;
   /** The month on a phone's screen. */
   private month: Date | null = null;
   private panel: HTMLElement | null = null;
@@ -167,6 +174,9 @@ export class CalendarView extends ItemView {
   /** An hour's height (see ZOOM), and the one waiting for the next frame. */
   private zoom = ZOOM.base;
   private pendingZoom: { zoom: number; y: number | undefined } | null = null;
+  /** The height at which the 24 hours fill the grid, and what watches for it to change (see `fitDay`). */
+  private dayFit = 0;
+  private readonly dayWatch = new ResizeObserver(() => this.fitDay());
   /** The selection is being moved to the times typed in the new event form (not a new selection). */
   private reselecting = false;
   /**
@@ -221,7 +231,10 @@ export class CalendarView extends ItemView {
     root.addClass("ct-calendar");
     this.toolbar = root.createDiv({ cls: "ct-cal-bar" });
     this.legend = root.createDiv({ cls: "ct-calendar-legend" });
-    if (Platform.isPhone) this.renderWeekdays(root);
+    if (Platform.isPhone) {
+      this.renderWeekdays(root);
+      this.days = root.createDiv({ cls: "ct-cal-days" });
+    }
     const body = root.createDiv({ cls: "ct-calendar-body" });
     const grid = body.createDiv({ cls: "ct-calendar-grid" });
     this.panel = body.createDiv({ cls: "ct-plan" });
@@ -255,8 +268,8 @@ export class CalendarView extends ItemView {
       unselectCancel: ".ct-popover, .menu",
       select: (info) => {
         if (this.reselecting) return;
-        // A click (no drag) selects one 5-minute step: make it an hour from the half hour clicked.
-        if (!info.allDay && info.end.getTime() - info.start.getTime() <= SNAP_MS) {
+        // A click: an hour from the half hour clicked.
+        if (this.calendar && isClick(this.calendar, info)) {
           const start = new Date(info.start);
           start.setMinutes(start.getMinutes() < 30 ? 0 : 30, 0, 0);
           this.calendar?.select({ start, end: new Date(start.getTime() + 60 * 60_000), allDay: false });
@@ -305,6 +318,8 @@ export class CalendarView extends ItemView {
               if (info.view.type === MONTHS_VIEW) this.calendar?.changeView("timeGridDay", info.date);
             },
             moreLinkClick: "timeGridDay",
+            // The hours on screen stay from one day to the next, as Apple Calendar's.
+            scrollTimeReset: false,
             moreLinkContent: (arg: MoreLinkContentArg) => `+${arg.num}`,
             // A month's name sits over its first day, as iOS's.
             dayCellDidMount: (arg: DayCellMountArg) => {
@@ -327,11 +342,11 @@ export class CalendarView extends ItemView {
       // A day of the month: the bars, the day's deadlines, its work sessions, then what has a time (`monthGroup`).
       views: {
         dayGridMonth: { eventOrder: "monthGroup,start,-duration,allDay,title" },
-        // A phone's day: the weekday goes into the title, not into a column header that took a fifth of the screen.
-        // Titles short enough for the toolbar's one line.
+        // A phone's day: the weekday goes into the title, not into a column header that took a fifth of the screen;
+        // the month is on the back button beside it. Titles short enough for the toolbar's one line.
         ...(Platform.isPhone
           ? {
-              timeGridDay: { dayHeaders: false, titleFormat: { weekday: "short", day: "numeric", month: "long" } },
+              timeGridDay: { dayHeaders: false, titleFormat: { weekday: "long", day: "numeric" } },
               listWeek: { titleFormat: { day: "numeric", month: "short" } },
               [MONTHS_VIEW]: {
                 type: "multiMonth",
@@ -353,6 +368,11 @@ export class CalendarView extends ItemView {
       events: (info, success) => success(this.inputs(info.start, info.end)),
       eventContent: (arg) => this.eventContent(arg),
       dayHeaderContent: (arg) => this.dayHeader(arg),
+      viewDidMount: () => {
+        this.dayWatch.disconnect();
+        const scroller = this.dayScroller();
+        if (scroller) this.dayWatch.observe(scroller);
+      },
       datesSet: (arg) => {
         this.closePopover();
         this.host.saveView(arg.view.type === MONTHS_VIEW ? "dayGridMonth" : arg.view.type);
@@ -361,6 +381,9 @@ export class CalendarView extends ItemView {
           // The day and the agenda turn with a swipe, which Obsidian would take for its own (`swipeDays`).
           if (arg.view.type === MONTHS_VIEW) delete grid.dataset.ignoreSwipe;
           else grid.dataset.ignoreSwipe = "true";
+          const day = arg.view.type === "timeGridDay";
+          if (day && !this.inDay) window.requestAnimationFrame(() => this.openHours());
+          this.inDay = day;
         }
         // Nothing drags in the agenda: move mode ends there. Elsewhere its hint says what dragging does in this view.
         if (this.moving && arg.view.type.startsWith("list")) this.setMoving(false);
@@ -422,6 +445,7 @@ export class CalendarView extends ItemView {
     this.renderToolbar();
     this.renderLegend();
     this.registerEvent(this.app.workspace.on("resize", () => this.calendar?.updateSize()));
+    this.register(() => this.dayWatch.disconnect());
     if (Platform.isPhone) {
       this.followMonths(grid);
       this.swipeDays(grid);
@@ -434,14 +458,14 @@ export class CalendarView extends ItemView {
         if (!(e.ctrlKey || e.metaKey) || !this.calendar?.view.type.startsWith("timeGrid")) return;
         e.preventDefault();
         // A pinch sends small steps that follow the fingers; a wheel notch (any screen density) counts as one step.
-        this.zoomTo((this.pendingZoom?.zoom ?? this.zoom) * Math.exp(-Math.max(-20, Math.min(20, e.deltaY)) / 100), e.clientY);
+        this.zoomTo((this.pendingZoom?.zoom ?? this.hourHeight()) * Math.exp(-Math.max(-20, Math.min(20, e.deltaY)) / 100), e.clientY);
       },
       { passive: false },
     );
     let pinch: { dist: number; zoom: number } | null = null;
     const spread = (e: TouchEvent) => Math.hypot(e.touches[0]!.clientX - e.touches[1]!.clientX, e.touches[0]!.clientY - e.touches[1]!.clientY);
     this.registerDomEvent(grid, "touchstart", (e) => {
-      pinch = e.touches.length === 2 && this.calendar?.view.type.startsWith("timeGrid") ? { dist: spread(e), zoom: this.zoom } : null;
+      pinch = e.touches.length === 2 && this.calendar?.view.type.startsWith("timeGrid") ? { dist: spread(e), zoom: this.hourHeight() } : null;
     });
     this.registerDomEvent(
       grid,
@@ -836,8 +860,8 @@ export class CalendarView extends ItemView {
       for (const [icon, label, factor] of [["zoom-out", "view.zoomOut", 1 / ZOOM.step], ["zoom-in", "view.zoomIn", ZOOM.step]] as const) {
         const b = zoom.createEl("button", { cls: "clickable-icon", attr: { "aria-label": `${t(label)} (${hint})` } });
         setIcon(b, icon);
-        b.disabled = factor > 1 ? this.zoom >= ZOOM.max : this.zoom <= ZOOM.min;
-        b.addEventListener("click", () => this.zoomTo(this.zoom * factor));
+        b.disabled = factor > 1 ? this.hourHeight() >= ZOOM.max : this.hourHeight() <= Math.max(ZOOM.min, this.dayFit);
+        b.addEventListener("click", () => this.zoomTo(this.hourHeight() * factor));
       }
     }
     const action = (icon: string, text: string, tooltip: string, run: () => void, active = false) => {
@@ -869,18 +893,13 @@ export class CalendarView extends ItemView {
    * choisir le jour, et retourne au mois avec un bouton"). The month is home: its title follows the scroll, with
    * the tasks' button, today's date and "+" (a sheet: a task, an event). A day, opened from it, has "‹ month" to go
    * back, and the agenda a button of its own there. Sync, move mode and the collections are in the view's "⋯" menu
-   * (`onPaneMenu`).
+   * (`onPaneMenu`). Away from the month the title is in the middle, whatever the sides hold (2026-10-31, the user:
+   * "le octobre à côté de tâches c pas très beau"): `.ct-cal-tools` keeps them apart for a grid in styles.css.
    */
   private renderPhoneToolbar(bar: HTMLElement, cal: Calendar): void {
     const view = cal.view;
     const tasks = this.host.planPanelOpen();
     const month = view.type === MONTHS_VIEW && !tasks;
-    const tool = (icon: string, label: StringKey, run: () => void) => {
-      const b = bar.createEl("button", { cls: "clickable-icon ct-cal-tool", attr: { "aria-label": t(label) } });
-      setIcon(b, icon);
-      b.addEventListener("click", run);
-      return b;
-    };
     if (!month) {
       const back = bar.createEl("button", { cls: "ct-cal-back", attr: { "aria-label": t("view.month") } });
       setIcon(back.createSpan({ cls: "ct-chip-icon" }), "chevron-left");
@@ -890,6 +909,13 @@ export class CalendarView extends ItemView {
     const shownMonth = this.month ?? cal.getDate();
     const period = tasks ? t("view.tasksPanel") : month ? new Intl.DateTimeFormat(this.host.language(), { month: "long", year: "numeric" }).format(shownMonth) : view.title;
     bar.createDiv({ cls: "ct-cal-title", text: period });
+    const tools = bar.createDiv({ cls: "ct-cal-tools" });
+    const tool = (icon: string, label: StringKey, run: () => void) => {
+      const b = tools.createEl("button", { cls: "clickable-icon ct-cal-tool", attr: { "aria-label": t(label) } });
+      setIcon(b, icon);
+      b.addEventListener("click", run);
+      return b;
+    };
     if (month) tool("list-todo", "view.tasksPanel", () => this.showTasks(true));
     else if (!tasks) {
       const list = view.type === "listWeek";
@@ -897,11 +923,45 @@ export class CalendarView extends ItemView {
     }
     if (!tasks) {
       const now = new Date();
-      const today = bar.createEl("button", { cls: "ct-cal-today is-date", text: String(now.getDate()), attr: { "aria-label": t("chip.today") } });
+      const today = tools.createEl("button", { cls: "ct-cal-today is-date", text: String(now.getDate()), attr: { "aria-label": t("chip.today") } });
       today.disabled = this.todayShown();
       today.addEventListener("click", () => (month ? this.showMonth(now, true) : cal.today()));
     }
     tool("plus", "view.add", () => undefined).addEventListener("click", (e) => this.addMenu(e));
+    this.renderDays(cal);
+  }
+
+  /** A phone's day: its week above it, as Apple Calendar's (2026-10-31, the user: "fait pas trop mobile"). A tap goes to that day. */
+  private renderDays(cal: Calendar): void {
+    const strip = this.days;
+    if (!strip) return;
+    strip.empty();
+    const shown = cal.view.type === "timeGridDay" && !this.host.planPanelOpen();
+    strip.toggleClass("is-shown", shown);
+    if (!shown) return;
+    const date = cal.getDate();
+    const today = new Date().toDateString();
+    const initial = new Intl.DateTimeFormat(this.host.language(), { weekday: "narrow" });
+    const whole = new Intl.DateTimeFormat(this.host.language(), { weekday: "long", day: "numeric", month: "long" });
+    const first = date.getDate() - ((date.getDay() + 6) % 7); // its Monday
+    for (let i = 0; i < 7; i++) {
+      const day = new Date(date.getFullYear(), date.getMonth(), first + i);
+      const b = strip.createEl("button", { cls: "ct-cal-day", attr: { "aria-label": whole.format(day) } });
+      b.createSpan({ text: initial.format(day) });
+      b.createSpan({ cls: "ct-cal-day-number", text: String(day.getDate()) });
+      b.toggleClass("is-selected", day.toDateString() === date.toDateString());
+      b.toggleClass("is-today", day.toDateString() === today);
+      b.addEventListener("click", () => cal.gotoDate(day));
+    }
+  }
+
+  /**
+   * Where a phone's day opens: today an hour above the time it is, as Apple Calendar's, another day in the morning.
+   * A frame later, so that FullCalendar has its own scroll done and its height set. Not on the way to an event.
+   */
+  private openHours(): void {
+    if (this.revealing) return;
+    this.calendar?.scrollToTime({ hours: this.todayShown() ? Math.max(0, new Date().getHours() - 1) : 8 });
   }
 
   /** The days of the week over a phone's months, which scroll under them. */
@@ -1252,14 +1312,24 @@ export class CalendarView extends ItemView {
 
   // —— zoom ——
 
+  /** An hour as drawn: the zoom, or more when that's what fills the grid. */
+  private hourHeight(): number {
+    return Math.max(this.zoom, this.dayFit);
+  }
+
   private slotHeight(): number {
-    return (this.zoom * Number(slotOptions(this.zoom).slotDuration.slice(3, 5))) / 60;
+    const height = this.hourHeight();
+    return (height * Number(slotOptions(height).slotDuration.slice(3, 5))) / 60;
+  }
+
+  private dayScroller(): HTMLElement | null {
+    return this.contentEl.querySelector(".fc-timegrid-body")?.closest<HTMLElement>(".fc-scroller") ?? null;
   }
 
   /** Zooms at the next frame (a pinch sends many steps); `y`: the point that stays put, else the middle. */
   private zoomTo(zoom: number, y?: number): void {
     const first = !this.pendingZoom;
-    this.pendingZoom = { zoom: Math.min(ZOOM.max, Math.max(ZOOM.min, zoom)), y };
+    this.pendingZoom = { zoom: Math.min(ZOOM.max, Math.max(ZOOM.min, this.dayFit, zoom)), y };
     if (!first) return;
     window.requestAnimationFrame(() => {
       const p = this.pendingZoom;
@@ -1269,24 +1339,44 @@ export class CalendarView extends ItemView {
   }
 
   private setZoom(zoom: number, y: number | undefined): void {
-    const cal = this.calendar;
-    if (!cal || Math.abs(zoom - this.zoom) < 0.5) return;
-    const scroller = () => this.contentEl.querySelector(".fc-timegrid-body")?.closest<HTMLElement>(".fc-scroller") ?? null;
-    const before = scroller();
+    // Zoomed all the way out, it stays there as the fit changes: the whole day, in any window.
+    this.redrawHours(() => (this.zoom = zoom <= this.dayFit ? ZOOM.min : zoom), y);
+    this.app.saveLocalStorage(ZOOM_KEY, Math.round(this.zoom));
+  }
+
+  /**
+   * Zooming out stops once the 24 hours fill the grid (2026-10-31, the user: "on peut trop dezoomer, enormement d'espace
+   * en bas"), which depends on the window and on the height of the all-day row, so it's measured as they change.
+   */
+  private fitDay(): void {
+    const scroller = this.dayScroller();
+    const body = scroller?.querySelector(".fc-timegrid-body");
+    if (!scroller || !body) return;
+    const { marginTop, marginBottom } = window.getComputedStyle(body);
+    // 1: the line closing the day.
+    const fit = (scroller.clientHeight - parseFloat(marginTop) - parseFloat(marginBottom) - 1) / 24;
+    this.redrawHours(() => (this.dayFit = fit));
+  }
+
+  /** Redraws the hours for what `change` sets; `y`: the point that stays put, else the middle. */
+  private redrawHours(change: () => void, y?: number): void {
+    const before = this.dayScroller();
     const rect = before?.getBoundingClientRect();
     const offset = rect ? (y ?? rect.top + rect.height / 2) - rect.top : 0;
     const at = before ? (before.scrollTop + offset) / before.scrollHeight : 0;
-    const lines = slotOptions(this.zoom);
-    this.zoom = zoom;
+    const height = this.hourHeight();
+    change();
+    const cal = this.calendar;
+    if (!cal || this.hourHeight() === height) return;
+    const lines = slotOptions(height);
     this.contentEl.style.setProperty("--ct-slot-h", `${this.slotHeight()}px`);
-    const next = slotOptions(zoom);
+    const next = slotOptions(this.hourHeight());
     if (next.slotDuration !== lines.slotDuration) cal.setOption("slotDuration", next.slotDuration);
     if (next.slotLabelInterval !== lines.slotLabelInterval) cal.setOption("slotLabelInterval", next.slotLabelInterval);
     // FullCalendar measures the hour lines when it renders, and resizing doesn't render: a new option does.
     cal.setOption("slotLabelClassNames", (arg: { date: Date }) => minorLabels(arg));
-    const after = scroller();
+    const after = this.dayScroller();
     if (after) after.scrollTop = at * after.scrollHeight - offset;
-    this.app.saveLocalStorage(ZOOM_KEY, Math.round(zoom));
     this.renderToolbar();
   }
 

@@ -60,14 +60,49 @@ function closeDays(hierarchy, hidden) {
   for (const entry of hidden) for (let day = entry.span.start; day < entry.span.end; day += 1) hierarchy.closedDays.add(day);
 }
 
+/** A press held this long, in ms, is no click: what it selects shows. Longer than a slow click, short enough to wait for. */
+const HOLD_MS = 300;
+
+/**
+ * Whether a selection of time is still only a press: a mouse, on the step it went down on, not held yet. Runs in
+ * FullCalendar's module on its `DateSelecting`, given the hit under the pointer. A finger's long press stays drawn: it
+ * says the press took. A day too: pressed or clicked, it's the same day.
+ */
+function stillPressed(selecting, hit) {
+  return !selecting.held && !hit.dateSpan.allDay && !selecting.dragging.pointer.isTouchDragging && isHitsEqual(selecting.hitDragging.initialHit, hit);
+}
+
+/** From a press: once it has lasted `HOLD_MS`, what it selects is drawn. A new press takes over from the last one's wait. */
+function holdPress(selecting) {
+  selecting.held = false;
+  clearTimeout(selecting.holdTimer);
+  selecting.holdTimer = setTimeout(() => {
+    selecting.held = true;
+    if (selecting.dragSelection) selecting.component.context.dispatch({ type: "SELECT_DATES", selection: selecting.dragSelection });
+  }, HOLD_MS);
+}
+
 /** What's changed in FullCalendar: each line must be there once, or the build fails, so an update can't drop a fix silently. */
 const PATCHES = [
   {
     // FullCalendar aims a dragged event from the middle of the slot row it was grabbed in ("useEventCenter"), but
     // reads the start under the pointer to 5 minutes (`snapDuration`): with 30-minute rows the event jumped up to
     // 15 minutes as soon as it moved, even sideways (2026-10-19). The drag follows the pointer instead.
+    // And a click showed 5 minutes from the press, then its hour on release (2026-10-31, the user: "un peu beug"): a
+    // selection isn't drawn until it leaves the step pressed or the press is held, while the release still reports
+    // it, and `isClick` (src/calendar/selection.ts) tells which it was. Nothing at all while held wasn't better (asked
+    // the same day: a long press showed nothing, and no way to book 5 minutes). `selectMinDistance` would leave a dead
+    // click: a press moved 2px over a step is neither a selection nor a `dateClick`.
     module: /@fullcalendar[\\/]interaction[\\/]index\.c?js$/,
-    replace: [["hitDragging.useSubjectCenter = settings.useEventCenter;", "hitDragging.useSubjectCenter = false;"]],
+    prepend: [`const HOLD_MS = ${HOLD_MS};`, stillPressed, holdPress],
+    replace: [
+      ["hitDragging.useSubjectCenter = settings.useEventCenter;", "hitDragging.useSubjectCenter = false;"],
+      ["this.component.context.calendarApi.unselect(ev); // unselect previous selections", "this.component.context.calendarApi.unselect(ev); // unselect previous selections\n            holdPress(this);"],
+      [
+        "context.dispatch({ type: 'SELECT_DATES', selection: dragSelection });",
+        "context.dispatch(stillPressed(this, hit) ? { type: 'UNSELECT_DATES' } : { type: 'SELECT_DATES', selection: dragSelection });",
+      ],
+    ],
   },
   {
     // What's at the same time, as in Google Calendar. FullCalendar drew the later one over the earlier from its
