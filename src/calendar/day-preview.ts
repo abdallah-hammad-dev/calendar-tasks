@@ -70,7 +70,7 @@ export class DayPreview {
       dayHeaders: false,
       height: "100%",
       ...(source.language().startsWith("fr") ? { locale: frLocale } : {}),
-      allDayText: "",
+      allDayText: on ? "" : t("view.allDay"),
       nowIndicator: true,
       scrollTime: "08:00:00",
       snapDuration: SNAP_MS,

@@ -1037,7 +1037,30 @@ async function pickerDayView(page, errors, file) {
   await page.waitForTimeout(200);
   if (await view.locator(".fc-event-draggable, .fc-event-mirror, .fc-highlight").count()) errors.push("the day should only be looked at");
   if (await page.locator(".ct-dp-day-head, .ct-day-preview-head").count()) errors.push("the day's own arrows have no place here");
+  // No hours: the whole day, named in the margin, its line in the middle of its row, level with the name.
+  await from.fill("");
+  await to.fill("");
+  await page.waitForTimeout(250);
+  const allDay = async () => {
+    const row = await view.locator(".fc-scrollgrid-section:has(.fc-daygrid-body)").first().boundingBox();
+    const lines = view.locator(".fc-daygrid-body .fc-event");
+    const [top, bottom] = [await lines.first().boundingBox(), await lines.last().boundingBox()];
+    const name = view.locator(".fc-timegrid-axis-cushion").first();
+    const label = await name.boundingBox();
+    if (((await name.textContent()) ?? "").trim() !== "Journée") errors.push(`the whole day should be named: "${await name.textContent()}"`);
+    const [over, under] = [top.y - row.y, row.y + row.height - (bottom.y + bottom.height)];
+    if (Math.abs(over - under) > 1.5) errors.push(`a whole day's lines should sit in the middle of their row: ${over}px over, ${under}px under`);
+    const [level, middle] = [label.y + label.height / 2, (top.y + bottom.y + bottom.height) / 2];
+    if (Math.abs(level - middle) > 1.5) errors.push(`"Journée" should be level with the lines: ${level}, ${middle}`);
+  };
+  await allDay();
+  await page.screenshot({ path: file.replace(/-(light|dark)\.png$/, "-all-day-two-$1.png") });
+  await day.fill("13/10/2026");
+  await page.waitForTimeout(250);
+  await allDay();
+  await page.screenshot({ path: file.replace(/-(light|dark)\.png$/, "-all-day-$1.png") });
   // What isn't understood draws nothing, and a day that isn't one shows the month.
+  await from.fill("18h");
   await to.fill("abc");
   await page.waitForTimeout(150);
   if (await placed.count()) errors.push("hours not understood should draw nothing");
@@ -2115,6 +2138,13 @@ for (const [name, width, height, scale = 2] of run) {
       else if (!((await mark.textContent()) ?? "").includes("14:00")) errors.push(`the day should draw the deadline: "${await mark.textContent()}"`);
     }
     if (name === "phone-date-picker" && (await page.locator(".ct-dp-dayview").count())) errors.push("with no calendar to draw from, the picker stays a month");
+    if (name === "phone-task-preview") {
+      // The sessions added sit under their fields, with room (2026-11-01, on the user's iPhone: they touched).
+      await page.locator(".modal input[type=text], .modal input:not([type])").nth(5).press("Enter");
+      await page.waitForTimeout(100);
+      const gap = await page.locator(".ct-slot-list").evaluate((list) => list.getBoundingClientRect().top - list.previousElementSibling.querySelector("input").getBoundingClientRect().bottom);
+      if (gap < 6 || gap > 12) errors.push(`the sessions should stand about 8px under their fields, stand ${gap}px`);
+    }
     if (name.startsWith("phone-")) await phone(page, name, file, errors);
     if (name.startsWith("settings") || name === "phone-settings") {
       // Only what's in the viewport gets painted: grow it to the whole settings page first.

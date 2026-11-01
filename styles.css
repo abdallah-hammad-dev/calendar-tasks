@@ -1026,6 +1026,11 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-task-tags-input 
   margin: calc(-1 * var(--size-4-2)) 0 var(--size-4-3);
 }
 
+/* On a phone its fields have no room under them to come up into. */
+.is-phone .ct-slot-list {
+  margin-top: 0;
+}
+
 .ct-slot-list.is-empty {
   display: none;
 }
@@ -2061,8 +2066,10 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-task-tags-input 
   height: 0;
 }
 
+/* As much room over a whole day's line as under it: the line sits in the middle of its row, level with "All day". */
 .is-phone .ct-calendar .fc-timeGridDay-view .fc-daygrid-day-events {
-  margin-bottom: var(--size-4-1);
+  min-height: 0;
+  margin-block: var(--size-4-1);
 }
 
 .is-phone .ct-calendar .fc-timeGridDay-view .fc-timegrid-col-events {

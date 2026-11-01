@@ -166,7 +166,10 @@ user at each one.
   which stays in the layout, hidden, so the fields don't move (`.ct-dp-top.is-day`). Both are always rendered and only
   `visibility` changes: FullCalendar measures itself once. Phones only: on a computer the task form has its day beside
   it, and the month is what the picker is for there. No day arrows: the day changes through the month, as asked.
-  `pickerDayView` in `phone-slot-picker` checks it.
+  `pickerDayView` in `phone-slot-picker` checks it. A whole day's row names itself there as in the calendar, and on a
+  phone it has no `min-height` (FullCalendar's 2em left its one line off-centre, the name below it; the phone's day
+  gains from it too). `.ct-slot-list` comes up 8px on a computer, into its fields' padding; a phone's fields have none,
+  and the sessions touched them.
 - **One reminder per task note on several devices** (2026-10-30, LiveSync delivers a note within a second: a note
   written without `caldav_uid`, given it a moment later, reached the other device bare, which made a second VTODO).
   Notes the plugin makes (line conversion, the form, the Claude tool) go through `TaskSync.createNote` (main's
