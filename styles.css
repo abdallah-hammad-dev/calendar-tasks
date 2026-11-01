@@ -440,12 +440,69 @@ a.internal-link.ct-task-done {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-height: 30px;
   margin-bottom: var(--size-4-2);
 }
 
 .ct-dp-title {
   font-weight: var(--font-semibold);
   text-transform: capitalize;
+}
+
+/* A phone's day takes the month's place, at its height: nothing under them moves. */
+.ct-dp-top {
+  position: relative;
+}
+
+.ct-dp-dayview {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  visibility: hidden;
+}
+
+/* (A phone's calendar leaves room for Obsidian's toolbar; there's none in a modal.) */
+.is-phone .ct-dp-dayview .ct-day-preview {
+  padding: 0 var(--size-4-1);
+}
+
+.ct-dp-top.is-day .ct-dp-grid {
+  visibility: hidden;
+}
+
+.ct-dp-top.is-day .ct-dp-dayview {
+  visibility: visible;
+}
+
+.ct-dp-back {
+  display: none;
+}
+
+.ct-dp-head.is-day {
+  display: grid;
+  grid-template-columns: minmax(max-content, 1fr) auto minmax(max-content, 1fr);
+}
+
+.ct-dp-head.is-day .clickable-icon {
+  display: none;
+}
+
+.modal.ct-date-picker .ct-dp-head.is-day .ct-dp-back {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  height: 30px;
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--text-accent);
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-normal);
+  text-transform: capitalize;
+}
+
+.ct-dp-back-icon {
+  display: inline-flex;
 }
 
 .ct-dp-grid {

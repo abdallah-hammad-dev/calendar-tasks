@@ -30,7 +30,7 @@ import { renderCheckbox, renderChips, type ChipMarks, type EditFocus, type Rende
 import { joinText, meetingHost, openLabel, whenText } from "./calendar/event-card";
 import { renderEventHeader } from "./editor/event-header";
 import { renderTaskHeader, type TaskHeaderModel } from "./editor/task-header";
-import { DatePickerModal } from "./editor/date-picker";
+import { DatePickerModal, type PickerDay } from "./editor/date-picker";
 import { language, t } from "./i18n";
 import { formatLocalDate, formatLocalDateTime, localZone, wallClock } from "./ical/time";
 import { mergeSettings, SettingsTab, type CalendarTasksSettings, type SettingsHost } from "./settings";
@@ -289,6 +289,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
         },
         edit: (path, found, tags, replaces) => void this.applyEdit(path, found, tags, replaces),
         knownTags: () => this.knownTags(),
+        pickerDay: (path) => this.pickerDay(path),
       })),
     );
     // Unloaded with its list open, the list would stay on screen.
@@ -651,6 +652,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       value: due,
       pick: (value) => void this.setDeadline(path, value),
       remove: due ? { label: t("picker.noDeadline"), run: () => void this.setDeadline(path, null) } : undefined,
+      day: this.pickerDay(path),
     }).open();
   }
 
@@ -666,7 +668,14 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
 
   /** Asks for a day and the hours (or the whole day), then blocks that time for the task. */
   private pickSlot(path: string): void {
-    new DatePickerModal(this.app, { mode: "slot", pick: (block) => void this.blockTime(path, [block]) }).open();
+    new DatePickerModal(this.app, { mode: "slot", pick: (block) => void this.blockTime(path, [block]), day: this.pickerDay(path) }).open();
+  }
+
+  /** The day a phone's picker shows, for the task at `path` if it's one. */
+  private pickerDay(path: string | null): PickerDay | undefined {
+    const task = path ? this.index.get(path) : null;
+    const source = this.previewSource(task?.uid ?? null);
+    return source && { source, title: task?.path.split("/").pop()?.replace(/\.md$/, "") ?? t("modal.newTask") };
   }
 
   /**
@@ -1772,7 +1781,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
         edit: (focus) => this.editTask(task.path, focus),
         open: (path) => void this.app.workspace.openLinkText(path, task.path),
         block: () =>
-          new DatePickerModal(this.app, { mode: "slot", pick: (block) => void this.blockTime(task.path, [block]) }).open(),
+          new DatePickerModal(this.app, { mode: "slot", pick: (block) => void this.blockTime(task.path, [block]), day: this.pickerDay(task.path) }).open(),
         showBlock: (start) => void this.openCalendar(start.slice(0, 10)),
         properties: {
           shown: this.settings.showTaskProperties,

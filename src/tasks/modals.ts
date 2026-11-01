@@ -2,7 +2,7 @@ import { AbstractInputSuggest, Modal, Platform, Setting, SuggestModal, setIcon, 
 import type { Priority } from "../constants";
 import { formatLocalDate, localZone, parseLocal, wallClock } from "../ical/time";
 import { language, t } from "../i18n";
-import { DatePickerModal, fieldsProblem, hm, markFields } from "../editor/date-picker";
+import { DatePickerModal, fieldsProblem, hm, markFields, type PickerDay } from "../editor/date-picker";
 import { blockLabel, shortDay } from "../editor/date-suggest";
 import type { EditFocus } from "../editor/render";
 import { DayPreview, type Placed, type PreviewSource } from "../calendar/day-preview";
@@ -205,6 +205,12 @@ export class TaskModal extends Modal {
     window.setTimeout(() => start?.focus(), 0);
   }
 
+  /** The day a phone's picker shows. */
+  private pickerDay(): PickerDay | undefined {
+    const source = this.opts.preview;
+    return source && { source, title: this.task.title.trim() || t("modal.newTask") };
+  }
+
   /** What's being placed, on the day of `focus` (what was just typed, moved or clicked), scrolled to its time. */
   private refreshPreview(focus?: string): void {
     const placed = this.placed();
@@ -312,7 +318,7 @@ export class TaskModal extends Modal {
       b
         .setIcon("calendar")
         .setTooltip(t("modal.pickDate"))
-        .onClick(() => new DatePickerModal(this.app, { mode: "due", value: this.task.due, pick: (value) => this.setDue(value) }).open()),
+        .onClick(() => new DatePickerModal(this.app, { mode: "due", value: this.task.due, pick: (value) => this.setDue(value), day: this.pickerDay() }).open()),
     );
     return day;
   }
@@ -417,7 +423,7 @@ export class TaskModal extends Modal {
       b
         .setIcon("calendar")
         .setTooltip(t("modal.pickSlot"))
-        .onClick(() => new DatePickerModal(this.app, { mode: "slot", value: typed(), pick: add }).open()),
+        .onClick(() => new DatePickerModal(this.app, { mode: "slot", value: typed(), pick: add, day: this.pickerDay() }).open()),
     );
     // A slot typed but not added yet still counts when the form is saved.
     this.typedSlot = typed;

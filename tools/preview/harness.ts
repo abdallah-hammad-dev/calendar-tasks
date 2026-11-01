@@ -556,15 +556,22 @@ function taskPreview(): void {
 }
 
 /** The date picker for a deadline: a few days after today, at 14h; it can be taken off. */
-function datePicker(): void {
+function datePicker(withDay = false): void {
   new DatePickerModal({} as never, {
     mode: "due",
     value: "2026-10-23T14:00",
     pick: () => undefined,
     remove: { label: "Pas de deadline", run: () => undefined },
+    ...(withDay ? { day: pickerDay } : {}),
   }).open();
-  done();
+  window.setTimeout(done, 400);
 }
+
+/** What a picker draws its day from, on a phone. */
+const pickerDay = {
+  source: { occurrences: occurrencesFor, color: (url: string) => CALS.find((c) => c.url === url)?.color ?? null, language: () => "fr" },
+  title: "Préparer la démo",
+};
 
 /**
  * A task note open in reading view: the header above the page, properties hidden. `short`: a deadline and a tag
@@ -688,8 +695,13 @@ function eventNote(missing: "declined" | "deleted" | null = null): void {
 
 /** The date picker for a time block: a day, from 14h to 16h. */
 function slotPicker(): void {
-  new DatePickerModal({} as never, { mode: "slot", value: { start: "2026-10-25T14:00", end: "2026-10-25T16:00" }, pick: () => undefined }).open();
-  done();
+  new DatePickerModal({} as never, {
+    mode: "slot",
+    value: { start: "2026-10-25T14:00", end: "2026-10-25T16:00" },
+    pick: (b) => ((window as unknown as { __picked: string }).__picked = `${b.start}|${b.end}`),
+    day: pickerDay,
+  }).open();
+  window.setTimeout(done, 400);
 }
 
 /**
@@ -697,7 +709,7 @@ function slotPicker(): void {
  * link of a task already made (changing it).
  */
 function dateSuggest(): void {
-  const popup = new DateSuggest({} as never, { task: () => null, edit: () => undefined, knownTags: () => KNOWN_TAGS });
+  const popup = new DateSuggest({} as never, { task: () => null, edit: () => undefined, knownTags: () => KNOWN_TAGS, pickerDay: () => undefined });
   const editing = { path: "Tâches/Sport.md", due: "2026-10-19T07:00", repeat: "FREQ=WEEKLY;BYDAY=MO,TH" };
   // A phone: one under the other, as wide as Obsidian lets them be there (its own max-width and max-height).
   const states = phone ? ["", "deadline ven ", "session chaque mardi ", "edit:"] : ["", "deadline ven ", "session chaque mardi ", "tag ", "priorité ", "edit:"];
@@ -743,6 +755,7 @@ else if (scenario === "phone-edit-task") editTask();
 else if (scenario === "phone-new-event") newEvent();
 else if (scenario === "phone-date-picker") datePicker();
 else if (scenario === "phone-slot-picker") slotPicker();
+else if (scenario === "phone-deadline-picker") datePicker(true);
 else if (scenario === "phone-task-note") taskNote();
 else if (scenario === "phone-task-note-done") taskNote("done");
 else if (scenario === "phone-event-note") eventNote();

@@ -346,7 +346,10 @@ Implementation: CodeMirror 6 view plugin (Live Preview) + `registerMarkdownPostP
   each thing, never one field for two: Day, then Time (deadline) or From / to (time block), each read on its own
   ("ven", "15/10"; "14h"). No time is the whole day (an end alone isn't allowed; a start alone lasts an hour). A
   day typed moves the calendar there, a day clicked fills Day, quick times (9h, 12h, 14h, 18h) or ranges (9h–12h,
-  14h–16h, 14h–18h, 18h–20h) fill the hours; no switch. OK, Enter or a double-click picks; a field not understood
+  14h–16h, 14h–18h, 18h–20h) fill the hours; no switch. On a phone, with a calendar to draw from, the day takes the
+  month's place, at its height (2026-11-01, asked: "la vue de le journee en haut avec l'event qu'on reserve"): what's
+  there, and what's being set in the accent, following the fields. It's to look at, nothing is dragged there. It opens
+  on the day of a deadline or slot already set, else on the month; a day tapped shows it, and "‹ month" goes back to take another. OK, Enter or a double-click picks; a field not understood
   is marked, the line below says why, and nothing is picked. Once the words
   stop making sense (the title goes on), the list closes.
 - **Fields and blocks** (2026-10-26, asked: "ça te fait des champs, ils sont visibles sur la ligne, une fois remplis

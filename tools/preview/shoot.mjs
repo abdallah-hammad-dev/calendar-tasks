@@ -109,6 +109,8 @@ const SCENARIOS = [
   ["phone-new-event", 393, 852],
   ["phone-date-picker", 393, 852],
   ["phone-slot-picker", 393, 852],
+  // With a calendar to draw from: the deadline in the day, as the slot is.
+  ["phone-deadline-picker", 393, 852],
   ["phone-task-note", 393, 852],
   ["phone-task-note-done", 393, 852],
   ["phone-event-note", 393, 852],
@@ -987,6 +989,68 @@ async function pinch(page, factor) {
     await page.waitForTimeout(30);
   }
   await send("touchEnd", []);
+}
+
+/**
+ * A phone's picker, with a calendar to draw from: the day in the month's place, at its height, showing what's there and
+ * what's being placed, to look at. It follows the fields, and its back button returns to the month to take another day.
+ */
+async function pickerDayView(page, errors, file) {
+  const view = page.locator(".ct-dp-dayview");
+  const placed = view.locator(".ct-ev-placed");
+  const heading = async () => ((await page.locator(".ct-dp-title").textContent()) ?? "").trim();
+  const inputs = page.locator(".ct-dp-fields input");
+  const [day, from, to] = [inputs.nth(0), inputs.nth(1), inputs.nth(2)];
+  const foot = async () => (await page.locator(".ct-dp-foot").boundingBox()).y;
+  const below = await foot();
+  if (!(await view.isVisible())) errors.push("a slot already set should open on its day");
+  if ((await heading()) !== "dimanche 25") errors.push(`the head should say the day, says "${await heading()}"`);
+  if (!((await placed.textContent()) ?? "").includes("14:00 – 16:00")) errors.push(`the day should draw the slot: "${await placed.textContent()}"`);
+  const [box, grid] = [await view.boundingBox(), await view.locator(".fc-view-harness").boundingBox()];
+  if (grid.height < box.height - 3) errors.push(`the hours should fill the day's box: ${grid.height}px of ${box.height}px`);
+  await page.screenshot({ path: file.replace(/-(light|dark)\.png$/, "-day-$1.png") });
+  await page.locator(".ct-dp-back").tap();
+  await page.waitForTimeout(100);
+  if ((await heading()) !== "octobre 2026") errors.push(`back on the month, the head says "${await heading()}"`);
+  if (await view.isVisible()) errors.push("back on the month, the day should go");
+  if ((await foot()) !== below) errors.push(`the fields moved going back to the month: ${below}px, then ${await foot()}px`);
+  await page.screenshot({ path: file.replace(/-(light|dark)\.png$/, "-month-$1.png") });
+  await page.locator(".ct-dp-day:not(.is-other-month)").filter({ hasText: /^15$/ }).tap();
+  await page.waitForTimeout(250);
+  if ((await heading()) !== "jeudi 15") errors.push(`another day tapped, the head says "${await heading()}"`);
+  if ((await foot()) !== below) errors.push(`the fields moved on the day: ${below}px, then ${await foot()}px`);
+  if (!(await placed.count()) || !(await view.locator(".fc-event:has-text('Jury de projet')").count())) errors.push("the day tapped should draw the slot among what's there");
+  await page.screenshot({ path: file.replace(/-(light|dark)\.png$/, "-other-day-$1.png") });
+  // Typed hours move it, and it comes into sight; a quick range too.
+  await from.fill("9h");
+  await to.fill("10h");
+  await page.waitForTimeout(150);
+  if (!((await placed.textContent()) ?? "").includes("09:00 – 10:00")) errors.push(`typed hours should move it: "${await placed.textContent()}"`);
+  const [shown, frame] = [await placed.boundingBox(), await view.boundingBox()];
+  if (shown.y < frame.y || shown.y + shown.height > frame.y + frame.height) errors.push("it should be in sight once moved");
+  await page.locator(".ct-dp-quick-time:has-text('18h–20h')").tap();
+  await page.waitForTimeout(150);
+  if (!((await placed.textContent()) ?? "").includes("18:00 – 20:00")) errors.push(`a quick range should move it: "${await placed.textContent()}"`);
+  // To look at: nothing moves it, nothing is picked in it.
+  const b = await placed.boundingBox();
+  await page.touchscreen.tap(b.x + b.width / 2, b.y + 8);
+  await page.waitForTimeout(200);
+  if (await view.locator(".fc-event-draggable, .fc-event-mirror, .fc-highlight").count()) errors.push("the day should only be looked at");
+  if (await page.locator(".ct-dp-day-head, .ct-day-preview-head").count()) errors.push("the day's own arrows have no place here");
+  // What isn't understood draws nothing, and a day that isn't one shows the month.
+  await to.fill("abc");
+  await page.waitForTimeout(150);
+  if (await placed.count()) errors.push("hours not understood should draw nothing");
+  await to.fill("20h");
+  await day.fill("xx");
+  await page.waitForTimeout(150);
+  if (await view.isVisible()) errors.push("a day not understood should show the month, to pick one");
+  await day.fill("16/10/2026");
+  await page.waitForTimeout(150);
+  await page.locator(".ct-dp-foot .mod-cta").tap();
+  await page.waitForTimeout(150);
+  const made = await page.evaluate(() => window.__picked);
+  if (made !== "2026-10-16T18:00|2026-10-16T20:00") errors.push(`OK should pick what's drawn, got ${made}`);
 }
 
 /**
@@ -1981,6 +2045,7 @@ for (const [name, width, height, scale = 2] of run) {
       if ((await title.inputValue()) !== "Révisions") errors.push("a title typed should stay when a task is picked");
     }
     if (name === "slot-picker") {
+      if (await page.locator(".ct-dp-dayview").count()) errors.push("the day takes the month's place on a phone only");
       // The day, from, to: a quick range fills both hours; none is the whole day; an end before the start is marked.
       const inputs = page.locator(".ct-dp-fields input");
       const [day, from, to] = [inputs.nth(0), inputs.nth(1), inputs.nth(2)];
@@ -2040,6 +2105,16 @@ for (const [name, width, height, scale = 2] of run) {
       if ((await page.locator(".ct-popover .ct-card-task").count()) !== 3) errors.push("the group's card doesn't list its 3 tasks");
     }
     const file = join(out, `${name}-${theme}.png`);
+    if (name === "phone-slot-picker") {
+      await page.screenshot({ path: file });
+      await pickerDayView(page, errors, file);
+    }
+    if (name === "phone-deadline-picker") {
+      const mark = page.locator(".ct-dp-dayview .ct-ev-placed");
+      if (!(await page.locator(".ct-dp-dayview").isVisible()) || !(await mark.count())) errors.push("a deadline already set should open on its day, drawn");
+      else if (!((await mark.textContent()) ?? "").includes("14:00")) errors.push(`the day should draw the deadline: "${await mark.textContent()}"`);
+    }
+    if (name === "phone-date-picker" && (await page.locator(".ct-dp-dayview").count())) errors.push("with no calendar to draw from, the picker stays a month");
     if (name.startsWith("phone-")) await phone(page, name, file, errors);
     if (name.startsWith("settings") || name === "phone-settings") {
       // Only what's in the viewport gets painted: grow it to the whole settings page first.
@@ -2047,7 +2122,7 @@ for (const [name, width, height, scale = 2] of run) {
       const box = await settings.boundingBox();
       if (box) await page.setViewportSize({ width, height: Math.max(height, Math.ceil(box.y + box.height)) });
       await settings.screenshot({ path: file });
-    } else if (!["calendar-time", "calendar-new", "task-preview", "new-task-tags", "slot-picker", "date-picker", "new-event", "phone-month", "phone-day", "phone-tasks", "phone-add"].includes(name)) await page.screenshot({ path: file });
+    } else if (!["calendar-time", "calendar-new", "task-preview", "new-task-tags", "slot-picker", "date-picker", "new-event", "phone-month", "phone-day", "phone-tasks", "phone-add", "phone-slot-picker"].includes(name)) await page.screenshot({ path: file });
     console.log(`${errors.length ? "✗" : "✓"} ${name}-${theme}${errors.length ? `  ${errors.join(" | ")}` : ""}`);
     await page.close();
   }

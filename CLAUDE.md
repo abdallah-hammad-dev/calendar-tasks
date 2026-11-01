@@ -160,6 +160,13 @@ user at each one.
   closing" on the user's iPhone, and `IdbStore` kept one connection forever): `IdbStore.transaction` opens a new one on
   `InvalidStateError`, and an aborted transaction rejects (with no request pending, only `abort` fires, and the save
   waited forever). `store.save` is awaited by every write, so a closed connection failed them.
+- **A phone's picker shows the day** (2026-11-01, the user: "la vue de le journee en haut avec l'event qu'on reserve et
+  pouvoir retourner dans le mois pr change de jour et place sa a un autre endroit (une vue je parle pas de deplace ou
+  glisse l'event)"): `DatePickerModal`'s `day` draws a `DayPreview` without `on` (no head, nothing to drag) over the month,
+  which stays in the layout, hidden, so the fields don't move (`.ct-dp-top.is-day`). Both are always rendered and only
+  `visibility` changes: FullCalendar measures itself once. Phones only: on a computer the task form has its day beside
+  it, and the month is what the picker is for there. No day arrows: the day changes through the month, as asked.
+  `pickerDayView` in `phone-slot-picker` checks it.
 - **One reminder per task note on several devices** (2026-10-30, LiveSync delivers a note within a second: a note
   written without `caldav_uid`, given it a moment later, reached the other device bare, which made a second VTODO).
   Notes the plugin makes (line conversion, the form, the Claude tool) go through `TaskSync.createNote` (main's

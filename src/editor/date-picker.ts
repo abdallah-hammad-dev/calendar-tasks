@@ -1,4 +1,5 @@
 import { Modal, Platform, setIcon, type App } from "obsidian";
+import { DayPreview, type Placed, type PreviewSource } from "../calendar/day-preview";
 import { localZone, parseLocal, wallClock } from "../ical/time";
 import { language, t } from "../i18n";
 import { addDays, weekdayOf, type Ymd } from "./date-token";
@@ -39,17 +40,27 @@ const QUICK_RANGES: [Hm, Hm][] = [
   [at(18), at(20)],
 ];
 
-export type DatePick =
+/** What a phone's picker draws its day from, and the name of what's being placed there. */
+export interface PickerDay {
+  source: PreviewSource;
+  title: string;
+}
+
+export type DatePick = (
   /** A deadline: a day, with a time or not ("2026-10-23", "2026-10-23T14:00"); `remove` takes the one it has off. */
   | { mode: "due"; value?: string | null; pick: (value: string) => void; remove?: { label: string; run: () => void } }
   /** A time block: a day, from / to or the whole day. */
-  | { mode: "slot"; value?: Block | null; pick: (block: Block) => void };
+  | { mode: "slot"; value?: Block | null; pick: (block: Block) => void }
+) & { day?: PickerDay | undefined };
 
 /**
  * A month calendar in Obsidian's colors (the system date picker looks foreign and opens in a corner of the
  * window), and a field for each thing: the day, then the time (deadline) or from / to (time block), each read on
  * its own; no time is the whole day. A day clicked fills the day, a quick time the hours. Enter, OK or a
- * double-click picks; arrows move the day (outside the fields), Page Up/Down the month.
+ * double-click picks; arrows move the day (outside the fields), Page Up/Down the month. On a phone, with a calendar
+ * to draw from (`day`), the day takes the month's place, to look at: what's there and what's being placed, following
+ * the fields. A day tapped, or one already set, shows it; its back button returns to the month (2026-11-01, the user:
+ * "la vue de le journee en haut avec l'event qu'on reserve et pouvoir retourner dans le mois pr change de jour").
  */
 export class DatePickerModal extends Modal {
   private shown: { year: number; month: number };
@@ -58,8 +69,13 @@ export class DatePickerModal extends Modal {
   private end: Hm | null = null;
   private dayInput: HTMLInputElement | null = null;
   private timeInputs: HTMLInputElement[] = [];
+  private top: HTMLElement | null = null;
   private grid: HTMLElement | null = null;
+  private head: HTMLElement | null = null;
   private heading: HTMLElement | null = null;
+  private month: HTMLElement | null = null;
+  private dayView: DayPreview | null = null;
+  private inDay = false;
   private quick: { el: HTMLElement; time: Hm; end: Hm | null }[] = [];
   private summary: HTMLElement | null = null;
   private problem: string | null = null;
@@ -83,15 +99,27 @@ export class DatePickerModal extends Modal {
   override onOpen(): void {
     const slot = this.opts.mode === "slot";
     this.modalEl.addClass("ct-date-picker");
-    const head = this.contentEl.createDiv({ cls: "ct-dp-head" });
+    const head = (this.head = this.contentEl.createDiv({ cls: "ct-dp-head" }));
     const prev = head.createEl("button", { cls: "clickable-icon", attr: { "aria-label": "‹" } });
     setIcon(prev, "chevron-left");
+    const back = head.createEl("button", { cls: "ct-dp-back" });
+    setIcon(back.createSpan({ cls: "ct-dp-back-icon" }), "chevron-left");
+    this.month = back.createSpan();
     this.heading = head.createDiv({ cls: "ct-dp-title" });
     const next = head.createEl("button", { cls: "clickable-icon", attr: { "aria-label": "›" } });
     setIcon(next, "chevron-right");
     prev.addEventListener("click", () => this.moveMonth(-1));
     next.addEventListener("click", () => this.moveMonth(1));
-    this.grid = this.contentEl.createDiv({ cls: "ct-dp-grid" });
+    back.addEventListener("click", () => {
+      this.inDay = false;
+      this.render();
+    });
+    this.top = this.contentEl.createDiv({ cls: "ct-dp-top" });
+    this.grid = this.top.createDiv({ cls: "ct-dp-grid" });
+    if (this.opts.day && Platform.isPhone) {
+      this.dayView = new DayPreview(this.top.createDiv({ cls: "ct-dp-dayview" }), this.opts.day.source);
+      this.inDay = !!(this.opts.mode === "due" ? this.opts.value : this.opts.value?.start);
+    }
 
     const when = this.contentEl.createDiv({ cls: "ct-dp-when" });
     const fields = when.createDiv({ cls: "ct-dp-fields" });
@@ -178,6 +206,7 @@ export class DatePickerModal extends Modal {
 
   private setDay(day: Ymd): void {
     if (this.dayInput) this.dayInput.value = dateText(dayValue(day, null));
+    this.inDay = !!this.dayView;
     this.read();
   }
 
@@ -202,10 +231,17 @@ export class DatePickerModal extends Modal {
     const grid = this.grid;
     if (!grid || !this.heading) return;
     const lang = language();
+    const first = new Date(Date.UTC(this.shown.year, this.shown.month - 1, 1));
+    const format = (options: Intl.DateTimeFormatOptions, date: Date) => new Intl.DateTimeFormat(lang, { ...options, timeZone: "UTC" }).format(date);
+    // What isn't a day (yet) shows the month, to pick one.
+    const inDay = this.inDay && this.day;
+    this.top?.toggleClass("is-day", !!inDay);
+    this.head?.toggleClass("is-day", !!inDay);
+    this.month?.setText(format({ month: "long" }, first));
     this.heading.setText(
-      new Intl.DateTimeFormat(lang, { month: "long", year: "numeric", timeZone: "UTC" }).format(
-        new Date(Date.UTC(this.shown.year, this.shown.month - 1, 1)),
-      ),
+      inDay
+        ? format({ weekday: "long", day: "numeric" }, new Date(Date.UTC(inDay.year, inDay.month - 1, inDay.day)))
+        : format({ month: "long", year: "numeric" }, first),
     );
     grid.empty();
     // Monday first: 5 January 2026 was a Monday.
@@ -226,6 +262,7 @@ export class DatePickerModal extends Modal {
       b.addEventListener("dblclick", () => this.choose());
     }
 
+    this.drawDay();
     for (const q of this.quick) q.el.toggleClass("is-active", same(this.time, q.time) && (!q.end || same(this.end, q.end)));
     if (!this.summary) return;
     this.summary.toggleClass("mod-warning", !!this.problem);
@@ -243,7 +280,22 @@ export class DatePickerModal extends Modal {
     this.summary.setText(`→ ${when}`);
   }
 
+  /** The day's view: what the fields say, once they say something. */
+  private drawDay(): void {
+    const o = this.opts;
+    if (!this.dayView || !o.day) return;
+    const placed: Placed[] = [];
+    if (this.day && !this.problem) {
+      const block = dayBlock(this.day, this.time, this.end);
+      if (o.mode === "due") placed.push({ id: "picked", kind: "deadline", start: dayValue(this.day, this.time), end: null, title: o.day.title });
+      else placed.push({ id: "picked", kind: "timeblock", start: block.start, end: block.end, title: o.day.title });
+    }
+    this.dayView.show(placed, this.day ? dayValue(this.day, null) : null, this.time ? clock(this.time) : null);
+  }
+
   override onClose(): void {
+    this.dayView?.destroy();
+    this.dayView = null;
     this.contentEl.empty();
   }
 }

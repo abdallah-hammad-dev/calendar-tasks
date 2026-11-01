@@ -35,13 +35,14 @@ const clock = (d: Date) => `${String(d.getHours()).padStart(2, "0")}:${String(d.
  */
 export class DayPreview {
   private readonly calendar: Calendar;
-  private readonly label: HTMLElement;
+  private label: HTMLElement | null = null;
   private placed: Placed[] = [];
 
+  /** Without `on`, only to look at: no head to change the day, nothing to drag (the date picker on a phone). */
   constructor(
     parent: HTMLElement,
     private readonly source: PreviewSource,
-    private readonly on: {
+    private readonly on?: {
       /** A range dragged over free time. */
       pick(start: Date, end: Date, allDay: boolean): void;
       /** Something being placed was moved or stretched. */
@@ -49,15 +50,17 @@ export class DayPreview {
     },
   ) {
     const root = parent.createDiv({ cls: "ct-calendar ct-day-preview" });
-    const head = root.createDiv({ cls: "ct-day-preview-head" });
-    const arrow = (icon: string, label: string, days: number) => {
-      const b = head.createEl("button", { cls: "clickable-icon", attr: { "aria-label": label } });
-      setIcon(b, icon);
-      b.addEventListener("click", () => this.calendar.incrementDate({ days }));
-    };
-    arrow("chevron-left", t("view.prev"), -1);
-    this.label = head.createDiv({ cls: "ct-day-preview-day" });
-    arrow("chevron-right", t("view.next"), 1);
+    if (on) {
+      const head = root.createDiv({ cls: "ct-day-preview-head" });
+      const arrow = (icon: string, label: string, days: number) => {
+        const b = head.createEl("button", { cls: "clickable-icon", attr: { "aria-label": label } });
+        setIcon(b, icon);
+        b.addEventListener("click", () => this.calendar.incrementDate({ days }));
+      };
+      arrow("chevron-left", t("view.prev"), -1);
+      this.label = head.createDiv({ cls: "ct-day-preview-day" });
+      arrow("chevron-right", t("view.next"), 1);
+    }
     const grid = root.createDiv({ cls: "ct-day-preview-grid" });
     this.calendar = new Calendar(grid, {
       plugins: [timeGridPlugin, interactionPlugin],
@@ -75,15 +78,15 @@ export class DayPreview {
       // Side by side, never over one another: what's being placed stays readable next to what's there.
       slotEventOverlap: false,
       slotLabelFormat: { hour: "2-digit", minute: "2-digit", hour12: false },
-      selectable: true,
+      selectable: !!on,
       selectMirror: true,
       select: (info) => {
         const end = isClick(this.calendar, info) ? new Date(info.start.getTime() + 3_600_000) : info.end;
         this.calendar.unselect();
-        this.on.pick(info.start, end, info.allDay);
+        this.on?.pick(info.start, end, info.allDay);
       },
-      eventDrop: (info) => this.on.move(info.event.id, info.event.start!, info.event.end, info.event.allDay),
-      eventResize: (info) => this.on.move(info.event.id, info.event.start!, info.event.end, info.event.allDay),
+      eventDrop: (info) => this.on?.move(info.event.id, info.event.start!, info.event.end, info.event.allDay),
+      eventResize: (info) => this.on?.move(info.event.id, info.event.start!, info.event.end, info.event.allDay),
       events: (info, ok) => ok(this.inputs(info.start, info.end)),
       eventContent: (arg) => this.content(arg),
       eventDidMount: (arg) => {
@@ -91,7 +94,7 @@ export class DayPreview {
         if (color) arg.el.style.setProperty("--ct-ev-color", color);
       },
       datesSet: (arg) => {
-        this.label.setText(new Intl.DateTimeFormat(source.language(), { weekday: "long", day: "numeric", month: "long" }).format(arg.start));
+        this.label?.setText(new Intl.DateTimeFormat(source.language(), { weekday: "long", day: "numeric", month: "long" }).format(arg.start));
       },
     });
     this.calendar.render();
@@ -139,8 +142,8 @@ export class DayPreview {
         start: p.start,
         end: p.kind === "deadline" ? (allDay ? undefined : new Date(new Date(p.start).getTime() + MARK_MS)) : (p.end ?? undefined),
         allDay,
-        editable: true,
-        durationEditable: p.kind !== "deadline",
+        editable: !!this.on,
+        durationEditable: !!this.on && p.kind !== "deadline",
         classNames: ["ct-ev", `ct-ev-${p.kind}`, "ct-ev-placed"],
         extendedProps: { kind: p.kind, color: null },
       });

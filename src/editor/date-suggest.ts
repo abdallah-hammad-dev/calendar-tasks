@@ -11,7 +11,7 @@ import {
 import { PRIORITY_MARK, type Priority } from "../constants";
 import { formatLocalDate, localZone, parseLocal, wallClock } from "../ical/time";
 import { language, t } from "../i18n";
-import { DatePickerModal } from "./date-picker";
+import { DatePickerModal, type PickerDay } from "./date-picker";
 import { addDays, fold } from "./date-token";
 import type { EditorView } from "@codemirror/view";
 import { linkLineEdit, parseLinkLine, parseTaskLine, typedAt } from "./convert";
@@ -103,6 +103,8 @@ export interface DateSuggestDeps {
   edit(path: string, found: WhenToken | null, tags: string[], replaces?: ChipKey): void;
   /** The vault's tags, most used first (offered after `@tag`). */
   knownTags(): string[];
+  /** The day a phone's picker shows, for the task at `path` if it's one. */
+  pickerDay(path: string | null): PickerDay | undefined;
 }
 
 /**
@@ -276,10 +278,11 @@ export class DateSuggest extends EditorSuggest<Item> {
       editor.focus();
       this.carryOn(editor, at, file);
     };
+    const day = this.deps.pickerDay(file?.path ?? null);
     const picker =
       this.feature === "block"
-        ? new DatePickerModal(this.app, { mode: "slot", pick: (block) => put(slotText(block)) })
-        : new DatePickerModal(this.app, { mode: "due", pick: (value) => put(dateText(value)) });
+        ? new DatePickerModal(this.app, { mode: "slot", pick: (block) => put(slotText(block)), day })
+        : new DatePickerModal(this.app, { mode: "due", pick: (value) => put(dateText(value)), day });
     picker.open();
   }
 
