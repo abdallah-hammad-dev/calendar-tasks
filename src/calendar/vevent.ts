@@ -95,8 +95,10 @@ function occurrence(cal: Comp, master: Comp, events: Comp[], rid: string): Comp 
     const instant = ICAL.Time.fromDateTimeString(rid.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/, "$1-$2-$3T$4:$5:$6Z"));
     const tzid = dtstart.getParameter("tzid");
     if (typeof tzid === "string" && ICAL.TimezoneService.has(tzid)) {
-      const local = instant.convertToZone(ICAL.TimezoneService.get(tzid));
-      p.setValue(ICAL.Time.fromData({ year: local.year, month: local.month, day: local.day, hour: local.hour, minute: local.minute, second: local.second }));
+      // In its zone, not floating: read back as a floating time, it would be the machine's time (CI is in UTC).
+      const zone = ICAL.TimezoneService.get(tzid);
+      const local = instant.convertToZone(zone);
+      p.setValue(ICAL.Time.fromData({ year: local.year, month: local.month, day: local.day, hour: local.hour, minute: local.minute, second: local.second }, zone));
       p.setParameter("tzid", tzid);
     } else p.setValue(instant);
   }

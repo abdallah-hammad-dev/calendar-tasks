@@ -27,7 +27,8 @@ user at each one.
 - `npm run deploy` — build + copy into `./test-vault`; `TEST_VAULT=/mnt/c/Users/abdal/Documents/ct-test-vault`
   for a vault Windows Obsidian can open. Refuses non-empty folders without the `.calendar-tasks-test-vault` marker.
 - Release: `npm version patch|minor|major` then `git push --follow-tags` (`docs/releasing.md`). Never hand-edit the
-  manifest version or hand-create tags.
+  manifest version or hand-create tags. CI runs in UTC, this machine in Paris: run `TZ=UTC npm test` first
+  (0.2.11 failed there, an exception's RECURRENCE-ID built floating read as the machine's time).
 
 ## Test servers (`~/organisation/calendar-backend/`, private repo; see `bench/TESTS.md`)
 - After a reboot: `~/organisation/calendar-backend/start.sh` starts both servers.
