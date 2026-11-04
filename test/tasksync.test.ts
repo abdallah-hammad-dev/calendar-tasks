@@ -343,14 +343,36 @@ describe("from notes to the server", () => {
     expect(vault.fm("Tâches/A.md")).not.toHaveProperty("due");
   });
 
-  it("deletes the reminder when the note is deleted", async () => {
-    server.externalPut(`${calendar}a.ics`, vtodo("a", "SUMMARY:A\r\n"));
-    await start();
-    const fm = vault.fm("Tâches/A.md")!;
-    vault.remove("Tâches/A.md");
-    await tasks.noteDeleted("Tâches/A.md", fm);
-    await cycle();
-    expect(server.stored(`${calendar}a.ics`)).toBeUndefined();
+  describe("a task note deleted", () => {
+    beforeEach(() => vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] }));
+    afterEach(() => vi.useRealTimers());
+    async function deleted(): Promise<void> {
+      server.externalPut(`${calendar}a.ics`, vtodo("a", "SUMMARY:A\r\n"));
+      await start();
+      const fm = vault.fm("Tâches/A.md")!;
+      vault.remove("Tâches/A.md");
+      await tasks.noteDeleted("Tâches/A.md", fm);
+    }
+
+    it("deletes its reminder a moment later; a change on the phone meanwhile doesn't make the note again", async () => {
+      await deleted();
+      server.externalPut(`${calendar}a.ics`, vtodo("a", "SUMMARY:A\r\nDUE;VALUE=DATE:20261110\r\n"));
+      await cycle();
+      expect(vault.files.size).toBe(0);
+      expect(server.stored(`${calendar}a.ics`)).toBeDefined();
+      await vi.advanceTimersByTimeAsync(60_000);
+      await tasks.whenIdle();
+      await cycle();
+      expect(server.stored(`${calendar}a.ics`)).toBeUndefined();
+      expect(vault.files.size).toBe(0);
+    });
+
+    it("deletes it at once when Obsidian closes before that", async () => {
+      await deleted();
+      await tasks.settleDeletions();
+      await cycle();
+      expect(server.stored(`${calendar}a.ics`)).toBeUndefined();
+    });
   });
 
   it("says so when no calendar accepts tasks", async () => {
@@ -828,5 +850,56 @@ describe("two devices, LiveSync copying notes between them", () => {
     expect(await reminders()).toBe(1);
     expect(onServer(uidOf(P))!.done).toBe(true);
     expect(phone.vault.fm(P)).toMatchObject({ done: true, caldav_uid: uidOf(P) });
+  });
+
+  // LiveSync hands a rename to the other devices as the note at its new path, then the old path deleted (read in
+  // its code, 1.0.43): the other device sees a task note deleted, and the new one only after its 800 ms debounce.
+  describe("a task note renamed on one device", () => {
+    beforeEach(() => vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] }));
+    afterEach(() => vi.useRealTimers());
+    const R = "Tâches/Courses du samedi.md";
+
+    async function renamedOnPc(): Promise<{ pc: Device; phone: Device; fm: Record<string, unknown> }> {
+      const pc = await device("pc");
+      const phone = await device("phone");
+      await pc.tasks.createNote(P, { type: "task", done: false, due: "2026-11-07" }, "");
+      copy(pc, phone, P);
+      await sync(pc);
+      await phone.tasks.noteChanged(P);
+      await sync(phone);
+      await pc.vault.rename(P, R); // Obsidian's own rename, on the PC
+      await pc.tasks.noteRenamed(P, R);
+      await sync(pc);
+      return { pc, phone, fm: phone.vault.fm(P)! };
+    }
+    async function settled(pc: Device, phone: Device): Promise<void> {
+      await vi.advanceTimersByTimeAsync(60_000);
+      await phone.tasks.whenIdle();
+      await phone.tasks.noteChanged(R);
+      for (const d of [phone, pc, phone, pc]) await sync(d);
+      expect(await reminders()).toBe(1);
+      expect(onServer("pc-1")).toMatchObject({ summary: "Courses du samedi", done: false, due: "2026-11-07" });
+      for (const d of [pc, phone]) {
+        expect([...d.vault.files.keys()]).toEqual([R]);
+        expect(d.vault.fm(R)).toMatchObject({ done: false, caldav_uid: "pc-1" });
+      }
+    }
+
+    it("keeps its reminder on the other device: the new note arrives, then the old one goes", async () => {
+      const { pc, phone, fm } = await renamedOnPc();
+      copy(pc, phone, R);
+      phone.vault.remove(P);
+      await phone.tasks.noteDeleted(P, fm);
+      await settled(pc, phone);
+    });
+
+    it("keeps it too when the old note goes first and the new one comes a moment later", async () => {
+      const { pc, phone, fm } = await renamedOnPc();
+      phone.vault.remove(P);
+      await phone.tasks.noteDeleted(P, fm);
+      await vi.advanceTimersByTimeAsync(2_000);
+      copy(pc, phone, R);
+      await settled(pc, phone);
+    });
   });
 });

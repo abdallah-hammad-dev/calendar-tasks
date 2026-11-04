@@ -55,6 +55,13 @@ export interface TaskSyncDeps {
 const FIELDS = ["summary", "done", "due", "categories", "parentUid", "repeat", "priority", "completed"] as const;
 
 /**
+ * How long a deleted task note's reminder waits before it goes. LiveSync hands a rename made on another device as the
+ * note at its new path and the old path deleted (2026-11-04, read in its code, 1.0.43), maybe in the other order, and
+ * the new note is seen a moment later (the 800 ms debounce, or later still).
+ */
+export const DELETE_GRACE_MS = 10_000;
+
+/**
  * Keeps task notes and VTODOs in step (spec §4.1): every VTODO has a note (except ones already completed when
  * first seen), every task note has a VTODO. CalDAV owns time fields and status, the note owns its content; the
  * frontmatter mirrors the owned fields. All work is serialized, and every write is equality-checked, so a write
@@ -77,6 +84,8 @@ export class TaskSync {
   private known = new Map<string, string>();
   /** path → the UID just given to its note, until the note reads with it (Obsidian re-parses it later). */
   private made = new Map<string, string>();
+  /** uid → the timer of its note's deletion, waiting to see whether another note holds the UID (a rename). */
+  private gone = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(private readonly d: TaskSyncDeps) {}
 
@@ -277,13 +286,39 @@ export class TaskSync {
     });
   }
 
-  /** A task note was deleted: its VTODO goes too (spec §6.4). */
+  /**
+   * A task note was deleted: its VTODO goes too (spec §6.4), `DELETE_GRACE_MS` later, unless another note holds its
+   * UID by then: the note was renamed on another device, which LiveSync hands here as a deletion and a new note.
+   * Deleted at once, a renamed note lost its reminder, and the next sync marked it done (2026-11-04).
+   */
   noteDeleted(path: string, frontmatter: Record<string, unknown> | null): Promise<void> {
     return this.serial(async () => {
       this.made.delete(path);
       const uid = readNote(frontmatter)?.uid ?? [...this.notes].find(([, p]) => p === path)?.[0];
       if (!uid || this.notes.get(uid) !== path) return;
       this.notes.delete(uid);
+      clearTimeout(this.gone.get(uid));
+      this.gone.set(uid, setTimeout(() => void this.settleDeleted(uid), DELETE_GRACE_MS));
+    });
+  }
+
+  /** Deletions still waiting are decided now (Obsidian closing). */
+  async settleDeletions(): Promise<void> {
+    await Promise.all([...this.gone.keys()].map((uid) => this.settleDeleted(uid)));
+  }
+
+  private settleDeleted(uid: string): Promise<void> {
+    return this.serial(async () => {
+      const timer = this.gone.get(uid);
+      if (timer === undefined) return;
+      clearTimeout(timer);
+      this.gone.delete(uid);
+      // Renamed: the note is here under its new name (indexed by its change, or not seen yet).
+      const renamed = this.notePath(uid) ?? this.d.vault.allNotes().find((n) => readNote(n.frontmatter)?.uid === uid)?.path;
+      if (renamed) {
+        this.notes.set(uid, renamed);
+        return;
+      }
       const ref = this.items.get(uid);
       if (!ref || this.readOnly(ref.calendarUrl)) return;
       await this.d.engine.deleteItem(ref.url);
@@ -328,6 +363,8 @@ export class TaskSync {
     // Its note may be here already: brought by LiveSync a moment ago and not seen yet, or made by hand on the other
     // device, which made this reminder from it (`noteUid`) before writing the UID in it. That note, not a second one.
     if (!path) path = (await this.linkUnseen(uid)) ?? undefined;
+    // Its note was just deleted and its reminder waits to go: no new note meanwhile (a rename's is linked above).
+    if (!path && this.gone.has(uid) && !force) return;
 
     if (!path) {
       const folder = this.d.settings().tasksFolder;

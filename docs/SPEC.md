@@ -541,8 +541,12 @@ create / rename / delete.
   offers to delete the note, §4.3); a task note gets `done: true` and loses its `caldav_uid`. Nothing is sent for it
   again while it's done (2026-10-28: its next change made a new reminder, and a repeating one moved on and came back
   active on the phone); unticked, it gets a new reminder.
-- Deleting a task note deletes its `VTODO`. Deleting an event note deletes nothing on the server (event notes are
-  optional).
+- Deleting a task note deletes its `VTODO`, **10 seconds later, unless another note holds its `caldav_uid` by then**
+  (2026-11-04, the user: "sa peut techniquement m'arrive meme sans connecteur, si g le mobile et le desktop les deux
+  allume, je modifie le nom de la note"). LiveSync hands a rename made on another device as the note at its new path
+  and the old one deleted (read in its code, 1.0.43), so a renamed task note lost its reminder and showed as done.
+  Meanwhile no new note is made for that reminder; Obsidian closing decides at once. Deleting an event note deletes
+  nothing on the server (event notes are optional).
 
 ## 7. Views
 
@@ -786,7 +790,8 @@ certificate (see the bench's `TESTS.md`).
 
 Organizing meetings (a slot, the account it's sent from, guests, a Meet / Teams link): part 2, backend spec §9. A
 public booking page: dropped (2026-10-22, not needed). `X-CALTASKS-SOURCE-MAIL` link to the original email. Recurring
-tasks, priorities, kanban. The backend's own MCP endpoint (Claude outside Obsidian).
+tasks, priorities, kanban. The backend's own MCP endpoint (Claude outside Obsidian) is planned on the backend's side
+(its spec §10, 2026-11-04): a CalDAV client and a vault mirror there, nothing to change here.
 
 ## 12. Open questions
 

@@ -136,8 +136,11 @@ user at each one.
   and came back active; unticked, it gets a new one); a note just given its reminder (`made`) is not pushed again
   until it reads with its UID (2026-10-28: a second push before Obsidian re-parsed it made a second reminder, the
   first left on the phone); a whole calendar vanishing leaves notes alone; deleting
-  a task note deletes its VTODO; a refused push is merged field by field against `baseData` (server wins where
-  both sides changed a field, with a notice). Every write is equality-checked, so echoes are no-ops.
+  a task note deletes its VTODO `DELETE_GRACE_MS` (10 s) later, unless another note holds its UID then
+  (`settleDeleted`; LiveSync hands a rename made elsewhere as a new note and the old one deleted, 2026-11-04: the
+  reminder went; no note is made for it meanwhile, `onunload` settles at once); a refused push is merged field by
+  field against `baseData` (server wins where both sides changed a field, with a notice). Every write is
+  equality-checked, so echoes are no-ops.
 - **Startup order**: load cache → push local note edits (made while closed) → sync → pull every VTODO into notes →
   write `Tasks.base` once (`taskBaseCreated` flag, never recreated). The settings' *Regenerate the task list*
   (`main.regenerateTaskBase`, 2026-10-21) rewrites it with the default views after a `ConfirmModal`, so new

@@ -240,6 +240,8 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
   }
 
   override onunload(): void {
+    // A task note deleted a moment ago: its reminder goes now (it waited in case the note was renamed elsewhere).
+    void this.tasks?.settleDeletions();
     for (const id of this.noteTimers.values()) window.clearTimeout(id);
     if (this.syncTimer !== null) window.clearTimeout(this.syncTimer);
     if (this.redrawTimer !== null) window.clearTimeout(this.redrawTimer);
@@ -933,6 +935,8 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
 
   /** The engine and the task sync, local edits pushed to its cache; the network comes after. */
   private async connect(): Promise<void> {
+    // Deletions waiting in case of a rename go to the engine they were made with, as before they waited.
+    await this.tasks?.settleDeletions();
     await this.tasks?.whenIdle();
     this.connection = this.connectionKey();
     this.tasks = null;
