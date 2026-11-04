@@ -422,7 +422,9 @@ Implementation: CodeMirror 6 view plugin (Live Preview) + `registerMarkdownPostP
 
 ### 5.3 New task button, planning
 
-- **New task** (ribbon icon, command, and a button in the calendar view): a form with the title, an optional
+- **New task** (ribbon icon, command, and the calendar view's **New**, a menu under it: New task, New event at the
+  next hour or 9:00 on the day shown, as the phone's "+"; 2026-11-04, the user: no generic button made an event,
+  only a range selected did): a form with the title, an optional
   deadline (a day and a time, or picked from the month view), optional time blocks (a day, from, to), a repetition (never / daily / weekly / weekdays / monthly /
   yearly), a priority, tags (typed as on a line, `#famille #urgent`; the vault's tags suggested for the word being
   typed, most used first, through Obsidian's `AbstractInputSuggest`) and the collection (the default one). Writes
@@ -550,7 +552,7 @@ A custom `ItemView` (`registerView`), fed by the cache, so it shows events that 
 parts only) lays out the grid and handles dragging; everything you see is drawn by the extension in Obsidian's style
 (2026-10-17, the user found FullCalendar's look out of place and chose "keep the engine, redo the skin" over another
 library or a home-made grid): our toolbar (‹ › Today, the period, a segmented Month / Week / Day / Agenda control,
-New task, To plan, Sync), our events, our day headers (weekday small, date large, today in an accent disc), and,
+New, To plan, Sync), our events, our day headers (weekday small, date large, today in an accent disc), and,
 as in Apple Calendar (2026-10-19), a day's header (or its number in the month) opens that day's view and a small
 tab with the week's number ("S43", at the start of each week in the month, in the corner of the week and day
 views) opens that week; both only answer the pointer (no buttons), and
@@ -562,6 +564,10 @@ popovers.
   of the bar, as iOS's (2026-10-31). The day has its week above it, a tap goes to a day, and no table around it: a line
   per hour, all-day things only when there are some. Today opens at the time it is, another day in the morning, and
   the hours on screen stay from one day to the next.
+  What opens over it is a sheet with one way out (2026-11-04, the user's iPhone showed two ✕ on an event's card):
+  cards keep Obsidian's ✕ only; forms, a new collection's too, have ✕ and ✓ at the top; a confirmation is Obsidian's
+  own, at the bottom, the action over Cancel, no ✕. Something opened to change it (an event, a task from its pencil,
+  a collection's card) comes without the keyboard, as in Apple's apps; something new is ready to type its name.
 - Month / week / day / agenda (no week on phones); the last view is remembered. One color per collection;
   collections are toggled from the row under the toolbar, all alike, in the server's order: a dot in their color
   (hollow when hidden), their name, "Hide" / "Show" on hover. Their pencil (or a right-click) opens a card: name, a

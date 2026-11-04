@@ -17,7 +17,9 @@ user at each one.
   around the view): `phone()` in shoot.mjs fails on anything off the screen or out of its form, the calendar less
   than 8px above the navbar, a toolbar over one line, a title off the middle of the bar away from the month, a tick
   wider than its box, a week's number touching a day's, a sheet not at the bottom,
-  a form without one ✕ and one ✓ beside its title, a task's title more than 32px under its header; it scrolls the
+  a form without one ✕ and one ✓ beside its title, a sheet with more or less than one way out (`oneWayOut`: Obsidian's
+  ✕, or Cancel in a confirmation), the keyboard up for something opened to change it, a task's title more than 32px
+  under its header; it scrolls the
   months (more must come, what's on screen staying), taps a day and comes back, swipes a day, goes through its week
   (an empty day, and back), opens the agenda and the tasks, an event and "+" (then New event). `phone-new-task-keyboard` sets `--keyboard-height` and draws a
   keyboard: the tags must show above it, their suggestions above them, and no empty sheet under the form. The
@@ -614,7 +616,14 @@ user at each one.
   The toolbar is one line: outside the month, "‹ octobre" back to it (the month shown, or the day's); the period; the
   tasks' button in the month (they take the calendar's place), the agenda's button in a day and the agenda (a
   toggle); today's date in a frame; "+" opening a sheet: New task, New event at the next hour or 9:00 on the day
-  shown. No view menu, no ‹ ›: a day and the agenda turn with a swipe (`swipeDays`, 60px, twice as far across as down,
+  shown (a computer's toolbar has the same menu as *New*, under the button, 2026-11-04). A card in a phone's sheet
+  (`CardModal`) keeps Obsidian's ✕ only: the cards' own `.ct-card-close` is hidden there (2026-11-04, two ✕ on the
+  user's iPhone; preview `phone-card`); a card that is a form names its buttons' row (`CardModal`'s `form`) and
+  becomes a form's sheet, ✕ and ✓ (a new collection, `phone-new-collection`). `ConfirmModal` is Obsidian's own
+  confirmation (`mod-confirmation`, `modal-button-container`): on a phone a sheet at the bottom with no ✕, where it
+  had Obsidian's ✕ beside Cancel (`phone-confirm`). Opened to change something (an event, a task with no field asked
+  for, a collection's card), nothing takes the focus on mobile: the keyboard covered the times and the colors
+  (`phone-edit-task-pencil`, the pencil in `phone-card`). The preview's `Menu` is a `mod-sheet` on a phone, as Obsidian's. No view menu, no ‹ ›: a day and the agenda turn with a swipe (`swipeDays`, 60px, twice as far across as down,
   not in Move), on `data-ignore-swipe`, Obsidian's own way to keep a swipe from its sidebars (only there: the month
   scrolls, and they still open from it). Sync, Move and the
   collections are in the view's "⋯" (`onPaneMenu`), the collections in a sheet of their own (`openCollections`,

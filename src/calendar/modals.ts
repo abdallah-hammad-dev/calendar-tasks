@@ -1,4 +1,4 @@
-import { Modal, Setting, type App } from "obsidian";
+import { Modal, Platform, Setting, type App } from "obsidian";
 import { t } from "../i18n";
 import { withUntil } from "../editor/when";
 import { formRow } from "../ui/form-row";
@@ -213,6 +213,8 @@ export class EventModal extends Modal {
     this.modalEl.addClass("ct-task-modal");
     const input = renderEventForm(this.contentEl, this.opts, () => this.close());
     formSheet(this);
+    // On a phone an event opened to change it shows without the keyboard, which would cover its times.
+    if (this.opts.edit && Platform.isMobile) return;
     window.setTimeout(() => input.focus(), 0);
   }
 
@@ -222,7 +224,12 @@ export class EventModal extends Modal {
   }
 }
 
-/** A question before something that can't be undone: what will happen, then Cancel and the action, in red. */
+/**
+ * A question before something that can't be undone: what will happen, then Cancel and the action, in red. Drawn as
+ * Obsidian's own (its "Delete file?"): `mod-confirmation` on the container and `modal-button-container`, which on a
+ * phone make it a sheet at the bottom, buttons across, the action over Cancel and no ✕ (2026-11-04: as a plain modal
+ * it had Obsidian's ✕ beside Cancel on the user's iPhone, in the middle of the screen).
+ */
 export class ConfirmModal extends Modal {
   constructor(
     app: App,
@@ -232,19 +239,15 @@ export class ConfirmModal extends Modal {
   }
 
   override onOpen(): void {
+    this.containerEl.addClass("mod-confirmation");
     this.setTitle(this.opts.title);
     for (const line of this.opts.lines) this.contentEl.createEl("p", { text: line });
-    new Setting(this.contentEl)
-      .addButton((b) => b.setButtonText(t("modal.cancel")).onClick(() => this.close()))
-      .addButton((b) =>
-        b
-          .setButtonText(this.opts.action)
-          .setWarning()
-          .onClick(() => {
-            this.close();
-            this.opts.run();
-          }),
-      );
+    const buttons = this.modalEl.createDiv({ cls: "modal-button-container" });
+    buttons.createEl("button", { cls: "mod-cancel", text: t("modal.cancel") }).addEventListener("click", () => this.close());
+    buttons.createEl("button", { cls: "mod-warning", text: this.opts.action }).addEventListener("click", () => {
+      this.close();
+      this.opts.run();
+    });
   }
 
   override onClose(): void {

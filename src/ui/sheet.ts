@@ -4,15 +4,15 @@ import { Platform, setIcon, type Modal } from "obsidian";
  * A form as a sheet on a phone, as iOS's own (Calendar) and Obsidian's since 1.14: ✕ and ✓ at the top, where the
  * keyboard can't cover them; the sheet above the keyboard (Obsidian's `--keyboard-height`, styles.css); the field
  * being typed in scrolled just into sight, right above the keyboard (2026-10-30: the user's Apple Calendar
- * stops on the field; ours went on to an empty sheet). Call it once the form and its `.ct-modal-buttons` row are
- * drawn; elsewhere it does nothing.
+ * stops on the field; ours went on to an empty sheet). Call it once the form and its buttons' row (`rowSelector`:
+ * Cancel, then the action last) are drawn; elsewhere it does nothing.
  */
-export function formSheet(modal: Modal): void {
+export function formSheet(modal: Modal, rowSelector = ".ct-modal-buttons"): void {
   if (!Platform.isPhone) return;
   const { containerEl, modalEl, contentEl, titleEl } = modal;
   containerEl.addClass("ct-sheet-container");
   modalEl.addClass("ct-sheet");
-  const row = contentEl.querySelector(".ct-modal-buttons");
+  const row = contentEl.querySelector(rowSelector);
   const buttons = row ? Array.from(row.querySelectorAll("button")) : [];
   const header = titleEl.parentElement;
   const action = buttons[buttons.length - 1];

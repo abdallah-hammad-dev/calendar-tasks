@@ -879,14 +879,16 @@ export class CalendarView extends ItemView {
         b.addEventListener("click", () => this.zoomTo(this.hourHeight() * factor));
       }
     }
-    const action = (icon: string, text: string, tooltip: string, run: () => void, active = false) => {
+    const action = (icon: string, text: string, tooltip: string, run: (e: MouseEvent) => void, active = false) => {
       const b = right.createEl("button", { cls: `ct-cal-action${active ? " is-active" : ""}` });
       setIcon(b.createSpan({ cls: "ct-chip-icon" }), icon);
       b.createSpan({ cls: "ct-cal-action-text", text });
       setTooltip(b, tooltip);
       b.addEventListener("click", run);
     };
-    action("list-plus", t("command.newTask"), t("command.newTask"), () => this.host.newTask());
+    // As the phone's "+" (2026-11-04, the user: "il manque un bouton générique créer un événement"): a task, or an
+    // event, where a range selected was the only way to an event.
+    action("plus", t("view.new"), t("view.new.desc"), (e) => this.addMenu(e));
     // As iOS's Edit / Done: while moving, the button says how to finish.
     if (!view.type.startsWith("list")) {
       action(this.moving ? "check" : "move", t(this.moving ? "view.move.done" : "view.move"), t(this.moving ? "view.move.on" : "view.move.off"), () => this.setMoving(!this.moving), this.moving);
@@ -1099,12 +1101,15 @@ export class CalendarView extends ItemView {
     });
   }
 
-  /** "+" on a phone: a task, or an event. */
+  /** "+": a task, or an event (a phone's bar, a computer's "New"). */
   private addMenu(e: MouseEvent): void {
-    new Menu()
+    const menu = new Menu()
       .addItem((item) => item.setTitle(t("command.newTask")).setIcon("list-plus").onClick(() => this.host.newTask()))
-      .addItem((item) => item.setTitle(t("modal.newEvent")).setIcon("calendar-plus").onClick(() => this.newEventNow()))
-      .showAtMouseEvent(e);
+      .addItem((item) => item.setTitle(t("modal.newEvent")).setIcon("calendar-plus").onClick(() => this.newEventNow()));
+    // Under its button, not over it where the click was (a phone's is a sheet at the bottom whatever the place).
+    const button = e.currentTarget instanceof HTMLElement ? e.currentTarget.getBoundingClientRect() : null;
+    if (button) menu.showAtPosition({ x: button.left, y: button.bottom + 4 });
+    else menu.showAtMouseEvent(e);
   }
 
   /** A new event from "+": the next hour today when today is shown, else 9:00 on the day shown. */
@@ -1466,11 +1471,17 @@ export class CalendarView extends ItemView {
   private newCalendar(button: HTMLElement): void {
     const taken = this.host.calendars().map((c) => c.color);
     const create = (spec: NewCalendar) => this.host.createCalendar(spec);
+    // A phone: a form's sheet, ✕ and ✓ (Create) at the top, above the keyboard the name brings up.
     if (Platform.isPhone) {
-      new CardModal(this.app, (box, close) => {
-        const input = renderNewCalendarCard(box, taken, { create, close });
-        window.setTimeout(() => input.focus(), 0);
-      }).open();
+      new CardModal(
+        this.app,
+        (box, close) => {
+          const input = renderNewCalendarCard(box, taken, { create, close });
+          window.setTimeout(() => input.focus(), 0);
+        },
+        t("cal.new"),
+        ".ct-card-foot",
+      ).open();
       return;
     }
     const pop = this.openPopover("calendar", button.getBoundingClientRect(), () => undefined);

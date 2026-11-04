@@ -175,7 +175,8 @@ function calendar(view: "timeGridWeek" | "timeGridDay" | "dayGridMonth" | "listW
     syncState: (o) => (queued.has(o.itemUrl) ? "queued" : "synced"),
     sync: () => undefined,
     language: () => q.get("lang") ?? "fr",
-    initialDate: () => "2026-10-15",
+    // "phone-task-group": the 14th, its three deadlines around 16:00 drawn as one marker.
+    initialDate: () => (scenario === "phone-task-group" ? "2026-10-14" : "2026-10-15"),
     editable: (o) => (drag ? !CALS.find((c) => c.url === o.calendarUrl)?.readOnly && !o.invitation : o.kind !== "deadline" && !o.invitation),
     // The school's invitations stand for an account's events: they can't change, but can be deleted.
     deletable: (o) => o.kind !== "deadline",
@@ -267,7 +268,9 @@ function calendar(view: "timeGridWeek" | "timeGridDay" | "dayGridMonth" | "listW
       v.onPaneMenu(menu, "more-options");
       menu.showAtPosition({ x: 0, y: 0 });
     }
-    if (scenario === "phone-collections") (v as unknown as { openCollections(): void }).openCollections();
+    if (["phone-collections", "phone-new-collection", "phone-collection-card"].includes(scenario)) {
+      (v as unknown as { openCollections(): void }).openCollections();
+    }
     setTimeout(done, 300);
   });
 }
@@ -428,7 +431,8 @@ function editTask(menu = false): void {
     knownTags: KNOWN_TAGS,
     collections: ["Général", "Pro", "École"],
     collection: "Pro",
-    focus: "due",
+    // "phone-edit-task-pencil": opened by the note's pencil, no field asked for.
+    focus: scenario === "phone-edit-task-pencil" ? undefined : "due",
     edit: {
       title: "Rédiger le mémoire",
       due: "2026-10-23T18:00",
@@ -767,14 +771,15 @@ else if (scenario.startsWith("calendar-marks-week")) calendar("timeGridWeek");
 else if (scenario.startsWith("calendar-marks-list")) calendar("listWeek");
 else if (scenario === "calendar-month-drag") calendar("dayGridMonth", true);
 else if (scenario === "phone-month") calendar("dayGridMonth");
-else if (scenario === "phone-day") calendar("timeGridDay");
+else if (scenario === "phone-day" || scenario === "phone-card" || scenario === "phone-task-group") calendar("timeGridDay");
 else if (scenario === "phone-list") calendar("listWeek");
 else if (scenario === "phone-panel") calendar("timeGridDay");
-else if (scenario === "phone-tasks" || scenario === "phone-add" || scenario === "phone-more" || scenario === "phone-collections") calendar("dayGridMonth");
+else if (["phone-tasks", "phone-add", "phone-more", "phone-collections", "phone-new-collection", "phone-collection-card"].includes(scenario)) calendar("dayGridMonth");
+else if (scenario === "phone-confirm") confirmDeleteMirror();
 else if (scenario === "phone-new-task-keyboard") newTaskKeyboard();
 else if (scenario === "phone-new-task") newTask();
 else if (scenario === "phone-task-preview") taskPreview();
-else if (scenario === "phone-edit-task") editTask();
+else if (scenario === "phone-edit-task" || scenario === "phone-edit-task-pencil") editTask();
 else if (scenario === "phone-new-event") newEvent();
 else if (scenario === "phone-date-picker") datePicker();
 else if (scenario === "phone-slot-picker") slotPicker();

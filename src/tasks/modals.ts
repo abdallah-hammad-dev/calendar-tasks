@@ -172,6 +172,9 @@ export class TaskModal extends Modal {
       this.refreshPreview(this.task.due ? "due" : undefined);
     }
     formSheet(this);
+    // On a phone a task opened to change it shows without the keyboard, which would cover half of it (Apple's
+    // Calendar and Reminders do the same); a field asked for (a chip's) still gets it.
+    if (edit && !this.opts.focus && Platform.isMobile) return;
     window.setTimeout(() => start?.focus(), 0);
   }
 

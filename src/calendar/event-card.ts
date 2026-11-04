@@ -1,9 +1,10 @@
-import { Menu, Modal, setIcon, setTooltip, type App } from "obsidian";
+import { Menu, Modal, Platform, setIcon, setTooltip, type App } from "obsidian";
 import { t } from "../i18n";
 import { CALENDAR_COLORS } from "./calendars";
 import type { Occurrence } from "./expand";
 import type { Meeting } from "./meeting";
 import type { NewCalendar } from "../caldav/client";
+import { formSheet } from "../ui/sheet";
 import type { PartStat } from "./vevent";
 import { localDate, localValue, renderWhenFields, shiftDays, type When } from "./when-fields";
 
@@ -120,15 +121,15 @@ export function renderEventCard(el: HTMLElement, info: EventCardInfo, actions: E
   const title = head.createDiv({ cls: "ct-card-title", text: occ.title });
   if (occ.kind === "deadline" && info.task?.done) title.addClass("is-done");
   const tools = head.createDiv({ cls: "ct-card-tools" });
-  const tool = (icon: string, label: string, run: (button: HTMLElement) => void) => {
-    const b = tools.createEl("button", { cls: "clickable-icon", attr: { "aria-label": label } });
+  const tool = (icon: string, label: string, run: (button: HTMLElement) => void, cls = "") => {
+    const b = tools.createEl("button", { cls: `clickable-icon ${cls}`.trim(), attr: { "aria-label": label } });
     setIcon(b, icon);
     b.addEventListener("click", () => run(b));
   };
   if (info.edit) tool("pencil", info.edit === "task" ? t("card.editTask") : occ.kind === "timeblock" ? t("card.editSession") : t("card.edit"), () => actions.edit());
   if (occ.kind === "deadline" && info.task) tool("calendar-plus", t("card.blockTime"), () => actions.blockTime());
   if (info.remove) tool("trash-2", t("card.delete"), (b) => deleteMenu(b, occ, actions));
-  tool("x", t("modal.cancel"), () => actions.close());
+  tool("x", t("modal.cancel"), () => actions.close(), "ct-card-close");
 
   const rows = el.createDiv({ cls: "ct-card-rows" });
   const row = (icon: string, text: string) => {
@@ -273,7 +274,7 @@ export function renderTaskGroup(
   const head = el.createDiv({ cls: "ct-card-head" });
   head.createDiv({ cls: "ct-card-swatch" });
   head.createDiv({ cls: "ct-card-title", text: t("view.tasks", { n: info.occs.length }) });
-  const x = head.createDiv({ cls: "ct-card-tools" }).createEl("button", { cls: "clickable-icon", attr: { "aria-label": t("modal.cancel") } });
+  const x = head.createDiv({ cls: "ct-card-tools" }).createEl("button", { cls: "clickable-icon ct-card-close", attr: { "aria-label": t("modal.cancel") } });
   setIcon(x, "x");
   x.addEventListener("click", () => actions.close());
 
@@ -363,7 +364,7 @@ export function renderCalendarCard(
     });
     input.addEventListener("change", () => commit());
   }
-  const x = head.createDiv({ cls: "ct-card-tools" }).createEl("button", { cls: "clickable-icon", attr: { "aria-label": t("modal.cancel") } });
+  const x = head.createDiv({ cls: "ct-card-tools" }).createEl("button", { cls: "clickable-icon ct-card-close", attr: { "aria-label": t("modal.cancel") } });
   setIcon(x, "x");
   x.addEventListener("click", () => actions.close());
 
@@ -411,7 +412,9 @@ export function renderCalendarCard(
       if (input) input.value = before;
     });
   }
-  if (input) {
+  // Its name ready to type over, on a computer; on a phone the keyboard would cover the colors and the switch, which
+  // are what it's mostly opened for (2026-11-04).
+  if (input && !Platform.isMobile) {
     const box = input;
     window.setTimeout(() => box.select(), 0);
   }
@@ -437,7 +440,7 @@ export function renderNewCalendarCard(
   const head = el.createDiv({ cls: "ct-card-head" });
   head.createDiv({ cls: "ct-card-swatch" });
   const input = head.createEl("input", { cls: "ct-cal-name", type: "text", attr: { placeholder: t("cal.newName") } });
-  const x = head.createDiv({ cls: "ct-card-tools" }).createEl("button", { cls: "clickable-icon", attr: { "aria-label": t("modal.cancel") } });
+  const x = head.createDiv({ cls: "ct-card-tools" }).createEl("button", { cls: "clickable-icon ct-card-close", attr: { "aria-label": t("modal.cancel") } });
   setIcon(x, "x");
   x.addEventListener("click", () => actions.close());
 
@@ -471,7 +474,8 @@ export function renderNewCalendarCard(
 
 /**
  * A card in a modal (phones: no room for a popover). `render` gets the box and how to close it; what it returns
- * runs when the modal closes.
+ * runs when the modal closes. Obsidian's ✕ closes it (the card's own is hidden, styles.css); a card that is a form
+ * names its buttons' row (`form`), which becomes the sheet's ✓ as in the other forms (`formSheet`).
  */
 export class CardModal extends Modal {
   private done: (() => void) | null = null;
@@ -480,6 +484,7 @@ export class CardModal extends Modal {
     app: App,
     private readonly render: (el: HTMLElement, close: () => void) => void | (() => void),
     private readonly title?: string,
+    private readonly form?: string,
   ) {
     super(app);
   }
@@ -488,6 +493,7 @@ export class CardModal extends Modal {
     this.modalEl.addClass("ct-card-modal");
     if (this.title) this.setTitle(this.title);
     this.done = this.render(this.contentEl, () => this.close()) ?? null;
+    if (this.form) formSheet(this, this.form);
   }
 
   override onClose(): void {

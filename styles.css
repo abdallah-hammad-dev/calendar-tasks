@@ -784,6 +784,12 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-task-tags-input 
   inset-inline: var(--size-4-4) auto;
 }
 
+/* A card in a phone's sheet (an event's, a collection's…): Obsidian's ✕ closes it, the card's own would be a second
+   one (2026-11-04, the user's iPhone: "là y'a deux croix"). */
+.modal.ct-card-modal .ct-card-close {
+  display: none;
+}
+
 .is-phone .modal.ct-sheet > .modal-header {
   align-items: center;
   justify-content: center;

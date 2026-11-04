@@ -103,10 +103,19 @@ const SCENARIOS = [
   ["phone-add", 393, 852],
   ["phone-more", 393, 852],
   ["phone-collections", 393, 852],
+  // An event's card in its sheet: one ✕, Obsidian's (2026-11-04, the user's iPhone showed two). Every sheet has one
+  // way out (`oneWayOut`): the other cards (a collection's, a new one, a group of deadlines) and a confirmation too.
+  ["phone-card", 393, 852],
+  ["phone-collection-card", 393, 852],
+  ["phone-new-collection", 393, 852],
+  ["phone-task-group", 393, 852],
+  ["phone-confirm", 393, 852],
   ["phone-new-task", 393, 852],
   ["phone-new-task-keyboard", 393, 852],
   ["phone-task-preview", 393, 852],
   ["phone-edit-task", 393, 852],
+  // Opened to change it (the pencil): no keyboard.
+  ["phone-edit-task-pencil", 393, 852],
   ["phone-new-event", 393, 852],
   ["phone-date-picker", 393, 852],
   ["phone-slot-picker", 393, 852],
@@ -708,6 +717,31 @@ async function phone(page, name, file, errors) {
       };
     });
   const vh = page.viewportSize().height;
+  // One way out of a sheet: Obsidian's ✕, or Cancel in a confirmation, which has no ✕ on a phone (2026-11-04: an
+  // event's card had its own ✕ beside Obsidian's, the confirmation had Cancel beside it). Cancel on a card's time
+  // fields only puts the time line back; a ✕ on a row (a session's "Remove") takes the row away. The settings'
+  // preview is drawn in a modal of its own, which has no ✕.
+  const oneWayOut = async (what) => {
+    const ways = await page.evaluate(() => {
+      const modal = [...document.querySelectorAll(".modal:not(.cw-preview-settings)")].pop();
+      if (!modal) return null;
+      const shown = (b) => b.getClientRects().length && getComputedStyle(b).visibility !== "hidden";
+      const buttons = [...modal.querySelectorAll("button, .clickable-icon")].filter(shown);
+      const closes = (b) => b.matches(".modal-header-button, .modal-close-button, .ct-card-close") || /^(Annuler|Cancel|Fermer|Close)$/.test(b.getAttribute("aria-label") ?? "");
+      return {
+        x: buttons.filter((b) => b.querySelector(".lucide-x") && closes(b)).length,
+        cancel: buttons.filter((b) => !b.closest(".ct-card-when-buttons") && /^(Annuler|Cancel)$/.test(b.textContent.trim())).length,
+      };
+    });
+    if (ways && ways.x + ways.cancel !== 1) errors.push(`${what}: ${ways.x} ✕ and ${ways.cancel} Cancel`);
+  };
+  await oneWayOut(name);
+  // What's typed in: a field that has the focus brings the keyboard up on an iPhone.
+  const typing = () => page.evaluate(() => (document.activeElement?.matches("input, textarea") ? document.activeElement.className || document.activeElement.type : null));
+  // Something opened to change it shows without the keyboard (2026-11-04: it covered the times, a collection's colors).
+  if (name === "phone-edit-task-pencil" && (await typing())) errors.push(`a task opened to change it brings the keyboard up (${await typing()})`);
+  if (["phone-new-task", "phone-new-event"].includes(name) && !(await typing())) errors.push("a new one should be ready to type its title");
+  if (name === "phone-edit-task" && !(await typing())) errors.push("a field asked for (a chip's) should have the focus");
   if (name === "phone-date-suggest") {
     // Obsidian keeps the list within the screen: what it holds must fit, not run under its right edge.
     const cut = await page.$$eval(".ct-date-suggestion-day, .ct-date-suggestion-day > *", (days) =>
@@ -726,7 +760,7 @@ async function phone(page, name, file, errors) {
     await page.keyboard.type("@deadline ven 14h @tag famille ");
     await page.waitForTimeout(200);
   }
-  if (["phone-new-task", "phone-edit-task", "phone-new-event", "phone-new-task-keyboard"].includes(name)) {
+  if (["phone-new-task", "phone-edit-task", "phone-edit-task-pencil", "phone-new-event", "phone-new-task-keyboard"].includes(name)) {
     const head = await page.evaluate(() => {
       const r = (sel) => document.querySelector(sel)?.getBoundingClientRect() ?? null;
       const content = document.querySelector(".modal-content");
@@ -802,6 +836,7 @@ async function phone(page, name, file, errors) {
     await page.waitForTimeout(300);
     if (!(await page.locator(".modal.ct-sheet .ct-sheet-action").count())) errors.push("New event didn't open its form as a sheet");
     else await page.screenshot({ path: file.replace(/-(light|dark)\.png$/, "-event-$1.png") });
+    await oneWayOut("New event");
   }
   if (name === "phone-tasks") {
     await page.locator(".ct-cal-tool").first().tap();
@@ -819,6 +854,69 @@ async function phone(page, name, file, errors) {
     await back.tap();
     await page.waitForTimeout(300);
     if ((await title()) !== "octobre 2026" || (await onScreen()) !== "2026-10") errors.push(`back from the tasks: "${await title()}", ${await onScreen()}`);
+  }
+  if (name === "phone-card") {
+    await page.locator(".fc-timegrid-event:has-text('Jury de projet')").first().tap();
+    await page.waitForTimeout(300);
+    if (!(await page.locator(".modal.ct-card-modal .ct-card").count())) errors.push("tapping an event opened no card");
+    else await oneWayOut("an event's card");
+    await page.screenshot({ path: file });
+    // Its pencil: the form, without the keyboard.
+    await page.locator(".modal .modal-header-button").tap();
+    await page.locator(".fc-timegrid-event:has-text('Appel Paul')").first().tap();
+    await page.waitForTimeout(300);
+    await page.locator(".modal.ct-card-modal .ct-card-tools .clickable-icon:has(.lucide-pencil)").tap();
+    await page.waitForTimeout(300);
+    if (!(await page.locator(".modal.ct-sheet .ct-sheet-action").count())) errors.push("the card's pencil didn't open the form as a sheet");
+    else {
+      await oneWayOut("changing an event");
+      if (await typing()) errors.push(`an event opened to change it brings the keyboard up (${await typing()})`);
+    }
+  }
+  if (name === "phone-task-group") {
+    await page.locator(".ct-ev-group").first().tap();
+    await page.waitForTimeout(300);
+    if ((await page.locator(".modal.ct-card-modal .ct-card-task").count()) !== 3) errors.push("the group's card doesn't list its 3 tasks");
+    else await oneWayOut("a group's card");
+    await page.screenshot({ path: file });
+  }
+  if (name === "phone-collection-card") {
+    await page.locator(".ct-collections .ct-legend-edit").first().tap();
+    await page.waitForTimeout(300);
+    if (!(await page.locator(".modal.ct-card-modal .ct-cal-card").count())) errors.push("the pencil opened no collection's card");
+    else await oneWayOut("a collection's card");
+    await page.waitForTimeout(100);
+    if (await typing()) errors.push("a collection's card brings the keyboard up");
+    await page.screenshot({ path: file });
+  }
+  if (name === "phone-new-collection") {
+    // A form: ✕ and ✓ (Create) at the top, as the others, where the keyboard its name brings up can't cover them.
+    await page.locator(".ct-collections .ct-legend-add").tap();
+    await page.waitForTimeout(300);
+    const action = page.locator(".modal.ct-sheet .modal-header .ct-sheet-action");
+    if (!(await action.count())) errors.push("a new collection isn't a form's sheet (✓ in its header)");
+    else {
+      await oneWayOut("a new collection");
+      if (await page.locator(".modal .ct-card-foot").count()) errors.push("a new collection still has its buttons' row");
+      if (!(await action.isDisabled())) errors.push("✓ should wait for a name");
+      await page.locator(".modal .ct-cal-name").fill("Sport");
+      if (await action.isDisabled()) errors.push("✓ stays off with a name");
+      await page.screenshot({ path: file });
+      await action.tap();
+      await page.waitForTimeout(200);
+      const made = await page.evaluate(() => window.__created);
+      if (!made?.startsWith("Sport|")) errors.push(`✓ didn't create the collection (${made})`);
+      if (await page.locator(".modal").count()) errors.push("the sheet stays open once created");
+    }
+  }
+  if (name === "phone-confirm") {
+    // As Obsidian's own: a sheet at the bottom, no ✕, the buttons across it.
+    const c = await page.evaluate(() => ({
+      bottom: Math.round(document.querySelector(".modal").getBoundingClientRect().bottom),
+      buttons: [...document.querySelectorAll(".modal .modal-button-container button")].map((b) => Math.round(b.getBoundingClientRect().width)),
+    }));
+    if (Math.abs(c.bottom - vh) > 1) errors.push(`the confirmation isn't at the bottom (${c.bottom} of ${vh})`);
+    if (c.buttons.length !== 2 || c.buttons.some((w) => w < 300)) errors.push(`the confirmation's buttons aren't across it (${c.buttons})`);
   }
   if (!["phone-month", "phone-day", "phone-list"].includes(name)) return;
   const layout = await page.evaluate(() => {
@@ -1544,6 +1642,18 @@ async function editing(page, errors, theme) {
     if ((await page.evaluate(() => window.__removed)) !== removed) errors.push(`"${text}"'s trash removed "${await page.evaluate(() => window.__removed)}"`);
     await page.evaluate(() => document.querySelectorAll(".menu").forEach((m) => m.remove()));
   }
+  // "Nouveau" on a computer, as the phone's "+": a task or an event (2026-11-04, the user: no button made an event).
+  await page.keyboard.press("Escape");
+  await page.locator(".ct-cal-action:has-text('Nouveau')").click().catch(() => errors.push("no Nouveau in the toolbar"));
+  await page.waitForTimeout(150);
+  const offered = await page.locator(".menu .menu-item-title").evaluateAll((els) => els.map((e) => e.textContent).join("|"));
+  if (offered !== "Nouvelle tâche|Nouvel événement") errors.push(`"Nouveau" offers "${offered}"`);
+  await page.screenshot({ path: join(out, `calendar-card-new-${theme}.png`) });
+  await page.locator(".menu .menu-item", { hasText: "Nouvel événement" }).click().catch(() => undefined);
+  await page.waitForTimeout(250);
+  if (!(await page.locator(".modal .ct-task-title-input").count())) errors.push("Nouveau → Nouvel événement didn't open the event form");
+  else await page.screenshot({ path: join(out, `calendar-card-new-event-${theme}.png`) });
+  await page.evaluate(() => document.querySelectorAll(".modal-container, .menu").forEach((m) => m.remove()));
 }
 
 /** Events whose box cuts what's in it (a title or a time line hidden by the box's bottom or side). */
@@ -2167,7 +2277,7 @@ for (const [name, width, height, scale = 2] of run) {
       const box = await settings.boundingBox();
       if (box) await page.setViewportSize({ width, height: Math.max(height, Math.ceil(box.y + box.height)) });
       await settings.screenshot({ path: file });
-    } else if (!["calendar-time", "calendar-new", "task-preview", "new-task-tags", "slot-picker", "date-picker", "new-event", "phone-month", "phone-day", "phone-tasks", "phone-add", "phone-slot-picker"].includes(name)) await page.screenshot({ path: file });
+    } else if (!["calendar-time", "calendar-new", "task-preview", "new-task-tags", "slot-picker", "date-picker", "new-event", "phone-month", "phone-day", "phone-tasks", "phone-add", "phone-card", "phone-task-group", "phone-collection-card", "phone-new-collection", "phone-slot-picker"].includes(name)) await page.screenshot({ path: file });
     console.log(`${errors.length ? "✗" : "✓"} ${name}-${theme}${errors.length ? `  ${errors.join(" | ")}` : ""}`);
     await page.close();
   }

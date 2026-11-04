@@ -114,7 +114,7 @@ the cursor, a second one takes it off the task; ← and → (or a click between 
 a time block, `@repeat never` stops the repetition, `@deadline never` removes the deadline, `@tag family` or
 `#family` adds a tag; it applies once the field closes (a `#tag` when you leave the line) and cleans the line.
 
-**The New task button** (ribbon, command palette, or the calendar's *+ New task*) opens a form: title, deadline,
+**The New task button** (ribbon, command palette, or the calendar's *+ New*, which also makes an event) opens a form: title, deadline,
 time blocks, repetition, priority, tags (your vault's tags are suggested as you type). Dates are typed the same way (`fri 2pm`, `tue 2pm-4pm`) or picked from a calendar
 (with a time for the deadline, from / to for a time block). Time blocks are listed: *to add* until you save, then
 *planned*.

@@ -406,6 +406,11 @@ export class Menu extends Component {
       window.addEventListener("mousedown", this.outside);
       window.addEventListener("click", this.outside);
     }, 0);
+    // A phone: a sheet at the bottom, as Obsidian does (its `mod-sheet`, which its CSS pins there).
+    if (document.body.classList.contains("is-phone")) {
+      this.dom.classList.add("mod-sheet");
+      return this;
+    }
     // Like Obsidian: keep the menu inside the window.
     this.dom.style.left = "0px";
     const w = this.dom.offsetWidth;
