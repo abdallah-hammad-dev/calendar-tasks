@@ -87,6 +87,8 @@ user at each one.
   place: new event, `editEvent` (what the form changed; move / rename go through it) on an occurrence as an
   exception, EXDATE, `setPartstat`, `isMirror`, `endSeries`), `modals.ts` (`renderEventForm` / `EventModal`: the
   event form, new or edit; `ConfirmModal`), `calendars.ts` (the colors offered).
+- `src/ui/repeat.ts` — the forms' repetition: its menu's options, `RepeatPickerModal` (Custom…, typed), the last
+  day's field (`splitRule`, `readUntil`, `untilText`); the task form and the event form use it alike.
 - `src/ical/write.ts` (`setDateProp`, `ensureVTimezone`, `touch`) and `src/ical/zones.ts` (`registerZones`, `ridOf`),
   shared by tasks and events.
 - `src/ical/time.ts` — zones through Intl (no tz database): wall clock ↔ instant, local value strings,
@@ -529,7 +531,14 @@ user at each one.
   becomes a VEVENT with `RELATED-TO` once TaskSync gives the note its UID (`TaskSync` `created` callback →
   `main.createBlocks`; pending blocks are in memory, lost if Obsidian closes before the first sync).
 - **Repetition**: `repeat` in the note (English phrase, or raw RRULE) ↔ `RRULE`; `normalizeRule` gives one spelling
-  so iOS's `INTERVAL=1;WKST=MO` doesn't ping-pong. Ticking moves the task on (`TaskSync.moveOn`, `nextOccurrence`
+  so iOS's `INTERVAL=1;WKST=MO` doesn't ping-pong. **A last day** (2026-11-04, spec §7.1): ours is `UNTIL=YYYYMMDD`,
+  that day included, everywhere in the app (`untilOf`, `withUntil`); items hold it in DTSTART's form, so it crosses
+  `ruleForItem` (a date for whole days, else the end of that day in the user's zone, in UTC) and `ruleFromItem` (any
+  form → that day where I am) at `vtodo.ts` / `vevent.ts`; `fitUntil` rewrites it when a deadline turns timed or
+  whole-day. ical.js stops a timed series before a date's first instant (the last day was lost), hence the
+  conversion, and `nextOccurrence`'s `T235959`. Ticking the last one: `nextOccurrence` is null, the task stays done.
+  An exception made from a series (`occurrence` in vevent.ts) now takes its own times: it had the series' first
+  ones, so a title changed on one occurrence moved it to the series' first day on the iPhone (found 2026-11-04). Ticking moves the task on (`TaskSync.moveOn`, `nextOccurrence`
   via ical.js), pushing from the new state rather than re-reading the note (Obsidian parses frontmatter later).
 - **A sub-task shows in its parent's note** (2026-10-27, the user: a child from the server had only the parent's
   `1/1`, "sous-tâches zombie"): `metadataCache.on("changed")` compares the task's `parentPath` with the index's

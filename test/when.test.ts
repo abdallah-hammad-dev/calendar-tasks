@@ -17,6 +17,8 @@ import {
   repeatFromNote,
   repeatLabel,
   repeatToNote,
+  ruleForItem,
+  ruleFromItem,
   startOn,
   suggestAt,
   taskEdit,
@@ -182,6 +184,67 @@ describe("repetition rules", () => {
     expect(nextOccurrence("2026-10-15", "FREQ=DAILY", now)).toBe("2026-10-16");
   });
 
+});
+
+describe("a repetition's last day", () => {
+  it("is read after the repetition, or after its time, in both languages", () => {
+    expect(when("Sport @chaque lundi jusqu'au 15 juin")).toMatchObject({ due: "2026-10-19", repeat: "FREQ=WEEKLY;BYDAY=MO;UNTIL=20270615" });
+    expect(when("Sport @répéter chaque lundi 7h jusqu'au 30/06")).toMatchObject({ due: "2026-10-19T07:00", repeat: "FREQ=WEEKLY;BYDAY=MO;UNTIL=20270630" });
+    expect(when("Sport @répéter chaque lundi jusqu’à fin")).toMatchObject({ repeat: "FREQ=WEEKLY;BYDAY=MO" }); // not a day: the title goes on
+    expect(cut("Sport @répéter chaque lundi jusqu’à fin")).toBe("@répéter chaque lundi");
+    expect(when("Run @repeat every week until june 15 2027")).toMatchObject({ repeat: "FREQ=WEEKLY;UNTIL=20270615" });
+    expect(when("Run @every monday until 2027-01-31")).toMatchObject({ repeat: "FREQ=WEEKLY;BYDAY=MO;UNTIL=20270131" });
+  });
+
+  it("ends a session that comes back, before or after its slot", () => {
+    const blocks = (line: string) => when(line)!.blocks;
+    const tue = { start: "2026-10-20T14:00", end: "2026-10-20T16:00", repeat: "FREQ=WEEKLY;BYDAY=TU;UNTIL=20261215" };
+    expect(blocks("Mémoire @session chaque mardi 14h-16h jusqu'au 15/12")).toEqual([tue]);
+    expect(blocks("Mémoire @session chaque mardi jusqu'au 15/12 14h-16h")).toEqual([tue]);
+  });
+
+  it("is said, written in the note, and read back", () => {
+    expect(repeatLabel("FREQ=WEEKLY;BYDAY=MO;UNTIL=20270615", "fr")).toBe("chaque lundi jusqu'au 15 juin 2027");
+    expect(repeatLabel("FREQ=WEEKLY;BYDAY=MO;UNTIL=20270601", "fr")).toBe("chaque lundi jusqu'au 1er juin 2027");
+    expect(repeatLabel("FREQ=DAILY;UNTIL=20270615", "en")).toBe("every day until 15 june 2027");
+    expect(repeatToNote("FREQ=WEEKLY;BYDAY=MO;UNTIL=20270615")).toBe("every monday until 2027-06-15");
+    for (const r of ["FREQ=WEEKLY;BYDAY=MO;UNTIL=20270615", "FREQ=DAILY;INTERVAL=2;UNTIL=20270601", "FREQ=MONTHLY;UNTIL=20261231"]) {
+      expect(repeatFromNote(repeatToNote(r))).toBe(r);
+      expect(repeatFromNote(repeatLabel(r, "fr", true))).toBe(r);
+      expect(repeatFromNote(repeatLabel(r, "en", true))).toBe(r);
+    }
+    expect(normalizeRule("FREQ=WEEKLY;UNTIL=20270615;INTERVAL=1;BYDAY=MO")).toBe("FREQ=WEEKLY;BYDAY=MO;UNTIL=20270615");
+  });
+
+  it("goes to and from items in DTSTART's form: a date for whole days, else the end of that day in UTC", () => {
+    expect(ruleForItem("FREQ=WEEKLY;BYDAY=MO;UNTIL=20270615", false, "Europe/Paris")).toBe("FREQ=WEEKLY;BYDAY=MO;UNTIL=20270615T215959Z");
+    expect(ruleForItem("FREQ=WEEKLY;BYDAY=MO;UNTIL=20270115", false, "Europe/Paris")).toBe("FREQ=WEEKLY;BYDAY=MO;UNTIL=20270115T225959Z");
+    expect(ruleForItem("FREQ=WEEKLY;BYDAY=MO;UNTIL=20270615", true, "Europe/Paris")).toBe("FREQ=WEEKLY;BYDAY=MO;UNTIL=20270615");
+    // What iOS and Google write, read as that last day where I am.
+    expect(ruleFromItem("FREQ=WEEKLY;UNTIL=20270615T215959Z;BYDAY=MO", "Europe/Paris")).toBe("FREQ=WEEKLY;BYDAY=MO;UNTIL=20270615");
+    expect(ruleFromItem("FREQ=WEEKLY;BYDAY=MO;UNTIL=20270615T080000Z", "Europe/Paris")).toBe("FREQ=WEEKLY;BYDAY=MO;UNTIL=20270615");
+    expect(ruleFromItem("FREQ=WEEKLY;BYDAY=MO;UNTIL=20270615T090000", "Asia/Taipei")).toBe("FREQ=WEEKLY;BYDAY=MO;UNTIL=20270615");
+    expect(ruleFromItem("FREQ=WEEKLY;INTERVAL=1", "Europe/Paris")).toBe("FREQ=WEEKLY");
+  });
+
+  it("stops a repeating task after it, its last day included", () => {
+    const now = { date: "2026-10-15", dateTime: "2026-10-15T10:00" };
+    expect(nextOccurrence("2026-10-19T07:00", "FREQ=WEEKLY;BYDAY=MO;UNTIL=20261026", now)).toBe("2026-10-26T07:00");
+    expect(nextOccurrence("2026-10-26T07:00", "FREQ=WEEKLY;BYDAY=MO;UNTIL=20261026", now)).toBeNull();
+    expect(nextOccurrence("2026-10-19", "FREQ=WEEKLY;UNTIL=20261026", now)).toBe("2026-10-26");
+    expect(nextOccurrence("2026-10-26", "FREQ=WEEKLY;UNTIL=20261026", now)).toBeNull();
+  });
+
+  it("is offered once a repetition is read, then days for it", () => {
+    const items = (typed: string) => suggestAt(typed, TODAY, "fr")?.items.map((i) => (i.kind === "accept" ? `✓${i.label}` : i.kind === "more" ? "+" : i.label)) ?? null;
+    expect(items("répéter chaque lundi ")).toContain("Jusqu'au…");
+    expect(items("répéter chaque lundi jus")).toEqual(["Jusqu'au…"]);
+    expect(items("répéter chaque lundi jusqu'au ")).toEqual(["jusqu'au 31 octobre", "jusqu'au 30 novembre", "jusqu'au 31 décembre", "jusqu'au 31 janvier 2027"]);
+    expect(items("répéter chaque lundi jusqu'au 15 j")).toEqual(["jusqu'au 15 janvier", "jusqu'au 15 juin", "jusqu'au 15 juillet"]);
+    expect(items("session chaque mardi 14h-16h ")).toContain("Jusqu'au…");
+    expect(items("répéter chaque lundi jusqu'au 15/06 ")).not.toContain("Jusqu'au…");
+    expect(items("deadline ven ")).not.toContain("Jusqu'au…");
+  });
 });
 
 describe("suggestions while typing after @", () => {

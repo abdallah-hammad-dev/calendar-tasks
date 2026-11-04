@@ -96,7 +96,7 @@ Free content: context, links to any file, small steps as plain `- [ ]` (never sy
 | file name | `SUMMARY` | both (a rename in Reminders renames the note through `fileManager`, links follow) |
 | `done` | `STATUS:COMPLETED` + `COMPLETED` + `PERCENT-COMPLETE:100` / `STATUS:NEEDS-ACTION` | both |
 | `due` | `DUE` (`VALUE=DATE`, or `DATE-TIME` with `TZID`) + `DTSTART` = same value, as iOS writes it | both |
-| `repeat` | `RRULE` (needs `DTSTART`: written = `DUE`). The note holds an English phrase (`every monday`, `every 2 weeks`, `every weekday`) or, for rules the grammar can't say, the RRULE itself. Rules are compared in one spelling (iOS adds `INTERVAL=1`, `WKST`) | both |
+| `repeat` | `RRULE` (needs `DTSTART`: written = `DUE`). The note holds an English phrase (`every monday`, `every 2 weeks`, `every weekday`, `every monday until 2027-06-15`) or, for rules the grammar can't say, the RRULE itself. Rules are compared in one spelling (iOS adds `INTERVAL=1`, `WKST`). A last day (2026-11-04, asked: a task repeated only during a school term) is `UNTIL`, in `DTSTART`'s form as RFC 5545 wants: a date for a whole-day deadline, else the end of that day in UTC, as iOS writes it (`20270615T215959Z` in Paris); read back as that day where I am. Ticking the last one leaves the task done | both |
 | `priority` | `PRIORITY` (2026-10-19, asked: none or three levels). The note holds `high` / `medium` / `low` (`haute` / `moyenne` / `basse` read too); written 1 / 5 / 9 as Reminders does, read 1–4 / 5 / 6–9 (RFC 5545); none = no property (0 read as none). A level written elsewhere (2, 7…) is kept while the note says the same level. Shown !!! / !! / ! (red / orange / blue) | both |
 | `tags` | `CATEGORIES`, one per tag. A category that can't be a tag ("2026") stays on the server untouched; one with spaces reads as a tag with dashes ("Work stuff" → `Work-stuff`) and keeps its spelling there. Compared in any case and order, so the phone's spelling doesn't ping-pong | both |
 | `parent` | `RELATED-TO;RELTYPE=PARENT:<parent UID>`; read a `RELATED-TO` without `RELTYPE` as parent (iOS drops the parameter, RFC default) | both |
@@ -385,10 +385,13 @@ Implementation: CodeMirror 6 view plugin (Live Preview) + `registerMarkdownPostP
     calendar), created once the task note has its reminder:
     blocking time is never a task field (RFC 5545 has none for it; DTSTART is a start date, not a work session).
     A repetition inside the slot makes it come back (§4.4): `@session chaque mardi 14h-16h`, `@session en semaine
-    7h-8h`, `@session chaque semaine ven matin`; it starts on the rule's first day unless one is given.
+    7h-8h`, `@session chaque semaine ven matin`; it starts on the rule's first day unless one is given. Its last
+    day before or after the slot: `@session chaque mardi 14h-16h jusqu'au 15 décembre`.
   - `@répéter` / `@repeat` + a repetition: `chaque semaine`, `tous les 2 jours`, `chaque lundi et jeudi`,
-    `en semaine`, `every month`… optionally + a time (`chaque lundi 7h`). **Shortcut**: a repetition straight after
-    `@` (`@chaque lundi`). With no deadline, it starts on its first day from today.
+    `en semaine`, `every month`… optionally + a time (`chaque lundi 7h`), and a last day (`jusqu'au 30 juin`,
+    `until 2027-06-30`; the assistant offers "Jusqu'au…" once a repetition is read, then month ends or the day being
+    typed). **Shortcut**: a repetition straight after `@` (`@chaque lundi`). With no deadline, it starts on its first
+    day from today.
   - `@tag` + one tag (Obsidian's rule: letters, digits, `_ - /`, not only digits; a `#` before it is fine), kept as
     written: `@tag famille`, `@tag projets/maison`. One per `@` (any word could be a tag, so a second one would eat
     the title): `@tag famille @tag urgent`. The assistant offers the vault's tags, most used first; a new one is
@@ -660,8 +663,16 @@ popovers.
   it's dropped. **Selecting a range** creates an event (title, collection, or a task it's a work session for: picking it names the event, unless a title was typed), in a popover beside the selection, which stays drawn until the popover closes. A range of hours stays adjustable meanwhile: dragged by its top, its bottom or its middle, with a grip at each end (pulled past the other end, a grip stops 5 minutes short of it, here and in Move mode), the form's times follow it, what's typed there stays, and times typed move it. On a phone it's adjusted first, without a long press, the bar saying Cancel, its times, Next; Next opens the form in a modal, and closing the form takes the range away. Whole days have no such step: the form opens at once, in a modal on phones. A click beside the events while a menu is open
   only closes the menu (2026-10-25, the user: closing the right-click menu that way started a new event); a click on an
   event still does what it does, as anywhere in Obsidian.
-- Editing an event's details (title, times, place, collection, task) is its form (the pencil above); the
-  recurrence and complex edits stay in Apple Calendar.
+- Editing an event's details (title, times, how it comes back and its last day, place, collection, task) is its form
+  (the pencil above). **Repeat and Until** (2026-11-04, the user: "on peut pas faire des evenements repetitifs ?",
+  "tous les lundi mais seulement entre tel mois et mois", then Until for tasks too "comme ça c'est aligné"; it had
+  been left to Apple Calendar, which they use only because it's their iPhone's own): the event form and the task form
+  have the same two rows, a menu (Never, the usual ones, Custom… typed as after `@répéter`) and, while it repeats, a
+  day field for its last day (empty: no end; before the start: marked, nothing saved). From one occurrence they
+  change the series: another last day drops the exceptions after it; another pattern moves the whole series by as
+  much as that occurrence was moved and drops its exceptions; Never leaves that occurrence, as edited, alone. The
+  rule is written again only when one of the two rows changed (a COUNT written elsewhere stays). The card says the
+  rule ("Chaque lundi jusqu'au 15 juin").
 
 ### 7.2 Task list — Bases
 

@@ -2,7 +2,7 @@ import ICAL from "ical.js";
 import { PROTOCOL_ACTION, type Priority } from "../constants";
 import { formatLocalDate, formatLocalDateTime, fromWall, isKnownZone, parseLocal, wallClock, type Wall } from "../ical/time";
 import { setDateProp, touch } from "../ical/write";
-import { normalizeRule } from "../editor/when";
+import { ruleForItem, ruleFromItem, untilOf } from "../editor/when";
 
 /** The VTODO fields the extension owns (spec §4.1). Everything else in the item is left untouched. */
 export interface TaskFields {
@@ -107,7 +107,7 @@ export function readTask(data: string, tz: string): ReadTask | null {
     completed: readLocal(todo.getFirstProperty("completed"), cal, tz),
     categories: todo.getAllProperties("categories").flatMap((p) => p.getValues().map((c) => String(c).trim())).filter(Boolean),
     parentUid: parent ? String(parent.getFirstValue()) : null,
-    repeat: readRule(todo),
+    repeat: readRule(todo, tz),
     priority: readPriority(todo),
     notes: lines.filter((l) => !isOurLink(l)).join("\n").trim(),
     url: typeof url === "string" ? url : null,
@@ -115,9 +115,20 @@ export function readTask(data: string, tz: string): ReadTask | null {
   };
 }
 
-function readRule(todo: Comp): string | null {
+/** The rule, ours: its last day (UNTIL) a date where I am, whatever form the item has it in. */
+function readRule(todo: Comp, tz: string): string | null {
   const v = todo.getFirstPropertyValue("rrule");
-  return v instanceof ICAL.Recur ? normalizeRule(v.toString()) : null;
+  return v instanceof ICAL.Recur ? ruleFromItem(v.toString(), tz) : null;
+}
+
+/** UNTIL in DTSTART's form (RFC 5545 §3.3.10: a date for a whole-day start, else UTC), after either changed. */
+function fitUntil(todo: Comp, tz: string): void {
+  const prop = todo.getFirstProperty("rrule");
+  const start = todo.getFirstPropertyValue("dtstart");
+  const rule = readRule(todo, tz);
+  if (!prop || !rule || !untilOf(rule) || !(start instanceof ICAL.Time)) return;
+  const fitted = ruleForItem(rule, start.isDate, tz);
+  if (fitted !== String(prop.getFirstValue())) prop.setValue(ICAL.Recur.fromString(fitted));
 }
 
 /** RFC 5545 §3.8.1.9: 1–4 high, 5 medium, 6–9 low, 0 (or none) undefined. */
@@ -164,7 +175,7 @@ function applyFields(cal: Comp, todo: Comp, changes: Partial<TaskFields>, opts: 
     if (p) todo.updatePropertyWithValue("completed", utcStamp(fromWall(p.wall, opts.tz)));
   }
   if (changes.due !== undefined) setDue(cal, todo, changes.due, opts.tz);
-  if (changes.repeat !== undefined && changes.repeat !== readRule(todo)) {
+  if (changes.repeat !== undefined && changes.repeat !== readRule(todo, opts.tz)) {
     todo.removeAllProperties("rrule");
     // A rule needs a start (DTSTART, = DUE as iOS writes it); without a due date the repetition stays in the note.
     const due = todo.getFirstProperty("due");
@@ -173,6 +184,7 @@ function applyFields(cal: Comp, todo: Comp, changes: Partial<TaskFields>, opts: 
     }
     if (changes.repeat && todo.hasProperty("dtstart")) todo.addPropertyWithValue("rrule", ICAL.Recur.fromString(changes.repeat));
   }
+  if (changes.due !== undefined || changes.repeat !== undefined) fitUntil(todo, opts.tz);
   // Only when the level changes: a 2 written elsewhere stays a 2 while it reads "high".
   if (changes.priority !== undefined && changes.priority !== readPriority(todo)) {
     if (changes.priority) todo.updatePropertyWithValue("priority", PRIORITY_VALUE[changes.priority]);

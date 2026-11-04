@@ -1,18 +1,18 @@
-import { AbstractInputSuggest, Modal, Platform, Setting, SuggestModal, setIcon, type App } from "obsidian";
+import { AbstractInputSuggest, Modal, Platform, Setting, setIcon, type App } from "obsidian";
 import type { Priority } from "../constants";
 import { formatLocalDate, localZone, parseLocal, wallClock } from "../ical/time";
-import { language, t } from "../i18n";
+import { t } from "../i18n";
 import { DatePickerModal, fieldsProblem, hm, markFields, type PickerDay } from "../editor/date-picker";
 import { blockLabel, shortDay } from "../editor/date-suggest";
 import type { EditFocus } from "../editor/render";
 import { DayPreview, type Placed, type PreviewSource } from "../calendar/day-preview";
 import { localValue } from "../calendar/when-fields";
-import { dateText, dayBlock, dayValue, firstDay, readFields, repeatLabel, suggestAt, type Block } from "../editor/when";
+import { dateText, dayBlock, dayValue, firstDay, readFields, withUntil, type Block } from "../editor/when";
+import { readUntil, RepeatPickerModal, repeatOption, repeatOptions, splitRule, untilText } from "../ui/repeat";
 import { menuSelect, named } from "../ui/menu-select";
 import { formSheet } from "../ui/sheet";
 import { sameTag, tagsOf } from "./tags";
 
-const lang = (): "fr" | "en" => (language().startsWith("fr") ? "fr" : "en");
 const today = () => wallClock(new Date(), localZone());
 
 
@@ -42,18 +42,6 @@ export interface TaskDraft {
   planned: { label: string; start: string | null }[];
 }
 
-const REPEATS = [
-  "FREQ=DAILY",
-  "FREQ=WEEKLY",
-  "FREQ=WEEKLY;INTERVAL=2",
-  "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR",
-  "FREQ=MONTHLY",
-  "FREQ=YEARLY",
-];
-
-const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-const repeatOption = (rule: string) => ({ value: rule, label: capital(repeatLabel(rule, lang()) ?? rule) });
-
 /**
  * The task form (spec §5.3): a title, an optional deadline, time blocks, a repetition, a priority, tags, the
  * collection.
@@ -62,7 +50,9 @@ const repeatOption = (rule: string) => ({ value: rule, label: capital(repeatLabe
  */
 export class TaskModal extends Modal {
   private task: NewTask;
-  private valid = { due: true, block: true };
+  private valid = { due: true, block: true, until: true };
+  /** Reads the last day's field again (the deadline it's checked against may have changed). */
+  private checkUntil: () => void = () => undefined;
   private typedSlot: () => Block | null = () => null;
   /** Where the fields go (beside the day preview when there is one). */
   private form!: HTMLElement;
@@ -138,27 +128,7 @@ export class TaskModal extends Modal {
     startAt("due", this.deadline());
     this.slots(edit?.planned ?? []);
 
-    const repeat = named(new Setting(this.form), "repeat", t("modal.repeat"));
-    const options = [{ value: "", label: t("modal.repeat.never") }, ...REPEATS.map(repeatOption)];
-    if (this.task.repeat && !REPEATS.includes(this.task.repeat)) options.push(repeatOption(this.task.repeat));
-    const repeatSelect = menuSelect(repeat.controlEl, {
-      options,
-      value: this.task.repeat ?? "",
-      onChange: (v) => (this.task.repeat = v || null),
-      extra: {
-        label: t("modal.repeat.custom"),
-        icon: "pencil",
-        run: () =>
-          new RepeatPickerModal(this.app, {
-            placeholder: t("picker.repeat"),
-            pick: (rule) => {
-              this.task.repeat = rule;
-              repeatSelect.setValue(rule, repeatOption(rule).label);
-            },
-          }).open(),
-      },
-    });
-    startAt("repeat", repeatSelect.el);
+    startAt("repeat", this.repetition());
 
     // Low to high, as on the iPhone.
     const priority = named(new Setting(this.form), "chevrons-up", t("modal.priority"));
@@ -324,6 +294,82 @@ export class TaskModal extends Modal {
   }
 
   /**
+   * How it comes back, then its last day ("Until", only while it repeats): the rule is written again only when one
+   * of them changes. Returns the menu.
+   */
+  private repetition(): HTMLElement {
+    let { pattern, until } = splitRule(this.task.repeat);
+    const compose = () => (this.task.repeat = pattern ? withUntil(pattern, until) : null);
+    const repeat = named(new Setting(this.form), "repeat", t("modal.repeat"));
+    const last = named(new Setting(this.form), "calendar-x", t("modal.until"));
+    last.settingEl.addClass("ct-until");
+    const field = this.small(last, "ct-when-day", t("picker.day"), untilText(until));
+    const hint = last.descEl;
+    const read = (changed: boolean) => {
+      const r = readUntil(field.value, this.task.due);
+      field.toggleClass("mod-warning", !!r.error);
+      hint.setText(r.error ?? (r.until ? `→ ${shortDay(dayValue(r.until, null), false)}` : ""));
+      hint.toggleClass("mod-warning", !!r.error);
+      this.valid.until = !pattern || !r.error;
+      if (changed && !r.error) {
+        until = r.until;
+        compose();
+      }
+    };
+    const show = () => {
+      last.settingEl.toggle(!!pattern);
+      read(false);
+    };
+    this.checkUntil = () => read(false);
+    field.addEventListener("input", () => read(true));
+    field.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.isComposing) this.submit();
+    });
+    last.addExtraButton((b) =>
+      b
+        .setIcon("calendar")
+        .setTooltip(t("modal.pickDate"))
+        .onClick(() =>
+          new DatePickerModal(this.app, {
+            mode: "due",
+            value: until ? dayValue(until, null) : null,
+            pick: (value) => {
+              field.value = dateText(value.slice(0, 10));
+              read(true);
+            },
+          }).open(),
+        ),
+    );
+    const select = menuSelect(repeat.controlEl, {
+      options: repeatOptions(pattern),
+      value: pattern ?? "",
+      onChange: (v) => {
+        pattern = v || null;
+        compose();
+        show();
+      },
+      extra: {
+        label: t("modal.repeat.custom"),
+        icon: "pencil",
+        run: () =>
+          new RepeatPickerModal(this.app, {
+            placeholder: t("picker.repeat"),
+            pick: (rule) => {
+              const typed = splitRule(rule);
+              pattern = typed.pattern;
+              if (typed.until) field.value = untilText((until = typed.until));
+              select.setValue(typed.pattern!, repeatOption(typed.pattern!).label);
+              compose();
+              show();
+            },
+          }).open(),
+      },
+    });
+    show();
+    return select.el;
+  }
+
+  /**
    * Time blocks: those this form adds (tinted like in the preview, ✕ takes one off), then those already planned.
    * One goes in the list dragged on the preview, from the calendar button, or typed in its fields (a day, from, to;
    * no hours: the whole day), then Enter or +. Nothing reaches the calendar before the form is saved.
@@ -433,7 +479,8 @@ export class TaskModal extends Modal {
 
   private submit(): void {
     const title = this.task.title.trim();
-    if (!title || !this.valid.due || !this.valid.block) return;
+    this.checkUntil();
+    if (!title || !this.valid.due || !this.valid.block || !this.valid.until) return;
     this.close();
     // A repetition needs a date to start from: its first day from today.
     const due = this.task.due ?? (this.task.repeat ? formatLocalDate(firstDay(this.task.repeat, today())) : null);
@@ -445,42 +492,6 @@ export class TaskModal extends Modal {
     this.preview?.destroy();
     this.preview = null;
     this.contentEl.empty();
-  }
-}
-
-/** Picks a repetition by typing it: "chaque lundi et jeudi", "tous les 3 jours", "toutes les 2 semaines"… */
-export class RepeatPickerModal extends SuggestModal<{ label: string; rule: string }> {
-  constructor(
-    app: App,
-    private readonly opts: { placeholder: string; pick: (rule: string) => void },
-  ) {
-    super(app);
-    this.setPlaceholder(opts.placeholder);
-  }
-
-  getSuggestions(query: string): { label: string; rule: string }[] {
-    const typed = `repeter ${query}`;
-    const res = suggestAt(typed, today(), lang());
-    if (!res) return [];
-    const seen = new Set<string>();
-    const out: { label: string; rule: string }[] = [];
-    for (const i of res.items) {
-      const rule = i.kind !== "more" ? i.when?.repeat : null;
-      if (!rule || seen.has(rule)) continue;
-      seen.add(rule);
-      out.push({ label: (i.kind === "accept" ? typed : typed.slice(0, res.from) + i.text).replace(/^repeter\s*/, "").trim(), rule });
-    }
-    return out;
-  }
-
-  renderSuggestion(item: { label: string; rule: string }, el: HTMLElement): void {
-    el.addClass("ct-date-suggestion");
-    el.createSpan({ cls: "ct-date-suggestion-label", text: item.label });
-    el.createSpan({ cls: "ct-date-suggestion-day", text: repeatLabel(item.rule, lang()) ?? item.rule });
-  }
-
-  onChooseSuggestion(item: { label: string; rule: string }): void {
-    this.opts.pick(item.rule);
   }
 }
 

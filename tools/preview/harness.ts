@@ -196,7 +196,7 @@ function calendar(view: "timeGridWeek" | "timeGridDay" | "dayGridMonth" | "listW
       calendars: { "https://c/perso/": "Perso", "https://c/taches/": "Rappels" },
       calendarUrl: o.calendarUrl,
       tasks: [{ uid: "t8", title: "Rédiger le mémoire" }, { uid: "t1", title: "Préparer slides" }],
-      edit: { title: o.title, location: o.location ?? "", taskUid: o.taskUid, series: o.recurring },
+      edit: { title: o.title, location: o.location ?? "", taskUid: o.taskUid, series: o.recurring, repeat: o.recurring ? "FREQ=WEEKLY" : null },
       submit: (c) => {
         const i = ITEMS.findIndex(([cal], j) => `${cal}${j}.ics` === o.itemUrl);
         const when = c.when;
@@ -429,7 +429,7 @@ function editTask(menu = false): void {
     edit: {
       title: "Rédiger le mémoire",
       due: "2026-10-23T18:00",
-      repeat: "FREQ=WEEKLY",
+      repeat: "FREQ=WEEKLY;UNTIL=20261218",
       priority: "high",
       tags: ["olera"],
       collection: "Pro",
@@ -500,8 +500,13 @@ function newTask(tags = false): void {
   inputs[5]?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
   fill(3, "jeu");
   fill(4, "10h");
-  fill(6, tags ? "#olera #f" : "#olera");
-  if (tags) inputs[6]?.focus();
+  // The tags by their class: the fields before them change (the last day's, hidden while it doesn't repeat).
+  const tagsInput = modal.contentEl.querySelector<HTMLInputElement>(".ct-task-tags-input");
+  if (tagsInput) {
+    tagsInput.value = tags ? "#olera #f" : "#olera";
+    tagsInput.dispatchEvent(new Event("input"));
+    if (tags) tagsInput.focus();
+  }
   done();
 }
 

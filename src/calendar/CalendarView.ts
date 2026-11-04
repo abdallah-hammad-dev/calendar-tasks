@@ -52,6 +52,8 @@ export interface CalendarHost {
   hasNote(occ: Occurrence): boolean;
   /** Whether its last change made here is on the server yet. */
   syncState(occ: Occurrence): SyncState;
+  /** How an occurrence comes back, said; null (or absent) when that can't be said. */
+  repeats?(occ: Occurrence): string | null;
   sync(): void;
   language(): string;
   /** Date to open on (default: today). */
@@ -1651,6 +1653,7 @@ export class CalendarView extends ItemView {
       sync: this.host.syncState(occ),
       edit: this.editKind(occ),
       remove: occ.kind !== "deadline" && this.host.editable(occ),
+      repeat: occ.recurring ? (this.host.repeats?.(occ) ?? null) : null,
     };
   }
 

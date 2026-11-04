@@ -157,6 +157,21 @@ describe("repetition", () => {
     expect(lines(writeTask(weekly, { repeat: null }, PARIS)).some((x) => x.startsWith("RRULE"))).toBe(false);
   });
 
+  it("writes a last day in DTSTART's form, reads iOS's back as that day, and follows the due date's form", () => {
+    const rrule = (data: string) => lines(data).slice(lines(data).indexOf("BEGIN:VTODO")).find((x) => x.startsWith("RRULE")); // not a zone's
+    const timed = writeTask(cal("DUE;TZID=Europe/Paris:20261019T070000\r\n"), { repeat: "FREQ=WEEKLY;BYDAY=MO;UNTIL=20270615" }, PARIS);
+    expect(rrule(timed)).toBe("RRULE:FREQ=WEEKLY;BYDAY=MO;UNTIL=20270615T215959Z");
+    expect(readTask(timed, "Europe/Paris")?.repeat).toBe("FREQ=WEEKLY;BYDAY=MO;UNTIL=20270615");
+    // A whole day now: the last day becomes a date too, and back.
+    const allDay = writeTask(timed, { due: "2026-10-19" }, PARIS);
+    expect(rrule(allDay)).toBe("RRULE:FREQ=WEEKLY;BYDAY=MO;UNTIL=20270615");
+    expect(rrule(writeTask(allDay, { due: "2026-10-19T08:00" }, PARIS))).toBe("RRULE:FREQ=WEEKLY;BYDAY=MO;UNTIL=20270615T215959Z");
+    // The same rule written again changes nothing.
+    expect(writeTask(timed, { repeat: "FREQ=WEEKLY;BYDAY=MO;UNTIL=20270615" }, PARIS)).toBe(timed);
+    const ios = cal("DTSTART;TZID=Europe/Paris:20261019T070000\r\nDUE;TZID=Europe/Paris:20261019T070000\r\nRRULE:FREQ=WEEKLY;UNTIL=20270615T215959Z;BYDAY=MO\r\n");
+    expect(readTask(ios, "Europe/Paris")?.repeat).toBe("FREQ=WEEKLY;BYDAY=MO;UNTIL=20270615");
+  });
+
   it("keeps the rule in the note only when there's no date to hang it on", () => {
     expect(lines(writeTask(cal(""), { repeat: "FREQ=WEEKLY" }, PARIS)).some((x) => x.startsWith("RRULE"))).toBe(false);
   });

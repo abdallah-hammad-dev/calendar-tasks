@@ -1,7 +1,9 @@
 import { Modal, Setting, type App } from "obsidian";
 import { t } from "../i18n";
+import { withUntil } from "../editor/when";
 import { formRow } from "../ui/form-row";
 import { menuSelect } from "../ui/menu-select";
+import { readUntil, repeatOption, repeatOptions, splitRule, untilText } from "../ui/repeat";
 import { formSheet } from "../ui/sheet";
 import { renderWhenFields, type When } from "./when-fields";
 
@@ -12,6 +14,8 @@ export interface EventChoice {
   location: string;
   calendarUrl: string;
   taskUid: string | null;
+  /** How it comes back, ours (UNTIL: its last day); null: it doesn't. As it was unless the form changed it. */
+  repeat: string | null;
 }
 
 /**
@@ -27,11 +31,14 @@ export interface EventFormOptions {
   calendars: Record<string, string>;
   calendarUrl: string;
   tasks: { uid: string; title: string }[];
+  /** "Custom…" in the repetition's menu: a repetition typed (a picker), given to `pick`. */
+  pickRepeat?: (pick: (rule: string) => void) => void;
   /**
    * Changing an event: what it holds now, and Save instead of Create. `series`: one occurrence of a series, which
-   * stays in the series' collection (the series is one item), so the form doesn't offer another.
+   * stays in the series' collection (the series is one item), so the form doesn't offer another. `repeat`: the
+   * series' rule, which the form changes for the whole series.
    */
-  edit?: { title: string; location: string; taskUid: string | null; series: boolean };
+  edit?: { title: string; location: string; taskUid: string | null; series: boolean; repeat: string | null };
   submit: (choice: EventChoice) => void;
 }
 
@@ -48,9 +55,16 @@ export function renderEventForm(el: HTMLElement, opts: EventFormOptions, close: 
     location: edit?.location ?? "",
     calendarUrl: opts.calendarUrl,
     taskUid: edit?.taskUid ?? null,
+    repeat: edit?.repeat ?? null,
   };
+  // Its times and its last day, each readable.
+  const ok = { when: true, until: true };
   let valid = true;
   let create: HTMLButtonElement | null = null;
+  const check = () => {
+    valid = ok.when && ok.until;
+    if (create) create.disabled = !valid;
+  };
   const submit = () => {
     if (!valid) return;
     const task = opts.tasks.find((x) => x.uid === choice.taskUid);
@@ -75,18 +89,22 @@ export function renderEventForm(el: HTMLElement, opts: EventFormOptions, close: 
   enter(input);
   // One grid for every line: icon, name, field, in columns that line up.
   const grid = el.createDiv({ cls: "ct-form-grid" });
+  let checkUntil = () => undefined as void;
   const when = renderWhenFields(grid, opts.when, (w) => {
-    valid = !!w;
-    if (create) create.disabled = !w;
-    if (!w) return;
-    choice.when = w;
-    opts.preview?.(w);
+    ok.when = !!w;
+    if (w) choice.when = w;
+    checkUntil();
+    if (w) opts.preview?.(w);
   });
   opts.follow?.((w) => {
-    valid = true;
-    if (create) create.disabled = false;
+    ok.when = true;
     choice.when = w;
     when.set(w);
+    checkUntil();
+  });
+  checkUntil = repeatRows(grid, choice, opts, (good) => {
+    ok.until = good;
+    check();
   });
   const place = formRow(grid, "map-pin", t("modal.place")).createEl("input", { cls: "ct-form-text", type: "text" });
   place.value = choice.location;
@@ -121,6 +139,63 @@ export function renderEventForm(el: HTMLElement, opts: EventFormOptions, close: 
       create = b.buttonEl;
     });
   return input;
+}
+
+/**
+ * How the event comes back, then its last day ("Until", a day field shown only while it repeats), in the form's
+ * grid: `choice.repeat` is written again only when one of them changes. `valid` hears whether the day reads (and
+ * isn't before the start). Returns what checks the day again (the start moved).
+ */
+function repeatRows(grid: HTMLElement, choice: EventChoice, opts: EventFormOptions, valid: (ok: boolean) => void): () => void {
+  let { pattern, until } = splitRule(choice.repeat);
+  const compose = () => (choice.repeat = pattern ? withUntil(pattern, until) : null);
+  const menu = formRow(grid, "repeat", t("modal.repeat"));
+  const field = formRow(grid, "calendar-x", t("modal.until"));
+  // The row is three cells of the grid: its icon, its name, its field.
+  const row = [field.previousElementSibling, field.previousElementSibling?.previousElementSibling, field].filter((x): x is HTMLElement => !!x);
+  const input = field.createEl("input", { cls: "ct-when-day", type: "text", attr: { placeholder: t("picker.day") } });
+  input.spellcheck = false;
+  input.value = untilText(until);
+  const read = (changed: boolean) => {
+    const r = pattern ? readUntil(input.value, choice.when.start) : { until: null, error: null };
+    input.toggleClass("is-invalid", !!r.error);
+    input.title = r.error ?? "";
+    if (changed && !r.error) {
+      until = r.until;
+      compose();
+    }
+    valid(!r.error);
+  };
+  const show = () => {
+    for (const el of row) el.toggle(!!pattern);
+    read(false);
+  };
+  input.addEventListener("input", () => read(true));
+  const pick = opts.pickRepeat;
+  const select = menuSelect(menu, {
+    options: repeatOptions(pattern),
+    value: pattern ?? "",
+    onChange: (v) => {
+      pattern = v || null;
+      compose();
+      show();
+    },
+    extra: pick && {
+      label: t("modal.repeat.custom"),
+      icon: "pencil",
+      run: () =>
+        pick((rule) => {
+          const typed = splitRule(rule);
+          pattern = typed.pattern;
+          if (typed.until) input.value = untilText((until = typed.until));
+          select.setValue(typed.pattern!, repeatOption(typed.pattern!).label);
+          compose();
+          show();
+        }),
+    },
+  });
+  show();
+  return () => read(false);
 }
 
 /** The event form in a modal (phones, where there's no room for a popover). `closed`: however it closes. */

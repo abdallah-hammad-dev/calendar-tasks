@@ -51,7 +51,7 @@ A task is a note in the tasks folder (default `Tasks/`) with this frontmatter:
 type: task
 done: false               # tick it here, in the task list, or on the phone
 due: 2026-10-15           # the deadline, or 2026-10-15T14:00 (your local time). Optional
-repeat: every monday      # optional: every day, every 2 weeks, every weekday, every month…
+repeat: every monday      # optional: every day, every 2 weeks, every monday until 2027-06-30…
 tags: [work, urgent]      # optional: Obsidian's own tags
 parent: "[[Parent task]]" # only for a sub-task with its own deadline
 created: 2026-10-21T14:05 # when the task was made, set by the extension
@@ -93,8 +93,9 @@ Backspace against a block selects it, a second Backspace deletes it.
   it stops when the task is done.
 - **Priority**: `high`, `medium`, `low` (`@priority none` takes it off a task). Shown as !!! / !! / !, and synced
   as the reminder's priority.
-- **Repeat**: `every week`, `every 2 days`, `every monday and thursday`, `every weekday`, `monthly`… The task
-  syncs as a repeating reminder; ticking it brings it back at its next date instead of closing it. Each time
+- **Repeat**: `every week`, `every 2 days`, `every monday and thursday`, `every weekday`, `monthly`…, and a last day if
+  it stops (`every monday until june 30`, `chaque lundi jusqu'au 30 juin`). The task syncs as a repeating reminder;
+  ticking it brings it back at its next date instead of closing it (the last time, it stays done). Each time
   you tick it is kept in `completions`; the note's bar lists the last days faintly, and a click lists them all.
 
 A line is *left* when the cursor moves to another line, or when you click somewhere else in Obsidian (another note,
@@ -168,7 +169,8 @@ shown or hidden from the legend.
   form and the calendar button plans a session.
 - **Drag or resize** an event to move it (one occurrence of a recurring event moves on its own). Dragging a
   deadline changes the task's due date.
-- **Select a range** to create an event, or a work session for a task.
+- **Select a range** to create an event, or a work session for a task. Its form says how it repeats and until when,
+  as the task form does.
 - **Right-click** an event to change or delete it, or to answer an invitation.
 - **Video meetings** (Teams, Zoom, Google Meet, Webex…) show a camera; their card, their note and the right-click
   menu have *Join Teams* (or Zoom, Meet…), found in the event wherever its link is (Outlook puts Teams' in the

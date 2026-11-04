@@ -1,5 +1,5 @@
 import ICAL from "ical.js";
-import { formatLocalDate, formatLocalDateTime, parseLocal } from "../ical/time";
+import { formatLocalDate, formatLocalDateTime, fromWall, icalDate, icalDateTime, localZone, parseLocal, wallClock } from "../ical/time";
 import { addDays, fold, resolveDate, suggestDates, WEEKDAYS, weekdayOf, type Ymd } from "./date-token";
 import { isTag, sameTag } from "../tasks/tags";
 import type { Priority } from "../constants";
@@ -87,6 +87,8 @@ const AND_WORDS = new Set(["et", "and"]);
 /** `@tâche`: the line becomes a task, nothing more (2026-10-25: was `@sans date`, asked). */
 const TASK_WORDS = new Set(["tache", "task"]);
 const NEVER = new Set(["jamais", "never"]);
+/** Before a repetition's last day (folded): `chaque lundi jusqu'au 15 juin`, `every monday until june 15`. */
+const UNTIL_WORDS = new Set(["jusqu'au", "jusquau", "jusqu'a", "jusqua", "until", "till"]);
 
 function weekday(w: string | undefined): number | null {
   if (!w) return null;
@@ -224,6 +226,21 @@ function repeatAt(f: string[], i: number): { rule: string; used: number } | null
   return { rule: `FREQ=WEEKLY;BYDAY=${byday.join(",")}`, used: j - i };
 }
 
+/** A repetition's last day at word `i`: `jusqu'au 15 juin`, `until 2027-06-15`. */
+function untilAt(f: string[], i: number, today: Ymd): { date: Ymd; used: number } | null {
+  if (!UNTIL_WORDS.has(f[i] ?? "")) return null;
+  const d = dayAt(f, i + 1, today);
+  return d ? { date: d.date, used: d.used + 1 } : null;
+}
+
+/** A repetition and, if one is said, its last day: `chaque lundi jusqu'au 15 juin`. */
+function ruleAt(f: string[], i: number, today: Ymd): { rule: string; used: number } | null {
+  const r = repeatAt(f, i);
+  if (!r) return null;
+  const u = untilAt(f, i + r.used, today);
+  return u ? { rule: withUntil(r.rule, u.date), used: r.used + u.used } : r;
+}
+
 /** The first day on or after `from` that a rule falls on (its weekdays for BYDAY rules, else `from`). */
 export function firstDay(rule: string, from: Ymd): Ymd {
   const byday = /BYDAY=([A-Z,]+)/.exec(rule)?.[1]?.split(",");
@@ -356,25 +373,31 @@ export function parseToken(f: string[], today: Ymd): Token {
   feature ??= repeatAt(f, 0) ? "repeat" : "due";
   const tok: Token = { ...none, feature, used: i };
   if (feature === "block") {
-    const r = repeatAt(f, i);
+    const r = ruleAt(f, i, today);
     if (r) {
-      // "chaque mardi 14h-16h": the slot comes back; it starts on the rule's first day unless one is given.
+      // "chaque mardi 14h-16h": the slot comes back; it starts on the rule's first day unless one is given. Its last
+      // day goes before the slot or after it ("chaque mardi 14h-16h jusqu'au 15 juin").
       const first = firstDay(r.rule, today);
       const s = slotAt(f, i + r.used, today, first);
+      let [rule, used] = [r.rule, r.used + (s?.used ?? 0)];
+      const u = s && !untilOf(rule) ? untilAt(f, i + used, today) : null;
+      if (u) [rule, used] = [withUntil(rule, u.date), used + u.used];
       const block = s?.block ?? { start: formatLocalDate(first), end: formatLocalDate(addDays(first, 1)) };
-      [tok.block, tok.valueUsed] = [{ ...block, repeat: r.rule }, r.used + (s?.used ?? 0)];
+      [tok.block, tok.valueUsed] = [{ ...block, repeat: rule }, used];
     } else {
       const s = slotAt(f, i, today);
       if (s) [tok.block, tok.valueUsed] = [s.block, s.used];
     }
   } else if (feature === "repeat") {
-    const r = repeatAt(f, i);
+    const r = ruleAt(f, i, today);
     if (i && NEVER.has(f[i] ?? "")) [tok.clear, tok.valueUsed] = [["repeat"], 1];
     else if (r) {
-      tok.repeat = r.rule;
-      tok.valueUsed = r.used;
+      [tok.repeat, tok.valueUsed] = [r.rule, r.used];
       const m = momentAt(f, i + r.used, today); // "chaque lundi 7h": when the first one is due
       if (m) [tok.moment, tok.valueUsed] = [m, r.used + m.used];
+      // Its last day after the time too: "chaque lundi 7h jusqu'au 15 juin".
+      const u = m && !untilOf(r.rule) ? untilAt(f, i + tok.valueUsed, today) : null;
+      if (u) [tok.repeat, tok.valueUsed] = [withUntil(r.rule, u.date), tok.valueUsed + u.used];
     }
   } else if (feature === "tag") {
     // One tag per `@tag`: any word could be one, so a second would eat the title.
@@ -676,16 +699,55 @@ const DAY_NAMES = {
   en: ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"],
 };
 
-function ruleParts(rule: string): { freq: string; interval: number; byday: string[] } | null {
+/** A rule the grammar can say: its parts. UNTIL only as ours, a date: the last day (`ruleFromItem`). */
+function ruleParts(rule: string): { freq: string; interval: number; byday: string[]; until: string | null } | null {
   const parts = new Map(rule.split(";").map((p) => p.split("=") as [string, string]));
   const freq = parts.get("FREQ");
   if (!freq || !["DAILY", "WEEKLY", "MONTHLY", "YEARLY"].includes(freq)) return null;
-  for (const k of parts.keys()) if (!["FREQ", "INTERVAL", "BYDAY", "WKST"].includes(k)) return null;
+  for (const k of parts.keys()) if (!["FREQ", "INTERVAL", "BYDAY", "WKST", "UNTIL"].includes(k)) return null;
   const interval = Number(parts.get("INTERVAL") ?? 1);
   const byday = parts.get("BYDAY")?.split(",") ?? [];
+  const until = parts.get("UNTIL") ?? null;
   if (!Number.isInteger(interval) || interval < 1 || byday.some((d) => !CODES.includes(d))) return null;
   if (byday.length && (freq !== "WEEKLY" || interval > 1)) return null;
-  return { freq, interval, byday };
+  if (until !== null && !/^\d{8}$/.test(until)) return null;
+  return { freq, interval, byday, until };
+}
+
+/** A rule's last day (its UNTIL, ours: a date), or null when it doesn't end. */
+export function untilOf(rule: string): Ymd | null {
+  const m = /(?:^|;)UNTIL=(\d{4})(\d{2})(\d{2})(?=;|$)/i.exec(rule);
+  return m ? { year: Number(m[1]), month: Number(m[2]), day: Number(m[3]) } : null;
+}
+
+/** The rule ending on `day` (its last day, included), or with no end (null). A COUNT goes: it's one or the other. */
+export function withUntil(rule: string, day: Ymd | null): string {
+  const base = rule
+    .split(";")
+    .filter((p) => p && !/^(UNTIL|COUNT)=/i.test(p))
+    .join(";");
+  return day ? `${base};UNTIL=${icalDate(day)}` : base;
+}
+
+/**
+ * A rule as an item holds it → ours. RFC 5545 wants UNTIL in DTSTART's form: a date for whole days, else an
+ * instant in UTC (iOS writes the end of the last day: `20270615T215959Z` in Paris). Ours is always that last day,
+ * in `tz`, so the note, the forms and the server compare equal.
+ */
+export function ruleFromItem(rule: string, tz: string): string {
+  const m = /(^|;)UNTIL=(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)(?=;|$)/i.exec(rule);
+  if (!m) return normalizeRule(rule);
+  const n = (k: number) => Number(m[k]);
+  const day = m[8] ? wallClock(new Date(Date.UTC(n(2), n(3) - 1, n(4), n(5), n(6), n(7))), tz) : { year: n(2), month: n(3), day: n(4) };
+  return normalizeRule(rule.replace(m[0], `${m[1]}UNTIL=${icalDate(day)}`));
+}
+
+/** Ours → an item's: UNTIL stays a date for a whole-day start, else becomes the end of that day in `tz`, in UTC. */
+export function ruleForItem(rule: string, allDay: boolean, tz: string): string {
+  const until = untilOf(rule);
+  if (!until || allDay) return rule;
+  const end = wallClock(fromWall({ ...until, hour: 23, minute: 59, second: 59 }, tz), "UTC");
+  return rule.replace(/UNTIL=\d{8}(?=;|$)/i, `UNTIL=${icalDateTime(end)}Z`);
 }
 
 /**
@@ -696,13 +758,29 @@ export function normalizeRule(rule: string): string {
   const p = ruleParts(rule.toUpperCase());
   if (!p) return rule;
   const days = [...p.byday].sort((a, b) => ((CODES.indexOf(a) + 6) % 7) - ((CODES.indexOf(b) + 6) % 7));
-  return `FREQ=${p.freq}${p.interval > 1 ? `;INTERVAL=${p.interval}` : ""}${days.length ? `;BYDAY=${days.join(",")}` : ""}`;
+  return `FREQ=${p.freq}${p.interval > 1 ? `;INTERVAL=${p.interval}` : ""}${days.length ? `;BYDAY=${days.join(",")}` : ""}${p.until ? `;UNTIL=${p.until}` : ""}`;
 }
 
-/** "chaque lundi", "tous les 2 jours", "every weekday"…; null for rules the grammar can't say. */
-export function repeatLabel(rule: string, lang: "fr" | "en"): string | null {
+/** A last day as the grammar reads it back: "15 juin", "1er juin 2027", "15 june 2027"; the year when not this one. */
+function untilText(until: Ymd, lang: "fr" | "en", full: boolean): string {
+  const day = lang === "fr" && until.day === 1 ? "1er" : String(until.day);
+  const year = full || until.year !== wallClock(new Date(), localZone()).year ? ` ${until.year}` : "";
+  return `${day} ${MONTH_NAMES[lang][until.month - 1]}${year}`;
+}
+
+/**
+ * "chaque lundi", "tous les 2 jours", "every weekday", "chaque lundi jusqu'au 15 juin"…; null for rules the grammar
+ * can't say. `full`: the last day's year even when it's this one (a field read back later).
+ */
+export function repeatLabel(rule: string, lang: "fr" | "en", full = false): string | null {
   const p = ruleParts(rule);
   if (!p) return null;
+  const label = everyLabel(p, lang);
+  const until = untilOf(rule);
+  return until ? `${label} ${lang === "fr" ? "jusqu'au" : "until"} ${untilText(until, lang, full)}` : label;
+}
+
+function everyLabel(p: NonNullable<ReturnType<typeof ruleParts>>, lang: "fr" | "en"): string {
   const and = lang === "fr" ? " et " : " and ";
   if (p.byday.length) {
     if (p.byday.join(",") === WORKWEEK.join(",")) return lang === "fr" ? "en semaine" : "every weekday";
@@ -715,9 +793,15 @@ export function repeatLabel(rule: string, lang: "fr" | "en"): string | null {
   return `${p.freq === "WEEKLY" ? "toutes" : "tous"} les ${p.interval} ${many}`;
 }
 
-/** What a task note's `repeat` holds: the English phrase when the grammar can say it, else the RRULE itself. */
+/**
+ * What a task note's `repeat` holds: the English phrase when the grammar can say it ("every monday until
+ * 2027-06-15": the last day as a plain date), else the RRULE itself.
+ */
 export function repeatToNote(rule: string): string {
-  return repeatLabel(rule, "en") ?? rule;
+  const p = ruleParts(rule);
+  if (!p) return rule;
+  const until = untilOf(rule);
+  return `${everyLabel(p, "en")}${until ? ` until ${formatLocalDate(until)}` : ""}`;
 }
 
 /** A task note's `repeat` (a phrase in either language, or an RRULE) → RRULE; null if not understood. */
@@ -732,7 +816,7 @@ export function repeatFromNote(value: unknown): string | null {
     }
   }
   const f = words(v, 0).map((w) => w.f);
-  const r = repeatAt(f, 0);
+  const r = ruleAt(f, 0, wallClock(new Date(), localZone()));
   return r && r.used === f.length ? normalizeRule(r.rule) : null;
 }
 
@@ -744,8 +828,11 @@ export function nextOccurrence(value: string, rule: string, now: { date: string;
   const p = parseLocal(value);
   if (!p) return null;
   let recur: InstanceType<typeof ICAL.Recur>;
+  // A last day for a timed task: until the end of it (ical.js stops before a date's first instant).
+  const until = untilOf(rule);
+  const local = until && !p.allDay ? rule.replace(/UNTIL=\d{8}(?=;|$)/i, `UNTIL=${icalDate(until)}T235959`) : rule;
   try {
-    recur = ICAL.Recur.fromString(rule);
+    recur = ICAL.Recur.fromString(local);
   } catch {
     return null;
   }
@@ -803,6 +890,8 @@ interface Words {
   times: string[];
   slots: string[];
   repeats: string[];
+  /** Before a repetition's last day: the word, the item's label and its hint. */
+  until: [string, string, string];
   every: string;
   weekdays: string[];
   hour: (n: number) => string[];
@@ -828,6 +917,7 @@ const L: Record<"fr" | "en", Words> = {
     times: ["matin", "midi", "14h", "18h"],
     slots: ["matin", "aprem", "9h-10h", "10h-12h", "14h-16h", "16h-18h"],
     repeats: ["chaque semaine", "chaque jour", "chaque mois", "chaque année", "en semaine", "tous les 2 jours", "toutes les 2 semaines"],
+    until: ["jusqu'au", "Jusqu'au…", "30 juin"],
     every: "chaque",
     weekdays: ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"],
     hour: (n: number) => [`${n}h`, `${n}h30`],
@@ -851,6 +941,7 @@ const L: Record<"fr" | "en", Words> = {
     times: ["morning", "noon", "2pm", "6pm"],
     slots: ["morning", "afternoon", "9am-10am", "10am-12pm", "2pm-4pm", "4pm-6pm"],
     repeats: ["every week", "every day", "every month", "every year", "every weekday", "every 2 days", "every 2 weeks"],
+    until: ["until", "Until…", "30 june"],
     every: "every",
     weekdays: ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"],
     hour: (n: number) => (n <= 12 ? [`${n}am`, `${n}pm`] : [`${n}h`]),
@@ -948,6 +1039,15 @@ export function suggestAt(
   const num = /^(\d{1,2})(h\d{0,2})?$/.exec(tail);
   const days = (): string[] => [...suggestDates(tail, today, lang).map((d) => d.word), ...monthDays(tail, today, lang)];
   const everyDay = tail.startsWith(fold(v.every)) ? v.weekdays.map((d) => `${v.every} ${d}`) : [];
+  // A repetition read, without a last day yet: "jusqu'au" is offered, then days for it.
+  const rule = feature === "repeat" ? parsed.repeat : feature === "block" ? (parsed.block?.repeat ?? null) : null;
+  const untilWord = fold(v.until[0]);
+  const offerUntil = !!rule && !untilOf(rule) && untilWord.startsWith(tail) && tail !== untilWord;
+  if (rule && !untilOf(rule) && (tail === untilWord || tail.startsWith(`${untilWord} `))) {
+    const rest = tail.slice(untilWord.length).trim();
+    const ends = rest ? [...suggestDates(rest, today, lang).map((d) => d.word), ...monthDays(rest, today, lang)] : monthEnds(today, lang);
+    candidates.push(...ends.map((d) => `${v.until[0]} ${d}`));
+  }
   if (feature === "block") {
     if (num) candidates.push(...v.range(Number(num[1])));
     if (!parsed.block) candidates.push(...days());
@@ -987,6 +1087,7 @@ export function suggestAt(
     // A tag says it all: no reading beside it.
     items.push(feature === "tag" ? { kind: "insert", text: c, label: `#${c}`, icon: "tag" } : { kind: "insert", text: c, label: c, when });
   }
+  if (offerUntil) items.push({ kind: "insert", text: `${v.until[0]} `, label: v.until[1], icon: "calendar-x", hint: v.until[2] });
   if (asTyped) items.push({ kind: "more", text: " @", label: v.more, icon: "plus" });
   if (tail && !items.length && feature !== "tag" && typingDate(tail)) items.push(dateHint(lang));
   if (tail && !items.length) return null;
@@ -1006,6 +1107,18 @@ function dateHint(lang: "fr" | "en"): AtItem {
   return lang === "fr"
     ? { kind: "insert", text: "", label: "jj/mm/aaaa", icon: "calendar", hint: "15/10/2027, 15 octobre 2027" }
     : { kind: "insert", text: "", label: "dd/mm/yyyy", icon: "calendar", hint: "15/10/2027, 15 october 2027" };
+}
+
+/** The last day of this month and the next three ("30 novembre", "31 décembre"…): where repetitions end. */
+function monthEnds(today: Ymd, lang: "fr" | "en"): string[] {
+  const out: string[] = [];
+  for (let k = 0; k < 4; k++) {
+    const first = addMonths({ ...today, day: 1 }, k + 1);
+    const last = addDays(first, -1);
+    const year = last.year !== today.year ? ` ${last.year}` : "";
+    out.push(`${last.day} ${MONTH_NAMES[lang][last.month - 1]}${year}`);
+  }
+  return out;
 }
 
 /** `15 octobre`, `15 novembre`… for a day number being typed ("15", "15 oc"), from the next one on. */

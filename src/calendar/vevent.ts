@@ -1,7 +1,8 @@
 import ICAL from "ical.js";
 import { BACKEND_PROP } from "../constants";
 import { setDateProp, touch } from "../ical/write";
-import { wallClock } from "../ical/time";
+import { formatLocalDate, formatLocalDateTime, wallClock } from "../ical/time";
+import { ruleForItem, ruleFromItem, untilOf, withUntil } from "../editor/when";
 import { registerZones, ridOf } from "../ical/zones";
 
 type Comp = InstanceType<typeof ICAL.Component>;
@@ -14,9 +15,11 @@ export interface NewEvent {
   location?: string | null;
   /** UID of the task this is a work session for (spec §4.4). */
   relatedTo?: string | null;
-  /** RRULE value, for a session that comes back (`@session chaque mardi 14h-16h`). */
+  /** RRULE value, ours (UNTIL a date: the last day), for an event that comes back. */
   rrule?: string | null;
 }
+
+type Time = InstanceType<typeof ICAL.Time>;
 
 export type PartStat = "ACCEPTED" | "TENTATIVE" | "DECLINED";
 
@@ -57,9 +60,22 @@ export function newEvent(uid: string, e: NewEvent, tz: string, now = new Date())
   setDateProp(cal, ev, "dtend", e.end, tz);
   if (e.location) ev.updatePropertyWithValue("location", e.location);
   if (e.relatedTo) ev.updatePropertyWithValue("related-to", e.relatedTo);
-  if (e.rrule) ev.updatePropertyWithValue("rrule", ICAL.Recur.fromString(e.rrule));
+  if (e.rrule) ev.updatePropertyWithValue("rrule", ICAL.Recur.fromString(ruleForItem(e.rrule, e.start.length === 10, tz)));
   touch(ev, now);
   return cal.toString();
+}
+
+/** A series' rule, ours (its last day a date in `tz`); null for an event that doesn't come back. */
+export function seriesRule(data: string, tz: string): string | null {
+  const { master } = parse(data);
+  const rule = master.getFirstPropertyValue("rrule");
+  return rule instanceof ICAL.Recur ? ruleFromItem(rule.toString(), tz) : null;
+}
+
+/** A time as a local value in `tz` ("2026-10-19T08:00", or a day). */
+function localOf(t: Time, tz: string): string {
+  if (t.isDate) return formatLocalDate(t);
+  return formatLocalDateTime(wallClock(t.toJSDate(), tz));
 }
 
 /** The component for one occurrence: an existing exception, or a new one cloned from the series. */
@@ -85,6 +101,19 @@ function occurrence(cal: Comp, master: Comp, events: Comp[], rid: string): Comp 
     } else p.setValue(instant);
   }
   ex.addProperty(p);
+  // It takes place where it falls, for as long as the series' events (the clone had the series' first times:
+  // 2026-11-04, a title changed on one occurrence moved it to the series' first day).
+  const at = p.getFirstValue() as Time;
+  const startProp = ex.getFirstProperty("dtstart")!;
+  const endProp = ex.getFirstProperty("dtend");
+  const end = endProp ? (endProp.getFirstValue() as Time) : null;
+  const length = end ? end.subtractDate(start) : null;
+  startProp.setValue(at.clone());
+  if (endProp && length) {
+    const e = at.clone();
+    e.addDuration(length);
+    endProp.setValue(e);
+  }
   cal.addSubcomponent(ex);
   return ex;
 }
@@ -99,6 +128,12 @@ export interface EventEdit {
   location?: string | null;
   /** The task it's a work session for; null: none (a plain event). */
   relatedTo?: string | null;
+  /**
+   * How it comes back, ours (UNTIL: the last day); null: it doesn't. The series' rule, even from one occurrence.
+   * Another pattern drops the series' exceptions; another last day those after it. Taken off a series from one
+   * occurrence: that occurrence, as edited, is the event left.
+   */
+  repeat?: string | null;
 }
 
 /**
@@ -107,7 +142,74 @@ export interface EventEdit {
  */
 export function editEvent(data: string, rid: string | null, edit: EventEdit, tz: string, now = new Date()): string {
   const { cal, master, events } = parse(data);
-  const target = rid && master.hasProperty("rrule") ? occurrence(cal, master, events, rid) : master;
+  const old = master.getFirstPropertyValue("rrule");
+  const before = old instanceof ICAL.Recur ? ruleFromItem(old.toString(), tz) : null;
+  const pattern = (r: string | null) => (r ? withUntil(r, null) : null);
+  const newPattern = edit.repeat !== undefined && pattern(edit.repeat) !== pattern(before);
+  let target = rid && before ? occurrence(cal, master, events, rid) : master;
+  // Another pattern is the series' change: this occurrence's move moves the whole series by as much.
+  if (newPattern && edit.repeat && target !== master) {
+    edit = shiftSeries(master, target, edit, tz);
+    cal.removeSubcomponent(target);
+    target = master;
+  }
+  applyEdit(cal, target, edit, tz);
+  if (edit.repeat === null && before) {
+    // One event left: the one edited, without its series.
+    for (const name of ["rrule", "rdate", "exdate", "recurrence-id"]) target.removeAllProperties(name);
+    for (const ev of cal.getAllSubcomponents("vevent")) if (ev !== target) cal.removeSubcomponent(ev);
+  } else if (edit.repeat && edit.repeat !== before) {
+    const start = master.getFirstPropertyValue("dtstart") as Time;
+    master.removeAllProperties("rrule");
+    master.addPropertyWithValue("rrule", ICAL.Recur.fromString(ruleForItem(edit.repeat, start.isDate, tz)));
+    if (newPattern) {
+      // Its exceptions and removed days were days of the old pattern.
+      for (const name of ["rdate", "exdate"]) master.removeAllProperties(name);
+      for (const ev of cal.getAllSubcomponents("vevent")) if (ev !== master) cal.removeSubcomponent(ev);
+    } else {
+      const last = untilOf(edit.repeat);
+      const end = last ? formatLocalDate(last) : null;
+      for (const ev of cal.getAllSubcomponents("vevent")) {
+        const rec = ev.getFirstPropertyValue("recurrence-id");
+        if (ev !== master && end && rec instanceof ICAL.Time && localOf(rec, tz).slice(0, 10) > end) cal.removeSubcomponent(ev);
+      }
+    }
+    if (target !== master) bump(master, now);
+  } else if (edit.start !== undefined && target === master && before && untilOf(before)) {
+    // A whole day now, or timed: UNTIL takes DTSTART's form.
+    const start = master.getFirstPropertyValue("dtstart") as Time;
+    master.updatePropertyWithValue("rrule", ICAL.Recur.fromString(ruleForItem(before, start.isDate, tz)));
+  }
+  bump(target, now);
+  return cal.toString();
+}
+
+/** A local value as a number to add to (wall-clock arithmetic: no zone, no daylight saving), and back. */
+const wallMs = (v: string) =>
+  Date.UTC(+v.slice(0, 4), +v.slice(5, 7) - 1, +v.slice(8, 10), v.length > 10 ? +v.slice(11, 13) : 0, v.length > 10 ? +v.slice(14, 16) : 0);
+function wallValue(ms: number, allDay: boolean): string {
+  const d = new Date(ms);
+  const w = { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate(), hour: d.getUTCHours(), minute: d.getUTCMinutes(), second: 0 };
+  return allDay ? formatLocalDate(w) : formatLocalDateTime(w);
+}
+
+/**
+ * An occurrence's new times as the series': its first start moved by as much as the occurrence was, with the
+ * occurrence's new length. From timed to whole days or back: the occurrence's time on the series' first day.
+ */
+function shiftSeries(master: Comp, occ: Comp, edit: EventEdit, tz: string): EventEdit {
+  if (edit.start === undefined) return edit;
+  const was = localOf(occ.getFirstPropertyValue("recurrence-id") as Time, tz);
+  const first = localOf(master.getFirstPropertyValue("dtstart") as Time, tz);
+  const allDay = edit.start.length === 10;
+  const start = was.length === edit.start.length ? wallMs(first) + wallMs(edit.start) - wallMs(was) : wallMs(first.slice(0, 10) + edit.start.slice(10));
+  const out: EventEdit = { ...edit, start: wallValue(start, allDay) };
+  if (edit.end !== undefined) out.end = wallValue(start + wallMs(edit.end) - wallMs(edit.start), allDay);
+  return out;
+}
+
+/** Writes the form's fields on one component (the series, or one occurrence). */
+function applyEdit(cal: Comp, target: Comp, edit: EventEdit, tz: string): void {
   if (edit.summary !== undefined) target.updatePropertyWithValue("summary", edit.summary);
   if (edit.start !== undefined) setDateProp(cal, target, "dtstart", edit.start, tz);
   if (edit.end !== undefined) {
@@ -126,8 +228,6 @@ export function editEvent(data: string, rid: string | null, edit: EventEdit, tz:
     else if (first) first.setValue(edit.relatedTo);
     else target.addPropertyWithValue("related-to", edit.relatedTo);
   }
-  bump(target, now);
-  return cal.toString();
 }
 
 /** Moves (or resizes) an event, or one occurrence of a series (`rid`), to new local start / end values. */

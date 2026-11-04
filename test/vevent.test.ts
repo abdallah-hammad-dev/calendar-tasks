@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { expandItem, findOccurrence } from "../src/calendar/expand";
-import { cancelOccurrence, editEvent, endSeries, isMirror, moveEvent, newEvent, renameEvent, setPartstat } from "../src/calendar/vevent";
+import { cancelOccurrence, editEvent, endSeries, isMirror, moveEvent, newEvent, renameEvent, seriesRule, setPartstat } from "../src/calendar/vevent";
 
 const TZ = "Europe/Paris";
 const NOW = new Date("2026-10-15T12:00:00Z");
@@ -14,6 +14,8 @@ const weekly = cal(
   "BEGIN:VEVENT\r\nUID:w\r\nSUMMARY:Point\r\nDTSTART;TZID=Europe/Paris:20261005T100000\r\nDTEND;TZID=Europe/Paris:20261005T110000\r\n" +
     "RRULE:FREQ=WEEKLY;COUNT=4\r\nX-APPLE-STRUCTURED-LOCATION;VALUE=URI:geo:0,0\r\nEND:VEVENT\r\n",
 );
+
+const single = () => newEvent("one", { summary: "Point", start: "2026-10-05T10:00", end: "2026-10-05T11:00" }, TZ, NOW);
 
 describe("newEvent", () => {
   it("writes a timed event in the user's zone, and a work session linked to its task", () => {
@@ -99,6 +101,60 @@ describe("editEvent", () => {
     const edited = editEvent(weekly, "20261019T080000Z", { summary: "Point (salle B)", location: "Salle B" }, TZ, NOW);
     expect(occ(edited).map((o) => o.location)).toEqual([null, null, "Salle B", null]);
     expect(occ(edited)[2]!.title).toBe("Point (salle B)");
+    // Where it falls, for as long as the others: what the iPhone reads.
+    expect(lines(edited).filter((l) => /^(DTSTART|DTEND|RECURRENCE-ID)/.test(l)).slice(2)).toEqual([
+      "DTSTART;TZID=Europe/Paris:20261019T100000",
+      "DTEND;TZID=Europe/Paris:20261019T110000",
+      "RECURRENCE-ID;TZID=Europe/Paris:20261019T100000",
+    ]);
+  });
+});
+
+describe("how an event comes back", () => {
+  const rrule = (data: string) => lines(data).filter((l) => l.startsWith("RRULE") && !/BYMONTH=/.test(l)); // not the zone's
+  const starts = (data: string) => occ(data).map((o) => o.start);
+
+  it("is written with its last day in DTSTART's form, and read back as that day", () => {
+    const data = newEvent("r", { summary: "Cours", start: "2026-10-05T10:00", end: "2026-10-05T12:00", rrule: "FREQ=WEEKLY;UNTIL=20261019" }, TZ, NOW);
+    expect(rrule(data)).toEqual(["RRULE:FREQ=WEEKLY;UNTIL=20261019T215959Z"]);
+    expect(starts(data)).toEqual(["2026-10-05T10:00", "2026-10-12T10:00", "2026-10-19T10:00"]); // its last day included
+    expect(seriesRule(data, TZ)).toBe("FREQ=WEEKLY;UNTIL=20261019");
+    const days = newEvent("d", { summary: "Stage", start: "2026-10-05", end: "2026-10-06", rrule: "FREQ=WEEKLY;UNTIL=20261019" }, TZ, NOW);
+    expect(rrule(days)).toEqual(["RRULE:FREQ=WEEKLY;UNTIL=20261019"]);
+    expect(seriesRule(single(), TZ)).toBeNull();
+  });
+
+  it("is set on an event, its last day changed or taken off, from any occurrence", () => {
+    const series = editEvent(single(), null, { repeat: "FREQ=WEEKLY" }, TZ, NOW);
+    expect(starts(series)).toEqual(["2026-10-05T10:00", "2026-10-12T10:00", "2026-10-19T10:00", "2026-10-26T10:00"]);
+    const ended = editEvent(series, "20261019T080000Z", { repeat: "FREQ=WEEKLY;UNTIL=20261012" }, TZ, NOW);
+    expect(starts(ended)).toEqual(["2026-10-05T10:00", "2026-10-12T10:00"]);
+    expect(seriesRule(editEvent(ended, null, { repeat: "FREQ=WEEKLY" }, TZ, NOW), TZ)).toBe("FREQ=WEEKLY");
+  });
+
+  it("drops the exceptions after a new last day, and keeps the others", () => {
+    const moved = moveEvent(moveEvent(weekly, "20261012T080000Z", "2026-10-13T15:00", "2026-10-13T16:00", TZ, NOW), "20261026T090000Z", "2026-10-27T15:00", "2026-10-27T16:00", TZ, NOW);
+    const ended = editEvent(moved, null, { repeat: "FREQ=WEEKLY;UNTIL=20261020" }, TZ, NOW);
+    expect(starts(ended)).toEqual(["2026-10-05T10:00", "2026-10-13T15:00", "2026-10-19T10:00"]);
+    expect(lines(ended).filter((l) => l.startsWith("RECURRENCE-ID"))).toHaveLength(1);
+  });
+
+  it("changed to another pattern from an occurrence: the series moves by as much, its exceptions gone", () => {
+    const moved = moveEvent(weekly, "20261012T080000Z", "2026-10-13T15:00", "2026-10-13T16:00", TZ, NOW);
+    const daily = editEvent(moved, "20261019T080000Z", { repeat: "FREQ=DAILY;UNTIL=20261008", start: "2026-10-19T11:00", end: "2026-10-19T11:30" }, TZ, NOW);
+    expect(occ(daily).map((o) => `${o.start}–${o.end!.slice(11)}`)).toEqual(["2026-10-05T11:00–11:30", "2026-10-06T11:00–11:30", "2026-10-07T11:00–11:30", "2026-10-08T11:00–11:30"]);
+    expect(lines(daily).filter((l) => l.startsWith("RECURRENCE-ID") || l.startsWith("BEGIN:VEVENT"))).toEqual(["BEGIN:VEVENT"]);
+  });
+
+  it("taken off from an occurrence: that occurrence, as edited, is the event left", () => {
+    const once = editEvent(weekly, "20261019T080000Z", { repeat: null, summary: "Point final" }, TZ, NOW);
+    expect(occ(once)).toEqual([expect.objectContaining({ start: "2026-10-19T10:00", title: "Point final", recurring: false })]);
+    expect(lines(once).some((l) => /^(RRULE|RECURRENCE-ID|EXDATE)/.test(l) && !l.includes("BYMONTH"))).toBe(false);
+  });
+
+  it("keeps its last day in DTSTART's form when the series becomes whole days", () => {
+    const data = newEvent("r", { summary: "Cours", start: "2026-10-05T10:00", end: "2026-10-05T12:00", rrule: "FREQ=WEEKLY;UNTIL=20261019" }, TZ, NOW);
+    expect(rrule(editEvent(data, null, { start: "2026-10-05", end: "2026-10-06" }, TZ, NOW))).toEqual(["RRULE:FREQ=WEEKLY;UNTIL=20261019"]);
   });
 });
 

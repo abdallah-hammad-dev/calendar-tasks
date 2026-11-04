@@ -2066,6 +2066,18 @@ for (const [name, width, height, scale = 2] of run) {
       await title.fill("Révisions");
       await pick(1);
       if ((await title.inputValue()) !== "Révisions") errors.push("a title typed should stay when a task is picked");
+      // Its repetition, then its last day: shown only while it repeats, marked and blocking Create when wrong.
+      const until = page.locator(".ct-form-grid .ct-when-day").last();
+      if (await until.isVisible()) errors.push("no last day to type while it doesn't repeat");
+      await page.locator(".ct-select").first().click();
+      await page.locator(".menu-item").nth(2).click();
+      if (!(await until.isVisible())) errors.push("a repetition should offer its last day");
+      const create = page.locator(".ct-modal-buttons .mod-cta");
+      await until.fill("1/1/2020");
+      if (!(await until.evaluate((el) => el.classList.contains("is-invalid"))) || !(await create.isDisabled())) errors.push("a last day before the start should be marked and block Create");
+      await until.fill("15/12");
+      if ((await until.evaluate((el) => el.classList.contains("is-invalid"))) || (await create.isDisabled())) errors.push("a last day after the start should be taken");
+      await page.screenshot({ path: join(out, `${name}-repeat-${theme}.png`) });
     }
     if (name === "slot-picker") {
       if (await page.locator(".ct-dp-dayview").count()) errors.push("the day takes the month's place on a phone only");

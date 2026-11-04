@@ -158,7 +158,7 @@ export function chipFieldText(
   const feature = key.startsWith("tag:") ? "tag" : (key as Exclude<Feature, "block" | "tag">);
   const value =
     key === "due" ? task.due && dateText(task.due)
-    : key === "repeat" ? task.repeat && repeatLabel(task.repeat, lang)
+    : key === "repeat" ? task.repeat && repeatLabel(task.repeat, lang, true)
     : key === "priority" ? task.priority && priorityWord(task.priority, lang)
     : key.slice(4);
   if (!value) return null;

@@ -10,7 +10,9 @@ import { tasksToPlan, weekStart } from "./calendar/plan";
 import type { PreviewSource } from "./calendar/day-preview";
 import { ConfirmModal, type EventChoice, type EventFormOptions } from "./calendar/modals";
 import { TaskModal, type NewTask } from "./tasks/modals";
-import { cancelOccurrence, editEvent, endSeries, isMirror, moveEvent, newEvent, renameEvent, setPartstat, type EventEdit, type PartStat } from "./calendar/vevent";
+import { cancelOccurrence, editEvent, endSeries, isMirror, moveEvent, newEvent, renameEvent, seriesRule, setPartstat, type EventEdit, type PartStat } from "./calendar/vevent";
+import { RepeatPickerModal } from "./ui/repeat";
+import { readTask } from "./tasks/vtodo";
 import { CalDavClient } from "./caldav/client";
 import { itemInfo } from "./caldav/ical";
 import { createCalendarModule, type CalendarServices } from "./claude/module";
@@ -1023,6 +1025,10 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       open: (occ) => void this.openOccurrence(occ),
       hasNote: (occ) => this.hasEventNote(occ),
       syncState: (occ) => (!this.sync?.isPending(occ.itemUrl) ? "synced" : this.syncFailed ? "offline" : "queued"),
+      repeats: (occ) => {
+        const rule = this.ruleOf(occ);
+        return rule && repeatLabel(rule, getLanguage().startsWith("fr") ? "fr" : "en");
+      },
       sync: () => void this.syncNow(true),
       language: () => getLanguage(),
       editable: (occ) => this.editable(occ),
@@ -1234,14 +1240,38 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       calendars,
       calendarUrl: this.collectionFor("VEVENT") ?? urls[0]!,
       tasks: this.sessionTasks(null),
+      pickRepeat: (pick) => this.pickRepeat(pick),
       submit: (choice) =>
         void (async () => {
           const uid = newUid();
           const { when } = choice;
-          const fields = { summary: choice.title, start: when.start, end: when.end ?? when.start, location: choice.location || null, relatedTo: choice.taskUid };
+          const fields = {
+            summary: choice.title,
+            start: when.start,
+            end: when.end ?? when.start,
+            location: choice.location || null,
+            relatedTo: choice.taskUid,
+            rrule: choice.repeat,
+          };
           await this.saveEvent(choice.calendarUrl, this.sync!.newItemUrl(choice.calendarUrl, uid), newEvent(uid, fields, tz));
         })().catch((e: unknown) => new Notice(t("error.write", { error: e instanceof Error ? e.message : String(e) }))),
     };
+  }
+
+  /** "Custom…" in a form's repetition menu: one typed. */
+  private pickRepeat(pick: (rule: string) => void): void {
+    new RepeatPickerModal(this.app, { placeholder: t("picker.repeat"), pick }).open();
+  }
+
+  /** How an event or a task comes back, ours (UNTIL: its last day); null when it doesn't or can't be read. */
+  private ruleOf(occ: Occurrence): string | null {
+    const data = occ.recurring ? this.sync?.item(occ.itemUrl)?.data : null;
+    if (!data) return null;
+    try {
+      return occ.kind === "deadline" ? (readTask(data, localZone())?.repeat ?? null) : seriesRule(data, localZone());
+    } catch {
+      return null;
+    }
   }
 
   /** The tasks an event can be a work session for: the open ones, soonest deadline first, and the session's own. */
@@ -1269,7 +1299,8 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       calendars: this.eventCalendars(),
       calendarUrl: occ.calendarUrl,
       tasks: this.sessionTasks(occ),
-      edit: { title: occ.title, location: occ.location ?? "", taskUid: occ.taskUid, series: occ.recurring },
+      pickRepeat: (pick) => this.pickRepeat(pick),
+      edit: { title: occ.title, location: occ.location ?? "", taskUid: occ.taskUid, series: occ.recurring, repeat: this.ruleOf(occ) },
       submit: (choice) =>
         void this.saveEventForm(occ, choice).catch((e: unknown) => new Notice(t("error.write", { error: e instanceof Error ? e.message : String(e) }))),
     };
@@ -1292,6 +1323,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     }
     if (choice.location !== (occ.location ?? "")) edit.location = choice.location || null;
     if (choice.taskUid !== occ.taskUid) edit.relatedTo = choice.taskUid;
+    if (choice.repeat !== this.ruleOf(occ)) edit.repeat = choice.repeat;
     const changed = Object.keys(edit).length > 0;
     const updated = changed ? editEvent(data, occ.recurring ? occ.recurrenceId : null, edit, localZone()) : data;
     if (choice.calendarUrl === occ.calendarUrl) {

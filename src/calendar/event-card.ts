@@ -23,6 +23,8 @@ export interface EventCardInfo {
   edit: "event" | "task" | null;
   /** A trash: an event or a work session that can change. */
   remove: boolean;
+  /** How it comes back, said ("Chaque lundi jusqu'au 15 juin"); null: only that it does. */
+  repeat?: string | null;
 }
 
 export type SyncState = "synced" | "queued" | "offline";
@@ -144,7 +146,7 @@ export function renderEventCard(el: HTMLElement, info: EventCardInfo, actions: E
   };
   const when = row(occ.kind === "deadline" ? "flag" : "clock", `${occ.kind === "deadline" ? `${t("card.deadline")} · ` : ""}${whenText(occ, info.lang)}`);
   if (info.editable) editable(when, t("card.editTime"), () => editWhen(when, occ, actions));
-  if (occ.recurring) row("repeat", t("card.repeats"));
+  if (occ.recurring) row("repeat", info.repeat ? info.repeat.charAt(0).toUpperCase() + info.repeat.slice(1) : t("card.repeats"));
   if (occ.meeting) {
     const url = occ.meeting.url;
     const r = row("video", joinText(occ.meeting));
