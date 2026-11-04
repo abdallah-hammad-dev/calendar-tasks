@@ -71,7 +71,8 @@ describe("the meeting to join", () => {
       meeting: { url: "https://visio.ecole.fr/salle-12", provider: null },
       location: null,
     });
-    expect(event(["DESCRIPTION:Le lien : https://rdv.example.org/abc"]).meeting).toEqual({ url: "https://rdv.example.org/abc", provider: null });
+    expect(event(["DESCRIPTION:Rejoignez-nous : https://rdv.example.org/abc"]).meeting).toEqual({ url: "https://rdv.example.org/abc", provider: null });
+    expect(event(["DESCRIPTION: https://rdv.example.org/abc "]).meeting).toEqual({ url: "https://rdv.example.org/abc", provider: null });
     // A known service anywhere wins over an unknown link in the place.
     expect(event(["LOCATION:https://visio.ecole.fr/salle-12", "DESCRIPTION:Ou Zoom : https://zoom.us/j/1"]).meeting).toEqual({ url: "https://zoom.us/j/1", provider: "Zoom" });
   });
@@ -79,6 +80,13 @@ describe("the meeting to join", () => {
   it("in the notes, prefers the link on a line that speaks of a meeting", () => {
     const desc = "DESCRIPTION:Ordre du jour : https://intranet.ecole.fr/agenda\\nVisio : https://rdv.example.org/abc";
     expect(event([desc]).meeting).toEqual({ url: "https://rdv.example.org/abc", provider: null });
+  });
+
+  it("in the notes, not a link that nothing says is the meeting's: the event's site", () => {
+    expect(event(["DESCRIPTION:DevFest 2025\\nhttps://devfest.example.org/2025\\nÀ bientôt !"]).meeting).toBeNull();
+    expect(event(["DESCRIPTION:Le programme : https://devfest.example.org/2025"]).meeting).toBeNull();
+    // In the place, a link is there to be followed: it stays the meeting.
+    expect(event(["LOCATION:https://devfest.example.org/live"]).meeting).toEqual({ url: "https://devfest.example.org/live", provider: null });
   });
 
   it("never takes a map, a document, a file or a help page for a meeting", () => {
@@ -91,10 +99,35 @@ describe("the meeting to join", () => {
       "https://example.org/programme.pdf",
       "https://support.google.com/calendar/answer/37135",
       "https://lists.example.org/unsubscribe?id=1",
+      // An event's page, a mail's tracking link, an image (2026-11-04: an event mailed by Luma).
+      "https://luma.link/nFLy5FD4Kj",
+      "https://luma.com/event/evt-abc",
+      "https://lu.ma/devfest",
+      "https://cdn.lu.ma/cdn-cgi/image/format=auto/event-covers/x",
+      "https://www.eventbrite.fr/e/atelier-123",
+      "https://www.meetup.com/fr-FR/paris-js/events/1/",
+      "https://gdg.community.dev/events/details/x/",
+      "https://u14849509.ct.sendgrid.net/ls/click?upn=abc",
+      "https://x.r.us-west-2.awstrack.me/L0/https:%2F%2Fexample.org/1/abc",
+      "https://res.cloudinary.com/demo/image/upload/sample",
+      "https://example.org/banner.webp",
+      "https://g.co/calendar",
     ]) {
       expect(event([`DESCRIPTION:Voir ${link}`]).meeting, link).toBeNull();
     }
     expect(event(["URL:https://rdv.example.org/abc"]).meeting).toBeNull();
+  });
+
+  it("an event's page doesn't hide the meeting link after it", () => {
+    const desc = "DESCRIPTION:Inscrit ! https://luma.link/nFLy5FD4Kj\\nhttps://u1.ct.sendgrid.net/ls/click?upn=a\\nLien de la visio : https://rdv.example.org/abc";
+    expect(event([desc]).meeting).toEqual({ url: "https://rdv.example.org/abc", provider: null });
+  });
+
+  it("a meeting service's dial-in numbers or images are not its meeting, Teams' new domain is", () => {
+    const desc = "DESCRIPTION:https://st3.zoom.us/static/6.3/image/new/topNav/Zoom_logo.png?v=1 Numéros : https://dialin.teams.microsoft.com/x?id=1 " +
+      "Rejoindre : https://teams.cloud.microsoft/l/meetup-join/19%3ameeting_x%40thread.v2/0";
+    expect(event([desc]).meeting).toEqual({ url: "https://teams.cloud.microsoft/l/meetup-join/19%3ameeting_x%40thread.v2/0", provider: "Teams" });
+    expect(event(["DESCRIPTION:Par téléphone : https://dialin.teams.cloud.microsoft/x?id=1"]).meeting).toBeNull();
   });
 
   it("keeps a place that says more than the link", () => {

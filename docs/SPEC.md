@@ -637,11 +637,13 @@ popovers.
   `tel:`), `X-GOOGLE-CONFERENCE`, `X-MICROSOFT-SKYPETEAMSMEETINGURL` / `-ONLINEMEETINGCONFLINK`; else the first link
   to a known service (Teams, Zoom, Meet, Webex, Whereby, Jitsi, GoTo, Skype, FaceTime) in `URL`, `LOCATION`, then
   `DESCRIPTION` (where Outlook puts Teams); else (2026-10-23, the user: "un lien inconnu dans les notes, affiche-le
-  comme rejoindre la visio") any other link in `LOCATION`, then in `DESCRIPTION` (there, the first on a line that
-  speaks of a meeting: visio, réunion, rejoindre, meeting, join…), as "Rejoindre la réunion". Never a map, a
+  comme rejoindre la visio") any other link in `LOCATION`, then in `DESCRIPTION` only on a line that speaks of a
+  meeting (visio, réunion, rejoindre / rejoins, meeting, join, classe virtuelle…) or as the whole notes (2026-11-04,
+  "oui" to that: an event's notes carry its site, which showed as a meeting), as "Rejoindre la réunion". Never a map, a
   document or file (Google Docs / Drive, SharePoint, OneDrive, Dropbox, Notion, `.pdf`…), a help or unsubscribe
-  page, nor an unknown link from `URL` (the event's own page). Links wrapped by Outlook Safe Links or Google's
-  redirect are unwrapped.
+  page, an event's page (Luma, Eventbrite, Meetup…), a mail's tracking link or an image (2026-11-04, the user:
+  Luma links showed as meetings), a meeting service's dial-in numbers or images, nor an unknown link from `URL` (the
+  event's own page). Links wrapped by Outlook Safe Links or Google's redirect are unwrapped.
   A place that is only the meeting's link isn't shown as a place; "Réunion Microsoft Teams" still is. Read only:
   nothing is written, the phone keeps its own join button.
 - **Drag / resize** moves an event (not mirror events or invitations: their tooltip says why), a work session or a

@@ -10,7 +10,7 @@ type Comp = InstanceType<typeof ICAL.Component>;
 
 /** Meeting services, by host: named on the button, and taken first from free text (place, description). */
 const PROVIDERS: [RegExp, string][] = [
-  [/(^|\.)teams\.(microsoft|live)\.com$/, "Teams"],
+  [/(^|\.)teams\.(microsoft|live)\.com$|(^|\.)teams\.cloud\.microsoft$/, "Teams"],
   [/(^|\.)zoom(gov)?\.(us|com)$/, "Zoom"],
   [/^meet\.google\.com$/, "Meet"],
   [/(^|\.)webex\.com$/, "Webex"],
@@ -26,18 +26,24 @@ const MEETING_PROPS = ["conference", "x-google-conference", "x-microsoft-skypete
 
 const URL_IN_TEXT = /https?:\/\/[^\s<>"'\\]+/gi;
 
-/** Links that are something else than a meeting (a map, a document or file, the calendar's or mail's own pages):
- * never taken as one from free text. */
+/** Links that are something else than a meeting (a map, a document or file, the calendar's or mail's own pages, an
+ * event's page, a mail's tracking link, an image): never taken as one from free text, even on a meeting service's
+ * host (2026-11-04, the user: Luma links showed as meetings; an event mailed by Luma carries its page, tracked links
+ * and images). */
 const NOT_MEETINGS: RegExp[] = [
   /(^|\.)maps\.(google|apple)\.[a-z.]+$/, /^maps\.app\.goo\.gl$/, /^goo\.gl$/, /(^|\.)waze\.com$/, /(^|\.)openstreetmap\.org$/,
   /^(docs|drive|sheets|slides|forms|calendar|support|accounts|mail)\.google\.com$/, /^forms\.gle$/,
   /(^|\.)sharepoint\.com$/, /^onedrive\.live\.com$/, /^1drv\.ms$/, /(^|\.)dropbox\.com$/, /(^|\.)notion\.(so|site)$/,
   /^aka\.ms$/, /^go\.microsoft\.com$/, /^support\.(microsoft|apple)\.com$/, /^outlook\.(office|office365|live)\.com$/,
+  /^g\.co$/, /^dialin\./, /^st\d*\.zoom\.us$/,
+  /(^|\.)(lu\.ma|luma\.com|luma\.link|lumacdn\.com)$/, /(^|\.)eventbrite\.[a-z.]+$/, /(^|\.)meetup\.com$/, /(^|\.)community\.dev$/,
+  /(^|\.)(sendgrid\.net|awstrack\.me|list-manage\.com|mailchi\.mp|hubspotlinks\.com|mandrillapp\.com)$/,
+  /(^|\.)cloudinary\.com$/,
 ];
-const NOT_MEETING_PATH = /\/maps(\/|$)|unsubscribe|groupsubscription|\.(pdf|docx?|xlsx?|pptx?|odt|ods|zip|png|jpe?g)$/i;
+const NOT_MEETING_PATH = /\/maps(\/|$)|unsubscribe|groupsubscription|\.(pdf|docx?|xlsx?|pptx?|odt|ods|zip|png|jpe?g|gif|webp|svg)$/i;
 
-/** Words around a link in the notes that say it is the meeting's. */
-const MEETING_WORDS = /visio|vid[ée]o|r[ée]union|meeting|join|rejoindre|conf[ée]rence|appel|call|webinai?re?/i;
+/** Words around a link in the notes that say it is the meeting's ("rejoi": rejoindre, rejoins, rejoignez…). */
+const MEETING_WORDS = /visio|vid[ée]o|r[ée]union|meeting|join|rejoi|conf[ée]rence|appel|call|webinai?re?|virtuel/i;
 
 /** A web link, unwrapped from mail scanners (Outlook Safe Links, Google's redirect); null if it isn't one. */
 function webUrl(raw: string): URL | null {
@@ -67,9 +73,13 @@ function mayBeMeeting(u: URL): boolean {
   return !NOT_MEETINGS.some((re) => re.test(host)) && !NOT_MEETING_PATH.test(u.pathname);
 }
 
-/** A link to a service we don't know that may be the meeting (2026-10-23, the user: "un lien inconnu dans les
- * notes, affiche-le comme rejoindre la visio"): the first on a line that speaks of a meeting, else the first. */
-function anyIn(text: string): Meeting | null {
+/**
+ * A link to a service we don't know that may be the meeting (2026-10-23, the user: "un lien inconnu dans les notes,
+ * affiche-le comme rejoindre la visio"): the first on a line that speaks of a meeting; else, in the place, the first
+ * link, and in the notes only a link that is the whole of them (2026-11-04, "oui" to that: an event's notes carry
+ * its site, which showed as a meeting).
+ */
+function anyIn(text: string, place: boolean): Meeting | null {
   let first: Meeting | null = null;
   for (const line of text.split(/\r?\n/)) {
     for (const m of line.matchAll(URL_IN_TEXT)) {
@@ -77,17 +87,17 @@ function anyIn(text: string): Meeting | null {
       if (!u || !mayBeMeeting(u)) continue;
       const found = { url: u.href, provider: providerOf(u) };
       if (MEETING_WORDS.test(line)) return found;
-      first ??= found;
+      if (place || text.trim() === m[0]) first ??= found;
     }
   }
   return first;
 }
 
-/** The first link to a meeting service in a text. */
+/** The first link to a meeting service in a text (not its dial-in numbers or its images). */
 function knownIn(text: string): Meeting | null {
   for (const m of text.matchAll(URL_IN_TEXT)) {
     const u = webUrl(m[0]);
-    const provider = u && providerOf(u);
+    const provider = u && mayBeMeeting(u) && providerOf(u);
     if (u && provider) return { url: u.href, provider };
   }
   return null;
@@ -98,7 +108,8 @@ const seen = new WeakMap<Comp, Meeting | null>();
 /**
  * The meeting to join for an event (spec §7.1): a property that says so (the video `CONFERENCE` first), else a link
  * to a meeting service in its `URL`, place or description (Teams puts it in the description, Zoom often in the place),
- * else any other link in its place, then in its description (a map, a document or a help page excepted). Never an
+ * else any other link in its place, then one said to be the meeting's in its description (a map, a document, a help
+ * or an event's page excepted). Never an
  * unknown link from `URL`: that is the event's web page, or our note's link.
  */
 export function meetingOf(comp: Comp): Meeting | null {
@@ -121,7 +132,7 @@ export function meetingOf(comp: Comp): Meeting | null {
   for (const name of ["location", "description"]) {
     if (found) break;
     const v: unknown = comp.getFirstPropertyValue(name);
-    found = typeof v === "string" ? anyIn(v) : null;
+    found = typeof v === "string" ? anyIn(v, name === "location") : null;
   }
   seen.set(comp, found);
   return found;

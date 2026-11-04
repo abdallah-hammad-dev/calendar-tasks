@@ -503,8 +503,9 @@ user at each one.
 - **Video meetings** (2026-10-22): `meetingOf` (`src/calendar/meeting.ts`, cached per ical.js component in a
   WeakMap: a series' occurrences share their master) reads the link from `CONFERENCE` / Google / Microsoft properties,
   else from a known service's link in `URL`, `LOCATION`, `DESCRIPTION`, else any link in `LOCATION` then
-  `DESCRIPTION` (`anyIn`: maps, documents, files, help pages left out by `NOT_MEETINGS` / `NOT_MEETING_PATH`; in the
-  notes the link on a line with a meeting word first) (spec §7.1). `Occurrence.meeting` carries it;
+  `DESCRIPTION` (`anyIn`: maps, documents, files, help pages, event pages, mail trackers, images left out by
+  `NOT_MEETINGS` / `NOT_MEETING_PATH`, which `knownIn` honours too: Teams' dial-in page, Zoom's images; in the
+  notes only a link on a line with a meeting word, or the whole notes) (spec §7.1). `Occurrence.meeting` carries it;
   `Occurrence.location` is `placeOf` (null when the place is only that link). "Join" opens with `window.open`
   (Obsidian hands it to the browser). The `calendar-card` preview clicks *Rejoindre Teams* with `window.open`
   stubbed; `event-note` checks its header button.
