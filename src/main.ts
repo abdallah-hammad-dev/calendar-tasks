@@ -1032,6 +1032,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       sync: () => void this.syncNow(true),
       language: () => getLanguage(),
       editable: (occ) => this.editable(occ),
+      deletable: (occ) => this.deletable(occ),
       move: (occ, start, end, allDay) => this.moveOccurrence(occ, start, end, allDay),
       newEvent: (start, end, allDay) => this.newEventOptions(start, end, allDay),
       editEvent: (occ) => this.editEventOptions(occ),
@@ -1109,6 +1110,15 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     if (occ.kind === "deadline") return !!this.taskNotePath(occ.taskUid);
     const data = this.sync?.item(occ.itemUrl)?.data;
     return !!data && this.writableCalendar(occ.calendarUrl) && !occ.invitation && !isMirror(data);
+  }
+
+  /** What can be deleted: an event or a work session that can change, and an account's event, which can't change
+   * but can leave the calendar (spec §4.6). */
+  private deletable(occ: Occurrence): boolean {
+    if (occ.kind !== "event" && occ.kind !== "timeblock") return false;
+    if (this.editable(occ)) return true;
+    const data = this.sync?.item(occ.itemUrl)?.data;
+    return !!data && this.writableCalendar(occ.calendarUrl) && isMirror(data);
   }
 
   private async moveOccurrence(occ: Occurrence, start: Date, end: Date | null, allDay: boolean): Promise<boolean> {
@@ -1363,7 +1373,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
         );
       }
     }
-    if (changeable) {
+    if (this.deletable(occ)) {
       menu.addSeparator();
       if (occ.recurring && occ.recurrenceId) {
         menu.addItem((i) => i.setTitle(t("menu.deleteOccurrence")).setIcon("trash").onClick(run(() => this.removeOccurrence(occ, false))));
@@ -1379,12 +1389,32 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     menu.showAtMouseEvent(evt);
   }
 
-  /** Deletes an event or a work session: the whole item (a series as a whole) when `all`, else this occurrence. */
+  /**
+   * Deletes an event or a work session: the whole item (a series as a whole) when `all`, else this occurrence. An
+   * account's event is asked about first (2026-11-04, the user: "fais bien une popup confirmer"), saying only what
+   * the property promises, whatever backend set it: gone from the calendar, kept at the source, nobody told (spec
+   * §4.6). What the backend does next (ours keeps a trash) isn't the extension's to say.
+   */
   private async removeOccurrence(occ: Occurrence, all: boolean): Promise<void> {
     const data = this.sync?.item(occ.itemUrl)?.data;
     if (!data) return;
-    if (all || !occ.recurrenceId) await this.deleteEvent(occ.itemUrl);
-    else await this.saveEvent(occ.calendarUrl, occ.itemUrl, cancelOccurrence(data, occ.recurrenceId));
+    const rid = all ? null : occ.recurrenceId;
+    const remove = async () => {
+      if (!rid) await this.deleteEvent(occ.itemUrl);
+      else await this.saveEvent(occ.calendarUrl, occ.itemUrl, cancelOccurrence(data, rid));
+    };
+    if (!isMirror(data)) return remove();
+    const series = occ.recurring && !rid;
+    new ConfirmModal(this.app, {
+      title: t(rid ? "mirror.deleteDate" : series ? "mirror.deleteSeries" : "mirror.deleteEvent"),
+      lines: [
+        series ? t("mirror.deleteWhatSeries", { title: occ.title }) : t("mirror.deleteWhat", { title: occ.title, when: whenText(occ, getLanguage()) }),
+        t("mirror.deleteHides"),
+        ...(occ.invitation ? [t("mirror.deleteDecline")] : []),
+      ],
+      action: t("menu.delete"),
+      run: () => void remove().catch((e: unknown) => new Notice(t("error.write", { error: e instanceof Error ? e.message : String(e) }))),
+    }).open();
   }
 
   /** My answer to an invitation (spec §4.6): written on the server, relayed by the backend. */

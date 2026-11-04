@@ -219,6 +219,17 @@ Events the backend copies from another account (`X-CALTASKS-SOURCE-ACCOUNT`) are
 whatever collection they are in: the backend writes each account into a collection I choose, which can also hold
 my own events and tasks (2026-10-22). The extension tells them by that property, never by their collection.
 
+- **They can be deleted** (2026-11-04, the user: "supprimer un événement, ne plus le voir", and "fais bien une popup
+  confirmer"): the card's trash and the right-click menu, the whole event, the series or one date (an `EXDATE`, as
+  for my own events). A plain CalDAV delete, as any client does it: everything else is the backend's. Always **after
+  a confirmation** that says only what the property promises, whatever backend set it (2026-11-04, the user: the
+  popup generic, "si quelqu'un fait son backend", no word of our accounts page): it comes from another account, leaves
+  my calendars on every device, stays on that account, its organizer isn't told (to say no, decline).
+- **What a backend that sets `X-CALTASKS-SOURCE-ACCOUNT` must do with a deleted copy** (a whole item gone, or an
+  `EXDATE` a client added to a series): don't write it back when the source changes it, and don't pass it on to
+  the source (it is a hide, not a decline). How it remembers, and whether it offers a way back, is its own: ours keeps
+  a trash with Restore on its accounts page (backend spec §5.4). Not moved nor edited: there the source wins.
+
 - **I answer on the iPhone or in Obsidian.** The server must implement CalDAV scheduling (RFC 6638), which is why
   it is **Davis** and not Radicale (tested 2026-10-15, see the bench's `TESTS.md`):
   - Radicale: no Accept / Decline buttons, and iOS doesn't recognize me as the attendee, whatever the address.
@@ -256,7 +267,7 @@ the extension is renamed, the prefix follows.
 
 | Property | Written by | Meaning |
 |---|---|---|
-| `X-CALTASKS-SOURCE-ACCOUNT` | backend | The account it was copied from (`<kind>:<address>`). Makes an event mirrored: read-only except my answer (§4.6) |
+| `X-CALTASKS-SOURCE-ACCOUNT` | backend | The account it was copied from (`<kind>:<address>`). Makes an event mirrored: read-only except my answer and deleting it, which the backend keeps deleted and doesn't pass on (§4.6) |
 | `X-CALTASKS-SOURCE-ATTENDEE` | backend | The address that was invited (`mailto:…`); my `ATTENDEE` is the server's address for me |
 | `X-CALTASKS-RSVP-STATE` | backend; removed by the extension when I answer again | Where my answer stands: `pending`, `confirmed`, `failed:<reason>` |
 | `ATTENDEE;PARTSTAT` | the extension or the iPhone (my answer), the backend (from the provider) | Standard (RFC 5545) |
@@ -628,7 +639,7 @@ popovers.
   Only what the form changed is written, in place (§6.2);
   one occurrence of a series changes alone (an exception, as dragging does), so its form has no Collection (the
   series is one item); another collection = the event created there, then deleted here. Invitations, mirrored
-  events and read-only collections get no pencil. The card is drawn again when the data changes (an answer pushed, a sync), and closes only if its
+  events and read-only collections get no pencil; a mirrored event gets the trash (§4.6, asked first). The card is drawn again when the data changes (an answer pushed, a sync), and closes only if its
   occurrence is gone. Dragging a deadline edits `due`.
 - **Video meetings** (2026-10-22, asked: "teams zoom… c supporté ?"): "Rejoindre Teams / Zoom / Meet…" (or
   "Rejoindre la réunion" for a service we don't know) in the card, the event note's header and the right-click menu;

@@ -179,7 +179,9 @@ shown or hidden from the legend.
   help pages and event pages such as Luma aside).
 
 Invitations you haven't answered are striped. Events copied from other accounts by a backend (they carry
-`X-CALTASKS-SOURCE-ACCOUNT`) can only be answered, not edited.
+`X-CALTASKS-SOURCE-ACCOUNT`) can be answered or deleted (after a confirmation: the copy leaves your calendar, the
+original stays on its account, its organizer isn't told), not edited. A backend that sets this property keeps a
+deleted copy deleted and doesn't pass it on (`docs/SPEC.md` §4.6).
 
 ## Claude
 

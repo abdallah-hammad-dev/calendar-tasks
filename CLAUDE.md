@@ -570,7 +570,11 @@ user at each one.
 - **FullCalendar v6** (MIT plugins only): v7 moved the vanilla build to the `fullcalendar` package with a new API;
   v6 is the known, stable one. It injects its CSS itself; `styles.css` maps its variables to Obsidian's.
 - **What can be edited in the calendar**: events and work sessions in writable calendars, except invitations and
-  mirrored events (`X-CALTASKS-SOURCE-ACCOUNT`), which only get Accept / Maybe / Decline (right-click). Deadlines move
+  mirrored events (`X-CALTASKS-SOURCE-ACCOUNT`), which only get Accept / Maybe / Decline (right-click). Mirrored events
+  can be deleted (2026-11-04, `main.deletable`, the card's trash and the menu), always through a `ConfirmModal`
+  ("fais bien une popup confirmer"): a plain delete or `EXDATE`, the rest is the backend's. The popup says only what
+  the property promises (spec §4.6), never our backend's trash or accounts page: anyone's backend may set it (the
+  user: "plus générique"). Preview `confirm-delete-mirror`. Deadlines move
   by editing the task note's `due` (TaskSync pushes). Moving one occurrence of a series writes an exception
   (RECURRENCE-ID in the series' DTSTART zone); the whole series is moved on the phone. Answers apply to the whole
   invitation (series and exceptions).

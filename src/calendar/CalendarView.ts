@@ -70,6 +70,9 @@ export interface CalendarHost {
   editTask(uid: string): void;
   /** Ask when to block time for a deadline's task (its card). */
   pickSlotFor(uid: string): void;
+  /** Can this occurrence be deleted (its card's trash)? Default: when it's editable. An account's event can be,
+   * though it can't change (spec §4.6). */
+  deletable?(occ: Occurrence): boolean;
   /** Deletes an event or a work session (its card's trash): the whole item when `all`, else only this occurrence. */
   remove(occ: Occurrence, all: boolean): void;
   /** Every action on an occurrence (edit, delete, answer…), as a menu at the mouse; `edit` opens its form here. */
@@ -1652,7 +1655,7 @@ export class CalendarView extends ItemView {
       hasNote: this.host.hasNote(occ),
       sync: this.host.syncState(occ),
       edit: this.editKind(occ),
-      remove: occ.kind !== "deadline" && this.host.editable(occ),
+      remove: occ.kind !== "deadline" && (this.host.deletable?.(occ) ?? this.host.editable(occ)),
       repeat: occ.recurring ? (this.host.repeats?.(occ) ?? null) : null,
     };
   }

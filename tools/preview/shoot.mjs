@@ -77,6 +77,7 @@ const SCENARIOS = [
   // The task form's day preview: the slot typed among the day's events; dragging on it picks another.
   ["task-preview", 1100, 760],
   ["confirm-delete", 760, 420],
+  ["confirm-delete-mirror", 760, 460],
   ["date-picker", 520, 640],
   ["slot-picker", 520, 640],
   ["task-note", 900, 600],
@@ -1523,9 +1524,11 @@ async function editing(page, errors, theme) {
   await card("Préparer slides", "ct-ev-deadline");
   await page.locator(".ct-popover.ct-card .ct-card-tools button:has(.lucide-calendar-plus)").click().catch(() => undefined);
   if ((await page.evaluate(() => window.__pickSlot)) !== "t1") errors.push("a deadline's Planifier une session should ask for a slot");
-  // The trash asks again under it: an event, then a series (this occurrence or all of it).
+  // The trash asks again under it: an event, then a series (this occurrence or all of it). An account's invitation
+  // can't change but has one (spec §4.6).
   for (const [text, items, pick, removed] of [
     ["Café avec Léa et Sam", "Supprimer", 0, "Café avec Léa et Sam|all"],
+    ["Jury de projet", "Supprimer", 0, "Jury de projet|all"],
     ["Point Olera", "Supprimer cette occurrence, Supprimer toute la série", 0, "Point Olera|one"],
   ]) {
     await page.evaluate(() => (window.__removed = ""));

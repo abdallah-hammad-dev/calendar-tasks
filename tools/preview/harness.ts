@@ -9,6 +9,7 @@ import { editorInfoField, Menu, setIcon } from "obsidian";
 import { CalendarView, type CalendarHost } from "../../src/calendar/CalendarView";
 import { wholeDevicePixels } from "../../src/calendar/device-pixels";
 import { expandItem } from "../../src/calendar/expand";
+import { whenText } from "../../src/calendar/event-card";
 import { editEvent, moveEvent, setPartstat } from "../../src/calendar/vevent";
 import { writeTask } from "../../src/tasks/vtodo";
 import { chipModel, type ChipModel } from "../../src/editor/chips";
@@ -176,6 +177,8 @@ function calendar(view: "timeGridWeek" | "timeGridDay" | "dayGridMonth" | "listW
     language: () => q.get("lang") ?? "fr",
     initialDate: () => "2026-10-15",
     editable: (o) => (drag ? !CALS.find((c) => c.url === o.calendarUrl)?.readOnly && !o.invitation : o.kind !== "deadline" && !o.invitation),
+    // The school's invitations stand for an account's events: they can't change, but can be deleted.
+    deletable: (o) => o.kind !== "deadline",
     move: async (o, start, end, allDay) => {
       (window as unknown as { __moved: string }).__moved = `${start.toString().slice(16, 21)}-${end?.toString().slice(16, 21) ?? ""}`;
       if (drag) realMove(o, start, end, allDay);
@@ -450,6 +453,21 @@ function confirmDelete(): void {
   new ConfirmModal({} as never, {
     title: t("cal.deleteTitle", { name: "Tests" }),
     lines: [t("cal.deleteHolds", { what: `${t("cal.count.events", { n: 12 })}${t("cal.and")}${t("cal.count.task")}` }), t("cal.deleteAll"), t("cal.deleteNotes")],
+    action: t("menu.delete"),
+    run: () => undefined,
+  }).open();
+  done();
+}
+
+/** Deleting an account's event (one date of an invitation): asked first, saying only what the property promises. */
+function confirmDeleteMirror(): void {
+  new ConfirmModal({} as never, {
+    title: t("mirror.deleteDate"),
+    lines: [
+      t("mirror.deleteWhat", { title: "Cours réseau", when: whenText({ start: "2026-11-10T14:00", end: "2026-11-10T16:00", allDay: false }, q.get("lang") ?? "fr") }),
+      t("mirror.deleteHides"),
+      t("mirror.deleteDecline"),
+    ],
     action: t("menu.delete"),
     run: () => undefined,
   }).open();
@@ -779,6 +797,7 @@ else if (scenario === "edit-task-menu") editTask(true);
 else if (scenario === "new-event") newEvent();
 else if (scenario === "task-preview") taskPreview();
 else if (scenario === "confirm-delete") confirmDelete();
+else if (scenario === "confirm-delete-mirror") confirmDeleteMirror();
 else if (scenario === "date-picker") datePicker();
 else if (scenario === "slot-picker") slotPicker();
 else if (scenario === "task-note") taskNote();
