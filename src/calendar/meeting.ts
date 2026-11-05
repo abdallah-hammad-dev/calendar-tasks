@@ -22,7 +22,7 @@ const PROVIDERS: [RegExp, string][] = [
 ];
 
 /** Properties that are a meeting link by definition: RFC 7986's, then Google's and Microsoft's own. */
-const MEETING_PROPS = ["conference", "x-google-conference", "x-microsoft-skypeteamsmeetingurl", "x-microsoft-onlinemeetingconflink"];
+export const MEETING_PROPS = ["conference", "x-google-conference", "x-microsoft-skypeteamsmeetingurl", "x-microsoft-onlinemeetingconflink"];
 
 const URL_IN_TEXT = /https?:\/\/[^\s<>"'\\]+/gi;
 
@@ -61,6 +61,38 @@ function webUrl(raw: string): URL | null {
       ? u.searchParams.get("q")
       : null;
   return inner ? webUrl(inner) : u;
+}
+
+/** The web links in a text, as written and as read (the link a scanner wraps). */
+export function linksIn(text: string): { raw: string; url: string }[] {
+  const out: { raw: string; url: string }[] = [];
+  for (const m of text.matchAll(URL_IN_TEXT)) {
+    const raw = m[0].replace(/[).,;:!?\]]+$/, "");
+    const u = webUrl(raw);
+    if (u) out.push({ raw, url: u.href });
+  }
+  return out;
+}
+
+/**
+ * The meeting link typed in the event form (2026-11-05, the user: "pouvoir ajouter un lien de visio"): "" for none;
+ * the link, alone or in a pasted invitation (a meeting service's first, else the first that may be one, else the
+ * first), "https://" added when left out ("meet.google.com/abc-defg-hij"); null when it isn't a link.
+ */
+export function typedLink(text: string): string | null {
+  const typed = text.trim();
+  if (!typed) return "";
+  const found = (knownIn(typed) ?? anyIn(typed, true))?.url ?? linksIn(typed)[0]?.url;
+  if (found) return found;
+  if (/\s/.test(typed) || /^[a-z][a-z0-9+.-]*:/i.test(typed)) return null;
+  const u = webUrl(`https://${typed}`);
+  return u && /\.[a-z]{2,}$/i.test(u.hostname) ? u.href : null;
+}
+
+/** What names a meeting in the notes and on its button: its service, else `fallback` ("Visio"). */
+export function meetingLabel(url: string, fallback: string): string {
+  const u = webUrl(url);
+  return (u && providerOf(u)) ?? fallback;
 }
 
 function providerOf(u: URL): string | null {

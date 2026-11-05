@@ -271,7 +271,7 @@ the extension is renamed, the prefix follows.
 | `X-CALTASKS-SOURCE-ATTENDEE` | backend | The address that was invited (`mailto:…`); my `ATTENDEE` is the server's address for me |
 | `X-CALTASKS-RSVP-STATE` | backend; removed by the extension when I answer again | Where my answer stands: `pending`, `confirmed`, `failed:<reason>` |
 | `ATTENDEE;PARTSTAT` | the extension or the iPhone (my answer), the backend (from the provider) | Standard (RFC 5545) |
-| `CONFERENCE;VALUE=URI;FEATURE=VIDEO` | backend | The meeting link (RFC 7986), "Join" (§7.1) |
+| `CONFERENCE;VALUE=URI;FEATURE=VIDEO` | backend, the extension (the event form's Visio) | The meeting link (RFC 7986), "Join" (§7.1) |
 | `URL` | backend, the extension | The `obsidian://` link back to the note (§4.5) |
 
 Part 2 (organizing meetings, backend spec §9.3), proposals: `X-CALTASKS-SEND-ACCOUNT` (the account it's sent from) and
@@ -627,7 +627,15 @@ popovers.
   the date-time fields opened the system's calendar), and "All day", which hides the times; moving the start keeps
   the length, what isn't understood or an end not after the start is marked and blocks saving, and the selection on
   the calendar follows what's typed. The form is one grid (icon, name, field on every line: Start, End, All day,
-  Place, Collection, For a task), no description lines, no tooltip on a field that shows its name.
+  Place, Visio, Collection, For a task), no description lines, no tooltip on a field that shows its name.
+  **Visio** (2026-11-05, the user: "quand on crée un événement se serait bien de pouvoir ajouter un lien de visio"):
+  the meeting's link, pasted alone or with its invitation's text (the link is kept, shown alone once the field is
+  left; "https://" added when left out; what isn't a link is marked and blocks saving). Written as the backend writes
+  an account's (its spec §5.2): `CONFERENCE;VALUE=URI;FEATURE=VIDEO;LABEL=<service>`, and for the iPhone, which may
+  not read it, the link in the place when there's none, else "Teams: <link>" in the notes. An event's form shows its
+  meeting there, wherever it was found; changed or emptied, the old link goes from its property, the place that was
+  only it and its line in the notes (the dial-in numbers stay); a place typed over one that was only the link moves
+  the link to the notes.
 - **Zoom** (week and day): Ctrl/⌘ + wheel, a trackpad or touch pinch, or the − / + buttons make the hours taller
   (26 to 312 px an hour, 52 by default, kept per device); the time under the pointer stays put. Zooming out stops
   once the 24 hours fill the grid, between midnight's two lines; only a window too short for 26 px scrolls. Taller hours get

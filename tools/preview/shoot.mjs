@@ -1585,12 +1585,29 @@ async function editing(page, errors, theme) {
     if (!(await page.locator(".fc-event.is-active:has-text('Café avec Léa')").count())) errors.push("the event should stay marked while its form is open");
     await form.locator(".ct-task-title-input").fill("Café avec Léa et Sam");
     await form.locator(".ct-when-time").nth(1).fill("17h");
-    await form.locator(".ct-form-text").fill("Le Bistrot");
+    await form.locator(".ct-form-text:not(.ct-form-link)").fill("Le Bistrot");
     await page.screenshot({ path: join(out, `calendar-card-edit-${theme}.png`) });
     await form.locator(".mod-cta").click();
     await page.waitForTimeout(200);
     const saved = (await page.locator(".fc-timegrid-event:has-text('Café avec Léa et Sam')").first().textContent().catch(() => "")) ?? "";
     if (!saved.includes("15:45 – 17:00 · Le Bistrot")) errors.push(`saving the form should change the event, shows "${saved}"`);
+  }
+  // An event whose place is its Zoom link: the form shows it as its Visio, and a Meet link put instead is its Join.
+  pencil = await card("Appel Paul", "ct-ev-event");
+  await pencil.click().catch(() => errors.push("no pencil on Appel Paul"));
+  await page.waitForTimeout(200);
+  {
+    const form = page.locator(".ct-popover-edit");
+    const place = await form.locator(".ct-form-text:not(.ct-form-link)").inputValue().catch(() => "?");
+    const link = await form.locator(".ct-form-link").inputValue().catch(() => "?");
+    if (place !== "" || link !== "https://us02web.zoom.us/j/81234567890") errors.push(`a place that is only a Zoom link should show as the Visio, got place "${place}", visio "${link}"`);
+    await form.locator(".ct-form-link").fill("meet.google.com/abc-defg-hij");
+    await page.screenshot({ path: join(out, `calendar-card-edit-meeting-${theme}.png`) });
+    await form.locator(".mod-cta").click();
+    await page.waitForTimeout(200);
+    await card("Appel Paul", "ct-ev-event");
+    const read = (await page.locator(".ct-popover.ct-card").textContent().catch(() => "")) ?? "";
+    if (!read.includes("Rejoindre Meet") || read.includes("Zoom")) errors.push(`the Meet link should be the event's Join, the card reads "${read.slice(0, 120)}"`);
   }
   pencil = await card("Point Olera", "ct-ev-event");
   await pencil.click().catch(() => errors.push("no pencil on an occurrence of a series"));
@@ -2191,6 +2208,21 @@ for (const [name, width, height, scale = 2] of run) {
       await until.fill("15/12");
       if ((await until.evaluate((el) => el.classList.contains("is-invalid"))) || (await create.isDisabled())) errors.push("a last day after the start should be taken");
       await page.screenshot({ path: join(out, `${name}-repeat-${theme}.png`) });
+      // Its video meeting: a pasted invitation leaves its link once the field is left; what isn't a link blocks Create.
+      const link = page.locator(".ct-form-grid .ct-form-link");
+      if (!(await page.locator(".ct-form-name:has-text('Visio')").count()) || !(await link.count())) errors.push("no Visio row in the event form");
+      else {
+        await link.fill("salle 3");
+        if (!(await link.evaluate((el) => el.classList.contains("is-invalid"))) || !(await create.isDisabled())) errors.push("what isn't a link should be marked and block Create");
+        await link.fill("Réunion Zoom Rejoindre : https://us02web.zoom.us/j/81234567890?pwd=abc ID : 812 3456 7890");
+        await link.blur();
+        if ((await link.inputValue()) !== "https://us02web.zoom.us/j/81234567890?pwd=abc") errors.push(`a pasted invitation should leave its link, shows "${await link.inputValue()}"`);
+        if (await create.isDisabled()) errors.push("a link should let Create through");
+        await page.screenshot({ path: join(out, `${name}-meeting-${theme}.png`) });
+        await create.click();
+        const made = await page.evaluate(() => window.__event ?? "");
+        if (made !== "Révisions||https://us02web.zoom.us/j/81234567890?pwd=abc") errors.push(`Create should give the link, got "${made}"`);
+      }
     }
     if (name === "slot-picker") {
       if (await page.locator(".ct-dp-dayview").count()) errors.push("the day takes the month's place on a phone only");

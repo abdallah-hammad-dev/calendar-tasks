@@ -10,7 +10,8 @@ import { tasksToPlan, weekStart } from "./calendar/plan";
 import type { PreviewSource } from "./calendar/day-preview";
 import { ConfirmModal, type EventChoice, type EventFormOptions } from "./calendar/modals";
 import { TaskModal, type NewTask } from "./tasks/modals";
-import { cancelOccurrence, editEvent, endSeries, isMirror, moveEvent, newEvent, renameEvent, seriesRule, setPartstat, type EventEdit, type PartStat } from "./calendar/vevent";
+import { meetingLabel, typedLink } from "./calendar/meeting";
+import { cancelOccurrence, editEvent, endSeries, isMirror, moveEvent, newEvent, renameEvent, seriesRule, setPartstat, type EventEdit, type MeetingLink, type PartStat } from "./calendar/vevent";
 import { RepeatPickerModal } from "./ui/repeat";
 import { readTask } from "./tasks/vtodo";
 import { CalDavClient } from "./caldav/client";
@@ -60,6 +61,11 @@ interface EventOfNote {
   occ: Occurrence | null;
   start: string;
   end: string | null;
+}
+
+/** A meeting's link as an event writes it, named by its service ("Teams") or "Visio"; null for none (""). */
+function meetingLink(url: string | null | undefined): MeetingLink | null {
+  return url ? { url, label: meetingLabel(url, t("view.meetingAny")) } : null;
 }
 
 export default class CalendarTasksPlugin extends Plugin implements SettingsHost {
@@ -1264,6 +1270,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
             start: when.start,
             end: when.end ?? when.start,
             location: choice.location || null,
+            meeting: meetingLink(choice.meeting),
             relatedTo: choice.taskUid,
             rrule: choice.repeat,
           };
@@ -1314,15 +1321,16 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       calendarUrl: occ.calendarUrl,
       tasks: this.sessionTasks(occ),
       pickRepeat: (pick) => this.pickRepeat(pick),
-      edit: { title: occ.title, location: occ.location ?? "", taskUid: occ.taskUid, series: occ.recurring, repeat: this.ruleOf(occ) },
+      edit: { title: occ.title, location: occ.location ?? "", meeting: occ.meeting?.url ?? "", taskUid: occ.taskUid, series: occ.recurring, repeat: this.ruleOf(occ) },
       submit: (choice) =>
         void this.saveEventForm(occ, choice).catch((e: unknown) => new Notice(t("error.write", { error: e instanceof Error ? e.message : String(e) }))),
     };
   }
 
   /**
-   * Writes what the event form changed, and only that (the place is a meeting link the form doesn't show: left
-   * alone unless one is typed). Another collection: the event is created there, then deleted here.
+   * Writes what the event form changed, and only that (a place that is only the meeting's link shows empty: left
+   * alone unless one is typed). A new place takes the meeting with it, so its copy for the iPhone moves to the notes.
+   * Another collection: the event is created there, then deleted here.
    */
   private async saveEventForm(occ: Occurrence, choice: EventChoice): Promise<void> {
     const sync = this.sync;
@@ -1336,6 +1344,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       edit.end = when.end ?? when.start;
     }
     if (choice.location !== (occ.location ?? "")) edit.location = choice.location || null;
+    if (choice.meeting !== (occ.meeting?.url ?? "") || (edit.location !== undefined && occ.meeting)) edit.meeting = meetingLink(choice.meeting);
     if (choice.taskUid !== occ.taskUid) edit.relatedTo = choice.taskUid;
     if (choice.repeat !== this.ruleOf(occ)) edit.repeat = choice.repeat;
     const changed = Object.keys(edit).length > 0;
@@ -1563,6 +1572,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       throw new Error(msg);
     };
     const needSync = () => this.sync ?? fail("No CalDAV server is configured (Calendar & Tasks settings).");
+    const readLink = (text: string) => typedLink(text) ?? fail(`"${text}" isn't a link.`);
     const calendarByRef = (ref: string | undefined, component: "VEVENT" | "VTODO") => {
       const cals = needSync()
         .calendars()
@@ -1596,7 +1606,8 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       createEvent: async (e) => {
         const calendarUrl = calendarByRef(e.calendar, "VEVENT");
         const uid = newUid();
-        const data = newEvent(uid, { summary: e.title, start: e.start, end: e.end, location: e.location, relatedTo: e.taskUid }, localZone());
+        const meeting = e.meeting ? meetingLink(readLink(e.meeting)) : null;
+        const data = newEvent(uid, { summary: e.title, start: e.start, end: e.end, location: e.location, meeting, relatedTo: e.taskUid }, localZone());
         await this.saveEvent(calendarUrl, needSync().newItemUrl(calendarUrl, uid), data);
         return { uid };
       },
@@ -1610,6 +1621,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
         const target = current!.recurring ? rid : null;
         if (changes.start || changes.end) updated = moveEvent(updated, target, changes.start ?? current!.start, changes.end ?? current!.end ?? current!.start, tz);
         if (changes.title) updated = renameEvent(updated, target, changes.title);
+        if (changes.meeting !== undefined) updated = editEvent(updated, target, { meeting: meetingLink(readLink(changes.meeting)) }, tz);
         await this.saveEvent(entry.calendarUrl, entry.url, updated);
       },
       deleteEvent: async (uid, rid) => {

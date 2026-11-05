@@ -209,3 +209,60 @@ describe("invitations", () => {
     expect(isMirror(weekly)).toBe(false);
   });
 });
+
+describe("an event's video meeting", () => {
+  const MEET = { url: "https://meet.google.com/abc-defg-hij", label: "Meet" };
+  const ZOOM = { url: "https://us02web.zoom.us/j/81234567890", label: "Zoom" };
+  const made = (fields: { location?: string; meeting?: typeof MEET }) =>
+    newEvent("v", { summary: "Point", start: "2026-10-16T10:00", end: "2026-10-16T11:00", ...fields }, TZ, NOW);
+  const prop = (data: string, name: string) => lines(data).filter((l) => l.startsWith(name));
+
+  it("is written as the backend writes one: CONFERENCE, and the place or a line in the notes for the iPhone", () => {
+    const alone = made({ meeting: MEET });
+    expect(prop(alone, "CONFERENCE")).toEqual(["CONFERENCE;FEATURE=VIDEO;LABEL=Meet;VALUE=URI:https://meet.google.com/abc-defg-hij"]);
+    expect(prop(alone, "LOCATION")).toEqual(["LOCATION:https://meet.google.com/abc-defg-hij"]);
+    expect(occ(alone)[0]).toMatchObject({ meeting: { url: MEET.url, provider: "Meet" }, location: null });
+    const placed = made({ location: "Salle 3", meeting: MEET });
+    expect(prop(placed, "LOCATION")).toEqual(["LOCATION:Salle 3"]);
+    expect(prop(placed, "DESCRIPTION")).toEqual(["DESCRIPTION:Meet: https://meet.google.com/abc-defg-hij"]);
+    expect(occ(placed)[0]).toMatchObject({ meeting: { url: MEET.url }, location: "Salle 3" });
+  });
+
+  it("changed or taken off: the old link goes from everywhere, the notes' other lines and a dial-in stay", () => {
+    const placed = made({ location: "Salle 3", meeting: MEET }).replace("DESCRIPTION:Meet:", "DESCRIPTION:Code 1234\\n\\nMeet:");
+    const dialIn = placed.replace("END:VEVENT", "CONFERENCE;VALUE=URI;FEATURE=PHONE:tel:+33100000000\r\nEND:VEVENT");
+    const zoom = editEvent(dialIn, null, { meeting: ZOOM }, TZ, NOW);
+    expect(occ(zoom)[0]).toMatchObject({ meeting: { url: ZOOM.url, provider: "Zoom" }, location: "Salle 3" });
+    expect(prop(zoom, "CONFERENCE")).toEqual(["CONFERENCE;FEATURE=PHONE;VALUE=URI:tel:+33100000000", "CONFERENCE;FEATURE=VIDEO;LABEL=Zoom;VALUE=URI:https://us02web.zoom.us/j/81234567890"]);
+    expect(prop(zoom, "DESCRIPTION")).toEqual(["DESCRIPTION:Code 1234\\n\\nZoom: https://us02web.zoom.us/j/81234567890"]);
+    const none = editEvent(zoom, null, { meeting: null }, TZ, NOW);
+    expect(occ(none)[0]).toMatchObject({ meeting: null, location: "Salle 3" });
+    expect(prop(none, "DESCRIPTION")).toEqual(["DESCRIPTION:Code 1234"]);
+    expect(prop(none, "CONFERENCE")).toEqual(["CONFERENCE;FEATURE=PHONE;VALUE=URI:tel:+33100000000"]);
+    // The place that was only its link goes with it.
+    expect(prop(editEvent(made({ meeting: MEET }), null, { meeting: null }, TZ, NOW), "LOCATION")).toEqual([]);
+  });
+
+  it("follows a place typed over the place that was only its link, to the notes", () => {
+    const moved = editEvent(made({ meeting: MEET }), null, { location: "Salle 3", meeting: MEET }, TZ, NOW);
+    expect(occ(moved)[0]).toMatchObject({ meeting: { url: MEET.url }, location: "Salle 3" });
+    expect(prop(moved, "DESCRIPTION")).toEqual(["DESCRIPTION:Meet: https://meet.google.com/abc-defg-hij"]);
+    expect(prop(moved, "CONFERENCE")).toHaveLength(1);
+  });
+
+  it("set from the iPhone's place or notes, the link becomes the event's meeting where it was", () => {
+    const fromPhone = cal(
+      "BEGIN:VEVENT\r\nUID:p\r\nSUMMARY:Point\r\nDTSTART;TZID=Europe/Paris:20261016T100000\r\nDTEND;TZID=Europe/Paris:20261016T110000\r\n" +
+        "DESCRIPTION:Ordre du jour\\nLien de la visio : https://us02web.zoom.us/j/1\r\nEND:VEVENT\r\n",
+    );
+    const changed = editEvent(fromPhone, null, { meeting: MEET }, TZ, NOW);
+    expect(prop(changed, "DESCRIPTION")).toEqual(["DESCRIPTION:Ordre du jour"]);
+    expect(prop(changed, "LOCATION")).toEqual(["LOCATION:https://meet.google.com/abc-defg-hij"]);
+    expect(occ(changed)[0]!.meeting).toEqual({ url: MEET.url, provider: "Meet" });
+  });
+
+  it("changed on one occurrence of a series alone", () => {
+    const edited = editEvent(weekly, "20261019T080000Z", { meeting: ZOOM }, TZ, NOW);
+    expect(occ(edited).map((o) => o.meeting?.provider ?? null)).toEqual([null, null, "Zoom", null]);
+  });
+});

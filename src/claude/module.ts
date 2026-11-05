@@ -18,8 +18,9 @@ export interface CalendarServices {
   occurrences(from: Date, to: Date): Occurrence[];
   tasks(): TaskInfo[];
   syncState(uid: string | null): "local" | "pending" | "synced";
-  createEvent(e: { calendar?: string; title: string; start: string; end: string; location?: string; taskUid?: string }): Promise<{ uid: string }>;
-  updateEvent(uid: string, recurrenceId: string | null, changes: { title?: string; start?: string; end?: string }): Promise<void>;
+  createEvent(e: { calendar?: string; title: string; start: string; end: string; location?: string; meeting?: string; taskUid?: string }): Promise<{ uid: string }>;
+  /** `meeting`: its video link ("" takes it off). */
+  updateEvent(uid: string, recurrenceId: string | null, changes: { title?: string; start?: string; end?: string; meeting?: string }): Promise<void>;
   deleteEvent(uid: string, recurrenceId: string | null): Promise<void>;
   rsvp(uid: string, answer: "ACCEPTED" | "TENTATIVE" | "DECLINED"): Promise<void>;
   createTask(t: { title: string; due?: string; repeat?: string; priority?: Priority; tags?: string[]; parent?: string; body?: string }): Promise<string>;
@@ -231,6 +232,7 @@ export function createCalendarModule(s: CalendarServices): WorkspaceModule {
           end: local("End (exclusive; for all-day events the day after the last day)"),
           calendar: z.optional(z.string()),
           location: z.optional(z.string()),
+          meeting: describe(z.optional(z.string()), "Its video meeting's link (Zoom, Meet, Teams…): the calendar's Join button"),
         },
         handler: async (a) => guard(async () => ({ created: await s.createEvent(a) })),
       });
@@ -239,7 +241,7 @@ export function createCalendarModule(s: CalendarServices): WorkspaceModule {
         name: "calendar_update_event",
         title: "Move or rename an event",
         description:
-          "Changes an event's title or times. For one occurrence of a recurring event pass its recurrenceId (from calendar_list); " +
+          "Changes an event's title, times or video meeting link. For one occurrence of a recurring event pass its recurrenceId (from calendar_list); " +
           "without it the whole event changes. Invitations and events copied from other accounts can't be edited.",
         inputSchema: {
           uid: z.string(),
@@ -247,6 +249,7 @@ export function createCalendarModule(s: CalendarServices): WorkspaceModule {
           title: z.optional(text()),
           start: z.optional(local("New start")),
           end: z.optional(local("New end")),
+          meeting: describe(z.optional(z.string()), 'The video meeting\'s link; "" takes it off'),
         },
         handler: async ({ uid, recurrenceId, ...changes }) =>
           guard(async () => {

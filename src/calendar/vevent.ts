@@ -4,8 +4,15 @@ import { setDateProp, touch } from "../ical/write";
 import { formatLocalDate, formatLocalDateTime, wallClock } from "../ical/time";
 import { ruleForItem, ruleFromItem, untilOf, withUntil } from "../editor/when";
 import { registerZones, ridOf } from "../ical/zones";
+import { linksIn, MEETING_PROPS, meetingOf } from "./meeting";
 
 type Comp = InstanceType<typeof ICAL.Component>;
+
+/** A video meeting's link, and what names it in the notes ("Teams", "Visio"). */
+export interface MeetingLink {
+  url: string;
+  label: string;
+}
 
 export interface NewEvent {
   summary: string;
@@ -13,6 +20,7 @@ export interface NewEvent {
   start: string;
   end: string;
   location?: string | null;
+  meeting?: MeetingLink | null;
   /** UID of the task this is a work session for (spec §4.4). */
   relatedTo?: string | null;
   /** RRULE value, ours (UNTIL a date: the last day), for an event that comes back. */
@@ -59,6 +67,7 @@ export function newEvent(uid: string, e: NewEvent, tz: string, now = new Date())
   setDateProp(cal, ev, "dtstart", e.start, tz);
   setDateProp(cal, ev, "dtend", e.end, tz);
   if (e.location) ev.updatePropertyWithValue("location", e.location);
+  if (e.meeting) writeMeeting(ev, e.meeting, null);
   if (e.relatedTo) ev.updatePropertyWithValue("related-to", e.relatedTo);
   if (e.rrule) ev.updatePropertyWithValue("rrule", ICAL.Recur.fromString(ruleForItem(e.rrule, e.start.length === 10, tz)));
   touch(ev, now);
@@ -128,6 +137,11 @@ export interface EventEdit {
   end?: string;
   /** The place; null or "": none. */
   location?: string | null;
+  /**
+   * The video meeting; null: none. The one it had goes from wherever it was (its property, the place that was only
+   * its link, its line in the notes). Given again with a new place, so the iPhone's copy follows (`writeMeeting`).
+   */
+  meeting?: MeetingLink | null;
   /** The task it's a work session for; null: none (a plain event). */
   relatedTo?: string | null;
   /**
@@ -212,6 +226,7 @@ function shiftSeries(master: Comp, occ: Comp, edit: EventEdit, tz: string): Even
 
 /** Writes the form's fields on one component (the series, or one occurrence). */
 function applyEdit(cal: Comp, target: Comp, edit: EventEdit, tz: string): void {
+  const meeting = edit.meeting !== undefined ? (meetingOf(target)?.url ?? null) : null;
   if (edit.summary !== undefined) target.updatePropertyWithValue("summary", edit.summary);
   if (edit.start !== undefined) setDateProp(cal, target, "dtstart", edit.start, tz);
   if (edit.end !== undefined) {
@@ -222,6 +237,7 @@ function applyEdit(cal: Comp, target: Comp, edit: EventEdit, tz: string): void {
     if (edit.location) target.updatePropertyWithValue("location", edit.location);
     else target.removeAllProperties("location");
   }
+  if (edit.meeting !== undefined) writeMeeting(target, edit.meeting, meeting);
   if (edit.relatedTo !== undefined) {
     // The calendar reads the first RELATED-TO as the session's task: it takes the new one (its parameters kept).
     // None: every one goes, or the event would still read as a session.
@@ -230,6 +246,62 @@ function applyEdit(cal: Comp, target: Comp, edit: EventEdit, tz: string): void {
     else if (first) first.setValue(edit.relatedTo);
     else target.addPropertyWithValue("related-to", edit.relatedTo);
   }
+}
+
+const textOf = (comp: Comp, name: string) => {
+  const v: unknown = comp.getFirstPropertyValue(name);
+  return typeof v === "string" ? v : "";
+};
+
+/** A text without a link (`url`, however it's written): a line left with only its name ("Zoom :") goes too. */
+function withoutLink(text: string, url: string): string {
+  const kept: string[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    let rest = line;
+    for (const l of linksIn(line)) if (l.url === url) rest = rest.split(l.raw).join("");
+    if (rest === line) kept.push(line);
+    else if ((rest = rest.replace(/<>|\(\)|\[\]/g, "").trim()) && !rest.endsWith(":")) kept.push(rest);
+  }
+  return kept.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/**
+ * The video meeting, as the backend writes an account's (its spec §5.2, `adapter.Meeting`): `CONFERENCE;VALUE=URI;
+ * FEATURE=VIDEO` (what this extension reads first), and for the iPhone, whose Calendar may not read it (untested),
+ * the link in the place when there's none (its "Location or Video Call" field), else a line in the notes ("Teams:
+ * <link>"), unless one of them holds it already: a place is never replaced. `old`, the link it had: gone from its
+ * property, the place and the notes first (the dial-in numbers stay).
+ */
+function writeMeeting(target: Comp, link: MeetingLink | null, old: string | null): void {
+  if (old && old !== link?.url) {
+    for (const name of MEETING_PROPS) {
+      for (const p of target.getAllProperties(name)) {
+        const feature = String(p.getParameter("feature") ?? "");
+        if (!/phone/i.test(feature) || /video/i.test(feature)) target.removeProperty(p);
+      }
+    }
+    for (const name of ["location", "description"]) {
+      const v = textOf(target, name);
+      const rest = v && withoutLink(v, old);
+      if (rest === v) continue;
+      if (rest) target.updatePropertyWithValue(name, rest);
+      else target.removeAllProperties(name);
+    }
+  }
+  if (!link) return;
+  const has = (text: string) => linksIn(text).some((l) => l.url === link.url);
+  if (!target.getAllProperties("conference").some((p) => has(String(p.getFirstValue() ?? "")))) {
+    const p = new ICAL.Property("conference", target);
+    p.resetType("uri");
+    p.setParameter("feature", "VIDEO");
+    p.setParameter("label", link.label);
+    p.setValue(link.url);
+    target.addProperty(p);
+  }
+  const place = textOf(target, "location").trim();
+  const notes = textOf(target, "description").trimEnd();
+  if (!place) target.updatePropertyWithValue("location", link.url);
+  else if (!has(place) && !has(notes)) target.updatePropertyWithValue("description", `${notes ? `${notes}\n\n` : ""}${link.label}: ${link.url}`);
 }
 
 /** Moves (or resizes) an event, or one occurrence of a series (`rid`), to new local start / end values. */

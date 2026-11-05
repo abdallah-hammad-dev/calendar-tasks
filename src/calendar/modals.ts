@@ -5,6 +5,7 @@ import { formRow } from "../ui/form-row";
 import { menuSelect } from "../ui/menu-select";
 import { readUntil, repeatOption, repeatOptions, splitRule, untilText } from "../ui/repeat";
 import { formSheet } from "../ui/sheet";
+import { typedLink } from "./meeting";
 import { renderWhenFields, type When } from "./when-fields";
 
 export interface EventChoice {
@@ -12,6 +13,8 @@ export interface EventChoice {
   when: When;
   /** The place, as typed ("" for none). */
   location: string;
+  /** The video meeting's link, read from what was typed or pasted ("" for none). */
+  meeting: string;
   calendarUrl: string;
   taskUid: string | null;
   /** How it comes back, ours (UNTIL: its last day); null: it doesn't. As it was unless the form changed it. */
@@ -38,12 +41,13 @@ export interface EventFormOptions {
    * stays in the series' collection (the series is one item), so the form doesn't offer another. `repeat`: the
    * series' rule, which the form changes for the whole series.
    */
-  edit?: { title: string; location: string; taskUid: string | null; series: boolean; repeat: string | null };
+  edit?: { title: string; location: string; meeting: string; taskUid: string | null; series: boolean; repeat: string | null };
   submit: (choice: EventChoice) => void;
 }
 
 /**
- * The event form, new or to change one (spec §7.1): a title, when (to the minute), the place, a collection, or a
+ * The event form, new or to change one (spec §7.1): a title, when (to the minute), the place, its video meeting's
+ * link, a collection, or a
  * task to block time for (spec §4.4). In the calendar's popover next to the selected range or the event, or in a
  * modal (phones). `close` is called before `submit`. Returns the title field.
  */
@@ -53,16 +57,17 @@ export function renderEventForm(el: HTMLElement, opts: EventFormOptions, close: 
     title: edit?.title ?? "",
     when: opts.when,
     location: edit?.location ?? "",
+    meeting: edit?.meeting ?? "",
     calendarUrl: opts.calendarUrl,
     taskUid: edit?.taskUid ?? null,
     repeat: edit?.repeat ?? null,
   };
-  // Its times and its last day, each readable.
-  const ok = { when: true, until: true };
+  // Its times, its last day and its meeting's link, each readable.
+  const ok = { when: true, until: true, meeting: true };
   let valid = true;
   let create: HTMLButtonElement | null = null;
   const check = () => {
-    valid = ok.when && ok.until;
+    valid = ok.when && ok.until && ok.meeting;
     if (create) create.disabled = !valid;
   };
   const submit = () => {
@@ -111,6 +116,29 @@ export function renderEventForm(el: HTMLElement, opts: EventFormOptions, close: 
   place.spellcheck = false;
   place.addEventListener("input", () => (choice.location = place.value));
   enter(place);
+  // The link alone, typed or pasted with its invitation's text: shown alone once the field is left.
+  const link = formRow(grid, "video", t("modal.meeting")).createEl("input", {
+    cls: "ct-form-text ct-form-link",
+    type: "text",
+    attr: { inputmode: "url", autocapitalize: "off", autocorrect: "off", placeholder: t("modal.meetingHint") },
+  });
+  link.value = choice.meeting;
+  link.spellcheck = false;
+  const readLink = () => {
+    const url = typedLink(link.value);
+    ok.meeting = url !== null;
+    if (url !== null) choice.meeting = url;
+    link.toggleClass("is-invalid", url === null);
+    link.title = url === null ? t("modal.meetingInvalid") : "";
+    check();
+    return url;
+  };
+  link.addEventListener("input", readLink);
+  link.addEventListener("change", () => {
+    const url = readLink();
+    if (url && url !== link.value.trim()) link.value = url;
+  });
+  enter(link);
   if (!edit?.series) {
     menuSelect(formRow(grid, "calendar", t("modal.calendar")), {
       options: Object.entries(opts.calendars).map(([value, label]) => ({ value, label, icon: "calendar" })),

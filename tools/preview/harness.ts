@@ -11,6 +11,7 @@ import { wholeDevicePixels } from "../../src/calendar/device-pixels";
 import { expandItem } from "../../src/calendar/expand";
 import { whenText } from "../../src/calendar/event-card";
 import { editEvent, moveEvent, setPartstat } from "../../src/calendar/vevent";
+import { meetingLabel } from "../../src/calendar/meeting";
 import { writeTask } from "../../src/tasks/vtodo";
 import { chipModel, type ChipModel } from "../../src/editor/chips";
 import { DateSuggest } from "../../src/editor/date-suggest";
@@ -200,11 +201,12 @@ function calendar(view: "timeGridWeek" | "timeGridDay" | "dayGridMonth" | "listW
       calendars: { "https://c/perso/": "Perso", "https://c/taches/": "Rappels" },
       calendarUrl: o.calendarUrl,
       tasks: [{ uid: "t8", title: "Rédiger le mémoire" }, { uid: "t1", title: "Préparer slides" }],
-      edit: { title: o.title, location: o.location ?? "", taskUid: o.taskUid, series: o.recurring, repeat: o.recurring ? "FREQ=WEEKLY" : null },
+      edit: { title: o.title, location: o.location ?? "", meeting: o.meeting?.url ?? "", taskUid: o.taskUid, series: o.recurring, repeat: o.recurring ? "FREQ=WEEKLY" : null },
       submit: (c) => {
         const i = ITEMS.findIndex(([cal], j) => `${cal}${j}.ics` === o.itemUrl);
         const when = c.when;
-        ITEMS[i]![1] = editEvent(ITEMS[i]![1], o.recurring ? o.recurrenceId : null, { summary: c.title, start: when.start, end: when.end ?? when.start, location: c.location || null }, TZ);
+        const meeting = c.meeting !== (o.meeting?.url ?? "") || (c.location !== (o.location ?? "") && o.meeting) ? { meeting: c.meeting ? { url: c.meeting, label: meetingLabel(c.meeting, "Visio") } : null } : {};
+        ITEMS[i]![1] = editEvent(ITEMS[i]![1], o.recurring ? o.recurrenceId : null, { summary: c.title, start: when.start, end: when.end ?? when.start, location: c.location || null, ...meeting }, TZ);
         v.refresh();
       },
     }),
@@ -488,7 +490,7 @@ function newEvent(): void {
       { uid: "1", title: "Rédiger le mémoire" },
       { uid: "2", title: "Appeler la banque" },
     ],
-    submit: () => undefined,
+    submit: (c) => ((window as unknown as { __event: string }).__event = `${c.title}|${c.location}|${c.meeting}`),
   }).open();
   done();
 }

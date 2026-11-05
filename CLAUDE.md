@@ -513,7 +513,13 @@ user at each one.
   notes only a link on a line with a meeting word, or the whole notes) (spec §7.1). `Occurrence.meeting` carries it;
   `Occurrence.location` is `placeOf` (null when the place is only that link). "Join" opens with `window.open`
   (Obsidian hands it to the browser). The `calendar-card` preview clicks *Rejoindre Teams* with `window.open`
-  stubbed; `event-note` checks its header button.
+  stubbed; `event-note` checks its header button. **The form's Visio row** (2026-11-05, asked): `typedLink` reads
+  what's typed or pasted, `writeMeeting` (vevent.ts) writes `CONFERENCE` + the iPhone's copy as the backend's
+  `adapter.Meeting` does, and takes the old link out of the property, the place and the notes first;
+  `saveEventForm` passes the meeting again when only the place changed, so its copy follows. The input is
+  `.ct-form-link` (the place's selector in previews excludes it). The `new-event` preview pastes an invitation and
+  checks a wrong value blocks Create; `calendar-card` turns Appel Paul's Zoom place into a Meet link. Claude's
+  `calendar_create_event` / `calendar_update_event` take `meeting` too, as the backend connector's tools do.
 - **Event notes whose event isn't in the calendar** (2026-10-19): `eventOfNote` finds the occurrence with
   `findOccurrence(…, { declined: true })`, so a declined invitation's note still answers it; the header's `missing`
   is `"declined"` or `"deleted"` (no catalog entry once calendars are synced), and then has no reveal (time static,

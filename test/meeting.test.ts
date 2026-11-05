@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { expandItem } from "../src/calendar/expand";
-import { placeOf } from "../src/calendar/meeting";
+import { meetingLabel, placeOf, typedLink } from "../src/calendar/meeting";
 
 /** One event with the given lines, expanded: its occurrence's meeting and place. */
 const event = (lines: string[]) => {
@@ -135,5 +135,28 @@ describe("the meeting to join", () => {
     expect(placeOf("Salle B ; https://zoom.us/j/1", zoom)).toBe("Salle B ; https://zoom.us/j/1");
     expect(placeOf(" https://zoom.us/j/1 ", zoom)).toBeNull();
     expect(placeOf("", null)).toBeNull();
+  });
+});
+
+describe("a meeting link typed in the event form", () => {
+  it("takes the link alone, or out of a pasted invitation", () => {
+    expect(typedLink("")).toBe("");
+    expect(typedLink("  https://meet.google.com/abc-defg-hij ")).toBe("https://meet.google.com/abc-defg-hij");
+    expect(typedLink(`Réunion Microsoft Teams Cliquez ici pour participer à la réunion<${TEAMS}> En savoir plus<https://aka.ms/JoinTeamsMeeting>`)).toBe(TEAMS);
+    expect(typedLink("Rejoindre Zoom : https://us02web.zoom.us/j/81234567890?pwd=x.")).toBe("https://us02web.zoom.us/j/81234567890?pwd=x");
+  });
+
+  it("adds https:// when left out, and takes any web link, but nothing else", () => {
+    expect(typedLink("meet.google.com/abc-defg-hij")).toBe("https://meet.google.com/abc-defg-hij");
+    expect(typedLink("https://discord.gg/abc")).toBe("https://discord.gg/abc");
+    expect(typedLink("https://docs.google.com/document/d/x")).toBe("https://docs.google.com/document/d/x");
+    expect(typedLink("salle 3")).toBeNull();
+    expect(typedLink("zoommtg://zoom.us/join?confno=1")).toBeNull();
+    expect(typedLink("lundi")).toBeNull();
+  });
+
+  it("is named by its service, else by the name given", () => {
+    expect(meetingLabel(TEAMS, "Visio")).toBe("Teams");
+    expect(meetingLabel("https://discord.gg/abc", "Visio")).toBe("Visio");
   });
 });
