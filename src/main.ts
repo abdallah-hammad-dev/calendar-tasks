@@ -11,7 +11,7 @@ import type { PreviewSource } from "./calendar/day-preview";
 import { ConfirmModal, type EventChoice, type EventFormOptions } from "./calendar/modals";
 import { TaskModal, type NewTask } from "./tasks/modals";
 import { meetingLabel, typedLink } from "./calendar/meeting";
-import { cancelOccurrence, editEvent, endSeries, isMirror, moveEvent, newEvent, renameEvent, seriesRule, setPartstat, type EventEdit, type MeetingLink, type PartStat } from "./calendar/vevent";
+import { cancelOccurrence, editEvent, endSeries, isMirror, moveEvent, newEvent, redoOnServer, renameEvent, seriesRule, setPartstat, type EventEdit, type MeetingLink, type PartStat } from "./calendar/vevent";
 import { RepeatPickerModal } from "./ui/repeat";
 import { readTask } from "./tasks/vtodo";
 import { CalDavClient } from "./caldav/client";
@@ -964,9 +964,18 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
           onConflict: (c) => {
             if (this.sync !== engine) return;
             void this.tasks?.onConflict(c);
-            // An event has no merge: the server's version stays, so say that the change made here didn't.
             const info = c.op.kind === "put" ? itemInfo(c.op.data) : null;
-            if (info?.kind === "VEVENT") new Notice(t("events.clash", { name: info.summary }));
+            if (info?.kind !== "VEVENT" || c.op.kind !== "put") return;
+            // My answer to an invitation and removed occurrences go again, on the server's version (spec §6.2).
+            const redo = c.server && redoOnServer(c.op.data, c.op.baseData, c.server.data, this.myAddresses());
+            if (redo?.push) {
+              void this.saveEvent(c.op.calendarUrl, c.op.url, redo.push).catch((e: unknown) =>
+                new Notice(t("error.write", { error: e instanceof Error ? e.message : String(e) })),
+              );
+            }
+            // Any other change to an event has no merge, nor an answer made elsewhere meanwhile: the server's version
+            // stays, so say that the change made here didn't.
+            if (!redo || redo.clash) new Notice(t("events.clash", { name: info.summary }));
           },
           onRefused: ({ op, status }) => {
             if (this.sync !== engine) return;

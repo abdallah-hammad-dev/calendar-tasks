@@ -526,6 +526,14 @@ user at each one.
   preview, `planTasks` and Claude's tools leave them out; `noteOf`, `updateEventNotes` and Claude's
   `updateEvent` find them. The "declined" notice and the header's "hidden from the calendar" only when hidden.
   Preview fixture "Conseil de classe" (Monday 12, declined).
+- **A change to an event refused by the server goes again when it can** (2026-11-05, the user: "j'ai repassé à non
+  dans Obsidian, pourquoi ça repasse pas à non dans Google"): the backend writes a mirrored event again ~30 s after
+  any change made to it (its own stamps, `X-CALTASKS-RSVP-STATE`), and Obsidian pulls every 5 min, so a second
+  answer, or a second occurrence removed from the same series, got a 412 and was dropped with the "events.clash"
+  notice. `redoOnServer` (vevent.ts), called from `onConflict` in main.ts: when the refused change is only my answer
+  and / or removed occurrences (done again on the cached version, it gives the same lines, stamps aside), they go
+  on the server's version and are pushed again; my answer loses to one made elsewhere meanwhile (`clash`: the
+  notice). Any other change to an event keeps the notice. A deleted event was already safe (TaskSync deletes again).
 - **Event notes whose event isn't in the calendar** (2026-10-19): `eventOfNote` finds the occurrence with
   `findOccurrence(…, { declined: true })`, so a declined invitation's note still answers it; the header's `missing`
   is `"declined"` or `"deleted"` (no catalog entry once calendars are synced), and then has no reveal (time static,

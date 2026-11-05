@@ -363,8 +363,7 @@ export function setPartstat(data: string, me: string[], partstat: PartStat, now 
   const mine = new Set(me);
   let found = false;
   for (const ev of events) {
-    const declared = ev.getFirstPropertyValue(BACKEND_PROP.sourceAttendee);
-    const set = declared ? new Set([...mine, address(declared)]) : mine;
+    const set = myAddressesIn(ev, mine);
     let mineHere = false;
     let changed = false;
     for (const att of ev.getAllProperties("attendee")) {
@@ -380,4 +379,111 @@ export function setPartstat(data: string, me: string[], partstat: PartStat, now 
     touch(ev, now);
   }
   return found ? cal.toString() : null;
+}
+
+/** My addresses on ev: mine, and the one the backend says its source invited (X-CALTASKS-SOURCE-ATTENDEE). */
+function myAddressesIn(ev: Comp, mine: Set<string>): Set<string> {
+  const declared = ev.getFirstPropertyValue(BACKEND_PROP.sourceAttendee);
+  return declared ? new Set([...mine, address(declared)]) : mine;
+}
+
+/** My answer on the event (the series', else the first occurrence's that invites me), or null if I'm not invited. */
+function partstatOf(data: string, me: string[]): string | null {
+  let events: Comp[];
+  try {
+    events = parse(data).events;
+  } catch {
+    return null;
+  }
+  const mine = new Set(me);
+  let answer: string | null = null;
+  for (const ev of events) {
+    const set = myAddressesIn(ev, mine);
+    const att = ev.getAllProperties("attendee").find((a) => set.has(address(a.getFirstValue())));
+    if (!att) continue;
+    const p = String(att.getParameter("partstat") ?? "NEEDS-ACTION").toUpperCase();
+    if (!ev.hasProperty("recurrence-id")) return p;
+    answer ??= p;
+  }
+  return answer;
+}
+
+const ANSWERS: readonly string[] = ["ACCEPTED", "TENTATIVE", "DECLINED"] satisfies PartStat[];
+
+/** The occurrences a series' EXDATEs remove (their recurrence ids). */
+function exdatesOf(data: string): Set<string> {
+  const out = new Set<string>();
+  for (const p of parse(data).master.getAllProperties("exdate")) for (const v of p.getValues()) out.add(ridOf(v as Time));
+  return out;
+}
+
+const STAMPS = new Set(["DTSTAMP", "LAST-MODIFIED", "SEQUENCE", BACKEND_PROP.rsvpState.toUpperCase()]);
+
+/** An event's content lines but its stamps and the backend's relay state, in order: two versions compared. */
+function comparable(data: string): string {
+  return data
+    .replace(/\r?\n[ \t]/g, "")
+    .split(/\r?\n/)
+    .filter((l) => l && !STAMPS.has(l.split(/[;:]/, 1)[0]!.toUpperCase()))
+    .sort()
+    .join("\n");
+}
+
+/**
+ * What a refused push changed on an event, done again on the server's version (spec §6.2) when it is only what
+ * can be: my answer to an invitation, occurrences removed. The backend writes a mirrored event again ~30 s after any
+ * change made to it (its own stamps, how my answer went), so a second change before the next pull was refused, and
+ * lost (2026-11-05, the user: "j'ai repassé à non dans Obsidian, pourquoi ça repasse pas à non dans Google").
+ * As for a task's fields, my answer goes on the server's version unless it changed there too (answered elsewhere:
+ * it stands, `clash`); a removed occurrence always does. `push` is null when there's nothing left to send. Null when
+ * the push changed anything else: no merge for those, the server's version stays.
+ */
+export function redoOnServer(
+  local: string,
+  base: string | undefined,
+  server: string,
+  me: string[],
+  now = new Date(),
+): { push: string | null; clash: boolean } | null {
+  if (base === undefined) return null;
+  let answer: string | null;
+  let before: string | null;
+  let removed: string[];
+  try {
+    answer = partstatOf(local, me);
+    before = partstatOf(base, me);
+    const had = exdatesOf(base);
+    removed = [...exdatesOf(local)].filter((rid) => !had.has(rid));
+    if (answer === before || !answer || !ANSWERS.includes(answer)) answer = null;
+    if (!answer && !removed.length) return null;
+    // Nothing else changed: done again on the version it was made on, it gives the same event.
+    let replay: string | null = answer ? setPartstat(base, me, answer as PartStat, now) : base;
+    for (const rid of removed) if (replay) replay = cancelOccurrence(replay, rid, now);
+    if (!replay || comparable(replay) !== comparable(local)) return null;
+  } catch {
+    return null;
+  }
+
+  let data = server;
+  let changed = false;
+  let clash = false;
+  try {
+    const there = partstatOf(server, me);
+    if (answer && there !== answer) {
+      const answered = there === before ? setPartstat(server, me, answer as PartStat, now) : null;
+      if (answered) [data, changed] = [answered, true];
+      else clash = true;
+    }
+    const master = parse(server).master;
+    const series = master.hasProperty("rrule") || master.hasProperty("rdate");
+    const gone = exdatesOf(server);
+    for (const rid of removed) {
+      if (!series || gone.has(rid)) continue;
+      data = cancelOccurrence(data, rid, now);
+      changed = true;
+    }
+  } catch {
+    return null;
+  }
+  return { push: changed ? data : null, clash };
 }

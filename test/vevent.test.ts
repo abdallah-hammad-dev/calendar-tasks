@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { expandItem, findOccurrence } from "../src/calendar/expand";
-import { cancelOccurrence, editEvent, endSeries, isMirror, moveEvent, newEvent, renameEvent, seriesRule, setPartstat } from "../src/calendar/vevent";
+import { cancelOccurrence, editEvent, endSeries, isMirror, moveEvent, newEvent, redoOnServer, renameEvent, seriesRule, setPartstat } from "../src/calendar/vevent";
 
 const TZ = "Europe/Paris";
 const NOW = new Date("2026-10-15T12:00:00Z");
@@ -202,6 +202,77 @@ describe("invitations", () => {
     expect(lines(answered)).toContain("X-CALTASKS-SOURCE-ACCOUNT:school");
     const again = answered.replace("X-CALTASKS-SOURCE-ACCOUNT:school\r\n", "X-CALTASKS-SOURCE-ACCOUNT:school\r\nX-CALTASKS-RSVP-STATE:pending\r\n");
     expect(lines(setPartstat(again, ["abd@bench.test"], "ACCEPTED", NOW)!)).toContain("X-CALTASKS-RSVP-STATE:pending");
+  });
+
+  describe("a change the server refused (it changed meanwhile)", () => {
+    const me = ["abd@bench.test"];
+    const LATER = new Date("2026-11-05T10:00:00Z");
+    // "Accept" pushed, then the backend wrote how it went: the cache still has the version before that.
+    const base = setPartstat(invite, me, "ACCEPTED", NOW)!;
+    const server = base.replace("X-CALTASKS-SOURCE-ACCOUNT:school\r\n", "X-CALTASKS-SOURCE-ACCOUNT:school\r\nX-CALTASKS-RSVP-STATE:confirmed\r\n");
+    const declined = setPartstat(base, me, "DECLINED", LATER)!;
+
+    it("answers again on the server's version", () => {
+      const again = redoOnServer(declined, base, server, me, LATER)!;
+      expect(again.clash).toBe(false);
+      expect(lines(again.push!)).toContain("ATTENDEE;PARTSTAT=DECLINED:mailto:abd@bench.test");
+      expect(lines(again.push!).some((l) => l.startsWith("X-CALTASKS-RSVP-STATE"))).toBe(false); // the backend writes it again
+      expect(lines(again.push!)).toContain("X-CALTASKS-SOURCE-ACCOUNT:school");
+    });
+
+    it("sends nothing when the server already has it", () => {
+      const there = setPartstat(server, me, "DECLINED", LATER)!;
+      expect(redoOnServer(declined, base, there, me, LATER)).toEqual({ push: null, clash: false });
+    });
+
+    it("loses to an answer made elsewhere meanwhile", () => {
+      const elsewhere = setPartstat(server, me, "TENTATIVE", LATER)!;
+      expect(redoOnServer(declined, base, elsewhere, me, LATER)).toEqual({ push: null, clash: true });
+    });
+
+    it("leaves any other change to the clash notice", () => {
+      const renamed = renameEvent(base, null, "Jury (salle B)", LATER);
+      expect(redoOnServer(renamed, base, server, me, LATER)).toBeNull();
+      expect(redoOnServer(renameEvent(declined, null, "Jury (salle B)", LATER), base, server, me, LATER)).toBeNull();
+      expect(redoOnServer(declined, undefined, server, me, LATER)).toBeNull();
+    });
+
+    describe("in a series", () => {
+      const course = cal(
+        "BEGIN:VEVENT\r\nUID:cours\r\nSUMMARY:Cours\r\nDTSTART;TZID=Europe/Paris:20261005T100000\r\nDTEND;TZID=Europe/Paris:20261005T110000\r\n" +
+          "RRULE:FREQ=WEEKLY;COUNT=4\r\nX-CALTASKS-SOURCE-ACCOUNT:school\r\nORGANIZER:mailto:prof@uni.edu\r\n" +
+          "ATTENDEE;PARTSTAT=ACCEPTED:mailto:prof@uni.edu\r\nATTENDEE;PARTSTAT=ACCEPTED:mailto:abd@bench.test\r\nEND:VEVENT\r\n",
+      );
+      // Monday 5 removed and pushed; the backend wrote it again, and the organizer changed the room meanwhile.
+      const pushed = cancelOccurrence(course, "20261005T080000Z", NOW);
+      const there = pushed.replace("SUMMARY:Cours", "SUMMARY:Cours (salle B)");
+      const second = cancelOccurrence(pushed, "20261012T080000Z", LATER);
+
+      it("removes a second occurrence again on the server's version", () => {
+        const again = redoOnServer(second, pushed, there, me, LATER)!;
+        expect(again.clash).toBe(false);
+        expect(occ(again.push!).map((o) => [o.start, o.title])).toEqual([
+          ["2026-10-19T10:00", "Cours (salle B)"],
+          ["2026-10-26T10:00", "Cours (salle B)"],
+        ]);
+      });
+
+      it("sends nothing when the server already removed it", () => {
+        const gone = cancelOccurrence(there, "20261012T080000Z", LATER);
+        expect(redoOnServer(second, pushed, gone, me, LATER)).toEqual({ push: null, clash: false });
+      });
+
+      it("removes it even when my answer lost to one made elsewhere", () => {
+        const both = cancelOccurrence(setPartstat(pushed, me, "DECLINED", LATER)!, "20261012T080000Z", LATER);
+        const elsewhere = setPartstat(there, me, "TENTATIVE", LATER)!;
+        const again = redoOnServer(both, pushed, elsewhere, me, LATER)!;
+        expect(again.clash).toBe(true);
+        expect(occ(again.push!).map((o) => [o.start, o.invitation?.partstat])).toEqual([
+          ["2026-10-19T10:00", "TENTATIVE"],
+          ["2026-10-26T10:00", "TENTATIVE"],
+        ]);
+      });
+    });
   });
 
   it("knows mirrored events", () => {
