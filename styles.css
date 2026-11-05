@@ -2492,6 +2492,34 @@ body:not(.is-phone) .ct-task-fields .setting-item-control > .ct-task-tags-input 
   opacity: 0.7;
 }
 
+/*
+ * Declined (2026-11-05, the user: they vanished and couldn't be found again; a setting hides them): greyed and
+ * struck through, as Google Calendar draws them, still there to change the answer from its card.
+ */
+.ct-calendar .fc .fc-timegrid-event.ct-ev-declined,
+.ct-calendar .fc .fc-daygrid-block-event.ct-ev-declined {
+  border-inline-start-color: color-mix(in srgb, var(--ct-ev-color) 40%, var(--background-primary));
+  background: color-mix(in srgb, var(--ct-ev-color) 7%, var(--background-primary));
+}
+
+.ct-calendar .fc .fc-timegrid-event.ct-ev-declined:hover,
+.ct-calendar .fc .fc-daygrid-block-event.ct-ev-declined:hover {
+  background: color-mix(in srgb, var(--ct-ev-color) 14%, var(--background-primary));
+}
+
+.ct-calendar .fc .ct-ev-declined .ct-ev-name {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.ct-calendar .fc .ct-ev-declined :is(.ct-ev-time, .ct-ev-icon, .ct-ev-place) {
+  color: var(--text-faint);
+}
+
+.ct-calendar .fc .ct-ev-declined .ct-ev-bar {
+  opacity: 0.4;
+}
+
 /* The backend couldn't relay my answer. */
 .ct-calendar .fc .fc-event.ct-ev-rsvp-failed {
   outline: 2px solid var(--text-error);

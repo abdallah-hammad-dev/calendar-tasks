@@ -98,6 +98,8 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
   private pendingBlocks = new Map<string, Block[]>();
   /** The date format event notes were last named with (a change renames them). */
   private namedWith: EventDateFormat | null = null;
+  /** Whether the calendar was last drawn with declined invitations (a change redraws it). */
+  private drawnDeclined = true;
   private redrawTimer: number | null = null;
   private redrawData = false;
   private dayTimer: number | null = null;
@@ -110,6 +112,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
   override async onload(): Promise<void> {
     this.settings = mergeSettings(await this.loadData());
     this.namedWith = this.settings.eventDateFormat;
+    this.drawnDeclined = this.settings.showDeclined;
     this.store = new IdbStore(`calendar-tasks/${this.app.vault.getName()}`);
     this.vaultPort = new ObsidianVault(this.app);
     this.index = new TaskIndex(this.vaultPort);
@@ -843,6 +846,10 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       this.namedWith = this.settings.eventDateFormat;
       void this.updateEventNotes();
     }
+    if (this.settings.showDeclined !== this.drawnDeclined) {
+      this.drawnDeclined = this.settings.showDeclined;
+      this.refreshViews();
+    }
     if (this.connectionKey() !== this.connection) this.scheduleRestart();
     else if (this.settings.syncIntervalMinutes !== this.intervalMinutes) this.schedule();
   }
@@ -999,7 +1006,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
 
   private calendarHost(): CalendarHost {
     return {
-      occurrences: (from, to) => this.occurrences(from, to),
+      occurrences: (from, to) => this.occurrences(from, to, false, this.settings.showDeclined),
       calendars: () => this.calendarEntries(),
       updateCalendar: async (url, changes) => {
         try {
@@ -1439,8 +1446,9 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       return;
     }
     await this.saveEvent(occ.calendarUrl, occ.itemUrl, updated);
-    // A declined invitation leaves the calendar (spec §4.6): say so, rather than let it vanish.
-    if (partstat === "DECLINED") new Notice(t("rsvp.declined"));
+    // A declined invitation leaves the calendar when the setting hides them (spec §4.6): say so, rather than let it
+    // vanish. Shown, it stays there struck through.
+    if (partstat === "DECLINED" && !this.settings.showDeclined) new Notice(t("rsvp.declined"));
   }
 
   private async saveEvent(calendarUrl: string, url: string, data: string): Promise<void> {
@@ -1460,9 +1468,13 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     this.requestSync();
   }
 
-  private occurrences(from: Date, to: Date, includeHidden = false): Occurrence[] {
+  /**
+   * What the calendars hold in [from, to). Declined invitations only when asked: the calendar view draws them
+   * (unless its setting hides them), never the forms' day preview, the tasks' sessions or Claude's free time.
+   */
+  private occurrences(from: Date, to: Date, includeHidden = false, declined = false): Occurrence[] {
     const tz = localZone();
-    const opts = { from, to, tz, me: this.myAddresses() };
+    const opts = { from, to, tz, me: this.myAddresses(), declined };
     const hidden = new Set(includeHidden ? [] : this.settings.hiddenCalendars);
     const out: Occurrence[] = [];
     for (const cal of this.sync?.calendars() ?? []) {
@@ -1524,7 +1536,8 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     if (entry && data && entry.kind === "VEVENT") {
       const tz = localZone();
       const me = this.myAddresses();
-      let occ = findOccurrence(entry.url, entry.calendarUrl, data, rid, { tz, me });
+      // A declined invitation has its note too: the calendar shows it, and its note answers it again.
+      let occ = findOccurrence(entry.url, entry.calendarUrl, data, rid, { tz, me, declined: true });
       if (!rid && occ?.recurring) {
         const now = new Date();
         const around = expandItem(entry.url, entry.calendarUrl, data, {
@@ -1532,6 +1545,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
           to: new Date(now.getTime() + 400 * DAY_MS),
           tz,
           me,
+          declined: true,
         });
         occ = pickOccurrence(around, now, tz) ?? occ;
       }
@@ -1614,7 +1628,7 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
       updateEvent: async (uid, rid, changes) => {
         const { entry, data } = eventData(uid);
         const tz = localZone();
-        const current = findOccurrence(entry.url, entry.calendarUrl, data, rid, { tz, me: this.myAddresses() });
+        const current = findOccurrence(entry.url, entry.calendarUrl, data, rid, { tz, me: this.myAddresses(), declined: true });
         if (!current) fail(`No occurrence ${rid ?? ""} of event ${uid}.`);
         if (current!.invitation) fail("You were invited to this event: answer it with calendar_rsvp instead.");
         let updated = data;
@@ -1712,7 +1726,8 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
   }
 
   private async updateEventNotes(): Promise<void> {
-    const opts = { tz: localZone(), me: this.myAddresses() };
+    // A declined invitation's note follows its event too (it's still there, answered no).
+    const opts = { tz: localZone(), me: this.myAddresses(), declined: true };
     await this.eventNotes.update((uid, rid) => {
       const e = this.catalog.get(uid);
       const data = e && this.sync?.item(e.url)?.data;
@@ -1786,8 +1801,8 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
         meeting: occ?.meeting ? { text: joinText(occ.meeting), host: meetingHost(occ.meeting), url: occ.meeting.url } : null,
         location: occ?.location ?? null,
         invitation: occ?.invitation ? { partstat: answer === "ACCEPTED" || answer === "TENTATIVE" || answer === "DECLINED" ? answer : null } : null,
-        // Before the first sync nothing is known yet: not "deleted".
-        missing: answer === "DECLINED" ? "declined" : !occ && this.sync?.calendars().length ? "deleted" : null,
+        // Before the first sync nothing is known yet: not "deleted". Declined, it's in the calendar only if shown.
+        missing: answer === "DECLINED" ? (this.settings.showDeclined ? null : "declined") : !occ && this.sync?.calendars().length ? "deleted" : null,
       },
       {
         reveal: () => void this.revealInCalendar(occ, start),

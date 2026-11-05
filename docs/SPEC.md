@@ -173,8 +173,8 @@ A note is created **only when I click** the event (calendar view, or the `URL` o
   day): never the system's date picker on `start` / `end`. Its collection hidden, it is shown again (a notice says
   so).
 - **Not in the calendar** (2026-10-19, asked: the calendar button opened a day without the event): the header says
-  why and has nothing to open there (the time isn't a link, no calendar button). Declined: "Declined: hidden from
-  the calendar", the answer still there to change it. Deleted (not on the server after a sync): "Event deleted
+  why and has nothing to open there (the time isn't a link, no calendar button). Declined, when the setting hides
+  them (§4.6): "Declined: hidden from the calendar", the answer still there to change it. Deleted (not on the server after a sync): "Event deleted
   from the calendar" and **Delete the note**, through Obsidian's own deletion (its confirmation and trash
   settings). Before the first sync nothing is said.
 
@@ -250,12 +250,16 @@ my own events and tasks (2026-10-22). The extension tells them by that property,
   the buttons says where it is: "Sending your answer to the server…", "Not sent yet: the server can't be reached…",
   "Answer saved.", then from the backend's `X-CALTASKS-RSVP-STATE`: on its way to the organizer, "Sent to the
   organizer.", or why it failed (in red). A new answer removes `X-CALTASKS-RSVP-STATE` (it told how the previous one
-  went); the backend writes it again. Declining hides the invitation, so a notice says so.
+  went); the backend writes it again. Declining hides the invitation only when the setting hides them, and then a
+  notice says so.
 - Properties the backend writes and the extension reads (the contract, §4.7):
   `X-CALTASKS-SOURCE-ACCOUNT` (which account), `X-CALTASKS-SOURCE-ATTENDEE` (which `ATTENDEE` is me),
   `X-CALTASKS-RSVP-STATE` (`pending` / `confirmed` / `failed:<reason>`). "Me" = the server's `calendar-user-address-set`
   for my principal (standard); my addresses in settings are only a fallback for servers that don't advertise it.
-- Declined invitations are hidden.
+- **Declined invitations stay in the calendar, greyed and struck through** (2026-11-05, the user: a declined one
+  vanished and couldn't be found again; "comme sur Google"), so the answer can change from its card. A setting
+  (Invitations › "Show declined invitations", on by default) hides them. Only the calendar view shows them: the
+  forms' day preview, a task's sessions and Claude's free time leave them out (they take no time).
 
 ### 4.7 The contract with the backend
 
@@ -596,7 +600,8 @@ popovers.
   and day (the deadline's: an outlined box with its checkbox), the line marks in the month and the agenda (a solid
   bar, a dashed one, the checkbox). Deadlines closer than 20 minutes on a day are one
   marker, "3 tâches" + their names, whose card lists them with checkboxes (Google Calendar's "N tasks"; side by
-  side they were unreadable slivers). Invitations: striped and an envelope while unanswered, faded for "maybe".
+  side they were unreadable slivers). Invitations: striped and an envelope while unanswered, faded for "maybe",
+  greyed and struck through once declined (§4.6).
   Month lines are aligned: mark, time, title; all day, events stay bars, deadlines and work sessions are lines too.
   What lasts within a day (an event, a work session) takes two lines: its start over its end (fainter), the bar
   along both, the title beside on up to two lines; a deadline, a moment, keeps one (2026-10-20, asked: always the

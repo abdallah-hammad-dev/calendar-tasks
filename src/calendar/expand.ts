@@ -44,6 +44,8 @@ export interface ExpandOptions {
   tz: string;
   /** My addresses, lowercase, without mailto:. */
   me: string[];
+  /** Declined invitations too (the calendar view shows them struck through, unless its setting hides them). */
+  declined?: boolean;
 }
 
 const MAX_OCCURRENCES = 10_000;
@@ -157,7 +159,7 @@ export function findOccurrence(
   calendarUrl: string,
   data: string,
   rid: string | null,
-  opts: Pick<ExpandOptions, "tz" | "me"> & { declined?: boolean },
+  opts: Pick<ExpandOptions, "tz" | "me" | "declined">,
 ): Occurrence | null {
   let cal: Comp;
   try {
@@ -200,11 +202,11 @@ function build(
   start: Time,
   end: Time,
   recurrenceId: string | null,
-  opts: Pick<ExpandOptions, "tz" | "me"> & { declined?: boolean },
+  opts: Pick<ExpandOptions, "tz" | "me" | "declined">,
 ): Occurrence | null {
   if (String(comp.getFirstPropertyValue("status") ?? "").toUpperCase() === "CANCELLED") return null;
   const invitation = invitationOf(comp, opts.me);
-  if (invitation?.partstat === "DECLINED" && !opts.declined) return null; // declined invitations are hidden
+  if (invitation?.partstat === "DECLINED" && !opts.declined) return null; // hidden unless asked for
   const startLocal = toLocal(start, opts.tz);
   let endLocal = toLocal(end, opts.tz);
   if (start.isDate && endLocal <= startLocal) {

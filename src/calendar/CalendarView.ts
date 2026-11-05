@@ -671,6 +671,7 @@ export class CalendarView extends ItemView {
     if (o.kind === "deadline" && !o.done && isPast(o, now)) classes.push("ct-ev-overdue");
     if (o.invitation?.partstat === "NEEDS-ACTION") classes.push("ct-ev-pending");
     if (o.invitation?.partstat === "TENTATIVE") classes.push("ct-ev-tentative");
+    if (o.invitation?.partstat === "DECLINED") classes.push("ct-ev-declined");
     if (this.isDone(o)) classes.push("ct-ev-done");
     if (o.invitation?.relay?.startsWith("failed")) classes.push("ct-ev-rsvp-failed");
     return {

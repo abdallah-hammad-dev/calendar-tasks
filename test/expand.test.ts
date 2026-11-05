@@ -126,6 +126,19 @@ describe("invitations", () => {
     expect(expand(invite("DECLINED"))).toEqual([]);
   });
 
+  it("expands declined ones when asked: the calendar shows them struck through, to answer again", () => {
+    const all = (declined?: boolean) =>
+      expandItem("u", "c", invite("DECLINED"), {
+        from: new Date("2026-10-01T00:00:00Z"),
+        to: new Date("2026-11-01T00:00:00Z"),
+        tz: TZ,
+        me: ["abd@bench.test"],
+        declined,
+      });
+    expect(all()).toEqual([]);
+    expect(all(true)).toEqual([expect.objectContaining({ start: "2026-10-17T11:00", invitation: { partstat: "DECLINED" } })]);
+  });
+
   it("finds a declined one for its note only when asked (its answer can still change)", () => {
     const find = (declined?: boolean) => findOccurrence("u", "c", invite("DECLINED"), null, { tz: TZ, me: ["abd@bench.test"], declined });
     expect(find()).toBeNull();

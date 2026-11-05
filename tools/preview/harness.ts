@@ -69,6 +69,9 @@ const ITEMS: [string, string][] = [
     "ORGANIZER:mailto:prof@uni.edu\r\nATTENDEE;PARTSTAT=NEEDS-ACTION:mailto:abd@bench.test\r\n")],
   ["https://c/ecole/", ev("inv2", "Réunion pédagogique", "20261016T110000", "20261016T120000",
     "ORGANIZER:mailto:prof@uni.edu\r\nATTENDEE;PARTSTAT=TENTATIVE:mailto:abd@bench.test\r\n")],
+  // Declined: greyed and struck through (the plugin's default, `showDeclined`).
+  ["https://c/ecole/", ev("inv3", "Conseil de classe", "20261012T140000", "20261012T153000",
+    "ORGANIZER:mailto:prof@uni.edu\r\nATTENDEE;PARTSTAT=DECLINED:mailto:abd@bench.test\r\n")],
   ["https://c/taches/", todo("t1", "Préparer slides", "20261015T180000")],
   ["https://c/taches/", todo("t2", "Rendre rapport", "20261013T120000", "STATUS:COMPLETED\r\n")],
   ["https://c/taches/", todo("t3", "Envoyer le devis", "20261014T120000")],
@@ -161,7 +164,7 @@ function calendar(view: "timeGridWeek" | "timeGridDay" | "dayGridMonth" | "listW
   };
   const host: CalendarHost = {
     occurrences: (from, to) =>
-      ITEMS.flatMap(([cal], i) => expandItem(`${cal}${i}.ics`, cal, ITEMS[i]![1], { from, to, tz: TZ, me: ["abd@bench.test"] })),
+      ITEMS.flatMap(([cal], i) => expandItem(`${cal}${i}.ics`, cal, ITEMS[i]![1], { from, to, tz: TZ, me: ["abd@bench.test"], declined: true })),
     calendars: () => CALS,
     toggleCalendar: () => undefined,
     updateCalendar: async () => true,

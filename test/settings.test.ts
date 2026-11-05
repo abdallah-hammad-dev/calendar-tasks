@@ -30,6 +30,12 @@ describe("mergeSettings", () => {
     expect(s.reminderNoteLink).toBe(true);
   });
 
+  it("shows declined invitations unless turned off (settings saved before it show them too)", () => {
+    expect(mergeSettings({}).showDeclined).toBe(true);
+    expect(mergeSettings({ showDeclined: "no" }).showDeclined).toBe(true);
+    expect(mergeSettings({ showDeclined: false }).showDeclined).toBe(false);
+  });
+
   it("never keeps the vault root as a folder or a file (what an emptied field becomes)", () => {
     const s = mergeSettings({ tasksFolder: "/", eventsFolder: "/", taskBaseFile: "/" });
     expect([s.tasksFolder, s.eventsFolder, s.taskBaseFile]).toEqual(["Tasks", "Calendar", "Tasks.base"]);

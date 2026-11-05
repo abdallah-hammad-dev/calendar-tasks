@@ -278,6 +278,8 @@ const en = {
   "settings.myAddresses": "My email addresses",
   "settings.myAddresses.desc":
     "Comma-separated. Only needed if your server doesn't tell which attendee is you (Davis does).",
+  "settings.showDeclined": "Show declined invitations",
+  "settings.showDeclined.desc": "Greyed and struck through in the calendar, to change your answer from there.",
 } as const;
 
 export type StringKey = keyof typeof en;
@@ -560,6 +562,8 @@ const fr: Partial<Record<StringKey, string>> = {
   "settings.myAddresses": "Mes adresses email",
   "settings.myAddresses.desc":
     "Séparées par des virgules. Utile seulement si ton serveur n'indique pas quel invité est toi (Davis le fait).",
+  "settings.showDeclined": "Afficher les invitations refusées",
+  "settings.showDeclined.desc": "Grisées et barrées dans le calendrier, pour changer de réponse depuis là.",
 };
 
 export function language(): string {

@@ -35,6 +35,8 @@ export interface CalendarTasksSettings {
   planUnplannedOnly: boolean;
   /** Task notes show their properties under the task header (hidden by default: the header says it all). */
   showTaskProperties: boolean;
+  /** The calendar shows declined invitations, greyed and struck through (on by default: an answer to change). */
+  showDeclined: boolean;
   /** The calendar view last shown ("timeGridWeek"…). */
   calendarView: string;
 }
@@ -56,6 +58,7 @@ export const DEFAULT_SETTINGS: CalendarTasksSettings = {
   planPanelOpen: false,
   planUnplannedOnly: false,
   showTaskProperties: false,
+  showDeclined: true,
   calendarView: "",
 };
 
@@ -98,6 +101,7 @@ export function mergeSettings(saved: unknown): CalendarTasksSettings {
     planPanelOpen: s.planPanelOpen === true,
     planUnplannedOnly: s.planUnplannedOnly === true,
     showTaskProperties: s.showTaskProperties === true,
+    showDeclined: typeof s.showDeclined === "boolean" ? s.showDeclined : DEFAULT_SETTINGS.showDeclined,
     calendarView: str("calendarView") ?? "",
   };
 }
@@ -217,6 +221,11 @@ export class SettingsTab extends PluginSettingTab {
             name: t("settings.myAddresses"),
             desc: t("settings.myAddresses.desc"),
             control: { type: "text", key: "myAddresses", placeholder: "you@example.com, you@school.edu" },
+          },
+          {
+            name: t("settings.showDeclined"),
+            desc: t("settings.showDeclined.desc"),
+            control: { type: "toggle", key: "showDeclined" },
           },
         ],
       },

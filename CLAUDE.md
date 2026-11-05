@@ -520,6 +520,12 @@ user at each one.
   `.ct-form-link` (the place's selector in previews excludes it). The `new-event` preview pastes an invitation and
   checks a wrong value blocks Create; `calendar-card` turns Appel Paul's Zoom place into a Meet link. Claude's
   `calendar_create_event` / `calendar_update_event` take `meeting` too, as the backend connector's tools do.
+- **Declined invitations show in the calendar** (2026-11-05, the user: a declined one vanished, "comme sur Google"):
+  `ExpandOptions.declined`, passed only by the calendar view's host (`settings.showDeclined`, on by default; a change
+  redraws, `drawnDeclined`), class `ct-ev-declined` (pale, bar faded, title struck through, muted). The forms' day
+  preview, `planTasks` and Claude's tools leave them out; `noteOf`, `updateEventNotes` and Claude's
+  `updateEvent` find them. The "declined" notice and the header's "hidden from the calendar" only when hidden.
+  Preview fixture "Conseil de classe" (Monday 12, declined).
 - **Event notes whose event isn't in the calendar** (2026-10-19): `eventOfNote` finds the occurrence with
   `findOccurrence(…, { declined: true })`, so a declined invitation's note still answers it; the header's `missing`
   is `"declined"` or `"deleted"` (no catalog entry once calendars are synced), and then has no reveal (time static,
