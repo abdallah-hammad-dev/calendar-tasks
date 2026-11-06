@@ -267,6 +267,81 @@ describe("pushing", () => {
     expect(server.stored(`${tasks}a.ics`)?.data).toContain("second");
   });
 
+  it("merges an edit made while the previous push was in flight on the version that push left", async () => {
+    server.externalPut(`${tasks}a.ics`, ics("a"));
+    const e = await started();
+    await e.putItem(tasks, `${tasks}a.ics`, ics("a", "first"));
+    server.beforePut = async () => {
+      server.beforePut = undefined;
+      await e.putItem(tasks, `${tasks}a.ics`, ics("a", "second"));
+    };
+    await e.sync();
+    server.externalPut(`${tasks}a.ics`, ics("a", "first, then the backend's"));
+    await e.sync();
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]!.op).toMatchObject({ data: expect.stringContaining("second"), baseData: expect.stringContaining("SUMMARY:first\r\n") });
+  });
+
+  it("tells only the newest of two refused edits, the one made on the other", async () => {
+    server.externalPut(`${tasks}a.ics`, ics("a"));
+    const e = await started();
+    server.externalPut(`${tasks}a.ics`, ics("a", "changed on the iPhone"));
+    await e.putItem(tasks, `${tasks}a.ics`, ics("a", "first"));
+    server.beforePut = async () => {
+      server.beforePut = undefined;
+      await e.putItem(tasks, `${tasks}a.ics`, ics("a", "second"));
+    };
+    await e.sync(); // "first" refused, "second" queued during the request: nothing told yet
+    expect(conflicts).toEqual([]);
+    expect(e.item(`${tasks}a.ics`)?.data).toContain("second");
+    await e.sync();
+    expect(conflicts.map((c) => c.op.kind === "put" && c.op.data)).toEqual([expect.stringContaining("second")]);
+  });
+
+  describe("a refused change the listener makes again", () => {
+    const redoing = (redo: (data: string) => string | null) =>
+      new SyncEngine(server, store, "acct", {
+        onConflict: (c) => conflicts.push(c),
+        redo: (_op, there) => ({ data: redo(there.data), clash: false }),
+      });
+
+    it("goes on the server's version in the same sync", async () => {
+      server.externalPut(`${tasks}a.ics`, ics("a"));
+      const e = redoing((d) => d.replace("SUMMARY:", "SUMMARY:answered, "));
+      await e.init();
+      await e.sync();
+      server.externalPut(`${tasks}a.ics`, ics("a", "rewritten by the backend"));
+      await e.putItem(tasks, `${tasks}a.ics`, ics("a", "answered"));
+      expect(await e.sync()).toMatchObject({ ok: true, pushed: 1, pending: 0 }); // the report of the run that pushed it
+      expect(conflicts.map((c) => c.redone)).toEqual([{ clash: false }]);
+      expect(server.stored(`${tasks}a.ics`)?.data).toContain("SUMMARY:answered, rewritten by the backend");
+      expect(e.item(`${tasks}a.ics`)?.data).toContain("SUMMARY:answered, rewritten by the backend");
+    });
+
+    it("sends nothing when there's nothing left to send", async () => {
+      server.externalPut(`${tasks}a.ics`, ics("a"));
+      const e = redoing(() => null);
+      await e.init();
+      await e.sync();
+      server.externalPut(`${tasks}a.ics`, ics("a", "rewritten by the backend"));
+      await e.putItem(tasks, `${tasks}a.ics`, ics("a", "answered"));
+      expect(await e.sync()).toMatchObject({ ok: true, conflicts: 1, pending: 0 });
+      expect(e.item(`${tasks}a.ics`)?.data).toContain("rewritten by the backend");
+    });
+
+    it("once per sync, against a server that refuses every one", async () => {
+      server.externalPut(`${tasks}a.ics`, ics("a"));
+      const e = redoing((d) => d.replace("SUMMARY:", "SUMMARY:again, "));
+      await e.init();
+      await e.sync();
+      server.beforePut = (url) => void server.externalPut(url, ics("a", "changed again"));
+      await e.putItem(tasks, `${tasks}a.ics`, ics("a", "answered"));
+      const r = await e.sync();
+      expect(r).toMatchObject({ ok: true, pending: 0 });
+      expect(conflicts.map((c) => c.redone)).toEqual([{ clash: false }, undefined]);
+    });
+  });
+
   it("deletes an item deleted while its creation is in flight", async () => {
     const e = await started();
     await e.putItem(tasks, `${tasks}n.ics`, ics("n"));

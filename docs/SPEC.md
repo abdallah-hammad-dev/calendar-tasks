@@ -514,10 +514,12 @@ its raw properties ("I don't want to see the id; if I want to, I can open the pr
 - **Incremental sync** with sync-tokens (RFC 6578); full resync if the token is invalid.
 - **Local changes are queued** and pushed with `If-Match: <etag>`. A `412` refetches the item. If the same field
   changed on both sides, the server wins for time fields and a notice tells me. Nothing is silently overwritten.
-  My answer to an invitation and the occurrences I removed are put on the server's version and pushed again (my
-  answer unless the server's changed too: answered elsewhere meanwhile, it stands, with the notice): the backend
-  writes a mirrored event again right after any change made to it, so a second change made before the next pull
-  is refused (2026-11-05). A deletion refused that way is made again.
+  My answer to an invitation and the occurrences I removed are put on the server's version and pushed again in the
+  same sync (my answer unless the server's changed too: answered elsewhere meanwhile, it stands, with the notice):
+  the backend writes a mirrored event again right after any change made to it, so a second change made before the
+  next pull is refused (2026-11-05). A deletion refused that way is made again. A change made while the previous
+  one is on its way is merged on that one's version, and when both are refused only the newer one is (it carries
+  the other).
   A change refused for good (`4xx`: invalid, too big, forbidden) leaves the queue with a notice and stays on this
   device; server errors and the network keep it for the next sync (2026-10-28).
 - **When:** at startup, every N minutes (setting), when Obsidian regains focus, and right after a local change.

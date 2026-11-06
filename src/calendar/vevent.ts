@@ -446,18 +446,20 @@ export function redoOnServer(
   now = new Date(),
 ): { push: string | null; clash: boolean } | null {
   if (base === undefined) return null;
+  let mine: string | null;
   let answer: string | null;
   let before: string | null;
   let removed: string[];
   try {
-    answer = partstatOf(local, me);
+    mine = partstatOf(local, me);
     before = partstatOf(base, me);
+    const answered = mine && ANSWERS.includes(mine) ? mine : null;
+    answer = answered !== before ? answered : null;
     const had = exdatesOf(base);
     removed = [...exdatesOf(local)].filter((rid) => !had.has(rid));
-    if (answer === before || !answer || !ANSWERS.includes(answer)) answer = null;
-    if (!answer && !removed.length) return null;
-    // Nothing else changed: done again on the version it was made on, it gives the same event.
-    let replay: string | null = answer ? setPartstat(base, me, answer as PartStat, now) : base;
+    // Nothing else changed: done again on the version it was made on, it gives the same event. (An answer made
+    // again, even the one it had: clicked back to it, the line lost its RSVP=TRUE.)
+    let replay: string | null = answered ? setPartstat(base, me, answered as PartStat, now) : base;
     for (const rid of removed) if (replay) replay = cancelOccurrence(replay, rid, now);
     if (!replay || comparable(replay) !== comparable(local)) return null;
   } catch {
@@ -469,6 +471,8 @@ export function redoOnServer(
   let clash = false;
   try {
     const there = partstatOf(server, me);
+    // Clicked back to the answer it had: nothing to send, unless the server's changed meanwhile (it stands).
+    if (!answer && !removed.length) return { push: null, clash: there !== mine };
     if (answer && there !== answer) {
       const answered = there === before ? setPartstat(server, me, answer as PartStat, now) : null;
       if (answered) [data, changed] = [answered, true];

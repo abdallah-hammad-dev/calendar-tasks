@@ -530,10 +530,16 @@ user at each one.
   dans Obsidian, pourquoi ça repasse pas à non dans Google"): the backend writes a mirrored event again ~30 s after
   any change made to it (its own stamps, `X-CALTASKS-RSVP-STATE`), and Obsidian pulls every 5 min, so a second
   answer, or a second occurrence removed from the same series, got a 412 and was dropped with the "events.clash"
-  notice. `redoOnServer` (vevent.ts), called from `onConflict` in main.ts: when the refused change is only my answer
-  and / or removed occurrences (done again on the cached version, it gives the same lines, stamps aside), they go
-  on the server's version and are pushed again; my answer loses to one made elsewhere meanwhile (`clash`: the
-  notice). Any other change to an event keeps the notice. A deleted event was already safe (TaskSync deletes again).
+  notice. `redoOnServer` (vevent.ts) through `SyncListener.redo` (main.ts): when the refused change is only my
+  answer and / or removed occurrences (done again on the cached version, it gives the same lines, stamps aside),
+  the engine queues them on the server's version at once (inside `conflict`, so a click made meanwhile goes on top)
+  and pushes them in one more run of the same sync; once per item per `sync()` (a server refusing every `If-Match`
+  can't loop). My answer loses to one made elsewhere meanwhile (`redone.clash`: the notice); one clicked back to
+  where it was sends nothing. Any other change to an event keeps the notice. A deleted event was already safe
+  (TaskSync deletes again). Answers clicked in a row (0.2.18, the user: "quand je spam oui ou non") showed two
+  engine faults, fixed for every item: an edit queued while a push was in flight kept the version before that push
+  as its merge base (`baseData`, now the pushed one), and a refused push was told (merged, made again) although a
+  newer edit made on it was queued (now only the newer one is, when it is refused in turn).
 - **Event notes whose event isn't in the calendar** (2026-10-19): `eventOfNote` finds the occurrence with
   `findOccurrence(…, { declined: true })`, so a declined invitation's note still answers it; the header's `missing`
   is `"declined"` or `"deleted"` (no catalog entry once calendars are synced), and then has no reveal (time static,

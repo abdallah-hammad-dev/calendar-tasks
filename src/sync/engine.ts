@@ -11,10 +11,21 @@ export interface CalendarChange {
   calendarRemoved?: boolean;
 }
 
-/** A local change the server refused because the item changed there first. The cache now holds `server`. */
+/**
+ * A local change the server refused because the item changed there first. The cache now holds `server`, or the
+ * change made again on it when the listener's `redo` could (`redone`: then queued, and pushed in the same sync).
+ */
 export interface Conflict {
   op: PendingOp;
   server: RemoteItem | null;
+  /** Made again on the server's version; `clash`: not all of it (the server's side won some). */
+  redone?: { clash: boolean };
+}
+
+/** What `SyncListener.redo` makes of a refused change: the item to push instead (null: nothing left to send). */
+export interface Redo {
+  data: string | null;
+  clash: boolean;
 }
 
 /** A local change the server refused for good (invalid, too big, forbidden): dropped from the queue, kept here. */
@@ -26,6 +37,12 @@ export interface Refusal {
 export interface SyncListener {
   onChange?(change: CalendarChange): void;
   onConflict?(conflict: Conflict): void;
+  /**
+   * A change refused because the item changed on the server, made again on the server's version when it can be (an
+   * answer to an invitation, occurrences removed), or null. Called during the sync, before any other change to the
+   * item can be queued: one made meanwhile goes on top of it.
+   */
+  redo?(op: Extract<PendingOp, { kind: "put" }>, server: RemoteItem): Redo | null;
   onRefused?(refusal: Refusal): void;
 }
 
@@ -48,6 +65,9 @@ export class SyncEngine {
   private snap: CacheSnapshot;
   private running: Promise<SyncReport> | null = null;
   private rerun = false;
+  /** Items whose refused change was made again during this `sync()`: once each, so a server that refuses every
+   * `If-Match` (an ETag a proxy changed) can't keep it going. */
+  private redone = new Set<string>();
   /** Calendars whose last full listing came back empty while we held items (see `pull`). */
   private emptySeen = new Set<string>();
   /**
@@ -104,6 +124,7 @@ export class SyncEngine {
     }
     this.running = (async () => {
       let report: SyncReport;
+      this.redone.clear();
       do {
         this.rerun = false;
         report = await this.runOnce();
@@ -264,17 +285,21 @@ export class SyncEngine {
           this.done(op);
           const newer = this.snap.pending.find((o) => o.url === op.url);
           let etag = res.etag;
+          let stored: string | undefined = op.data;
           if (!etag) {
             // The server changed what we sent (or didn't say): read back its version.
             const fresh = await this.api.get(op.url);
             etag = fresh?.etag ?? "";
-            if (fresh && !newer) cal.items[op.url] = { etag, data: fresh.data };
-          } else if (!newer) {
-            cal.items[op.url] = { etag, data: op.data };
+            stored = fresh?.data;
           }
           if (newer) {
-            newer.baseEtag = etag; // edited again while this push was in flight
+            // Edited again while this push was in flight: the next push is made on this one, and so is its merge
+            // (2026-11-05: on the version before, an answer changed twice in a row looked changed on both sides).
+            newer.baseEtag = etag;
+            if (newer.kind === "put" && stored !== undefined) newer.baseData = stored;
             if (cal.items[op.url]) cal.items[op.url]!.etag = etag;
+          } else if (stored !== undefined) {
+            cal.items[op.url] = { etag, data: stored };
           }
           report.pushed++;
         } else {
@@ -311,10 +336,21 @@ export class SyncEngine {
   private async conflict(op: PendingOp, cal: CachedCalendar, report: SyncReport, conflicts: Conflict[]): Promise<void> {
     const server = await this.api.get(op.url);
     this.done(op);
-    if (server) cal.items[op.url] = { etag: server.etag, data: server.data };
-    else delete cal.items[op.url];
+    // Changed again here meanwhile: that change was made on this one, and goes (or is refused, and merged) on its
+    // own; this one, told now, would be merged or made again over it (2026-11-05, answers clicked in a row).
+    if (this.snap.pending.some((o) => o.url === op.url)) return;
     report.conflicts++;
-    conflicts.push({ op, server });
+    const redo = server && op.kind === "put" && !this.redone.has(op.url) ? this.listener.redo?.(op, server) : null;
+    if (!server) delete cal.items[op.url];
+    else if (!redo?.data) cal.items[op.url] = { etag: server.etag, data: server.data };
+    else {
+      // Queued at once, pushed by one more run of this sync.
+      this.redone.add(op.url);
+      cal.items[op.url] = { etag: server.etag, data: redo.data };
+      this.snap.pending.push({ kind: "put", url: op.url, calendarUrl: op.calendarUrl, data: redo.data, baseEtag: server.etag, baseData: server.data });
+      this.rerun = true;
+    }
+    conflicts.push(redo ? { op, server, redone: { clash: redo.clash } } : { op, server });
   }
 
   private done(op: PendingOp): void {

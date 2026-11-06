@@ -964,18 +964,16 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
           onConflict: (c) => {
             if (this.sync !== engine) return;
             void this.tasks?.onConflict(c);
+            // Any other change to an event than the ones `redo` makes again has no merge, nor does an answer made
+            // elsewhere meanwhile: the server's version stays, so say that the change made here didn't.
             const info = c.op.kind === "put" ? itemInfo(c.op.data) : null;
-            if (info?.kind !== "VEVENT" || c.op.kind !== "put") return;
-            // My answer to an invitation and removed occurrences go again, on the server's version (spec §6.2).
-            const redo = c.server && redoOnServer(c.op.data, c.op.baseData, c.server.data, this.myAddresses());
-            if (redo?.push) {
-              void this.saveEvent(c.op.calendarUrl, c.op.url, redo.push).catch((e: unknown) =>
-                new Notice(t("error.write", { error: e instanceof Error ? e.message : String(e) })),
-              );
-            }
-            // Any other change to an event has no merge, nor an answer made elsewhere meanwhile: the server's version
-            // stays, so say that the change made here didn't.
-            if (!redo || redo.clash) new Notice(t("events.clash", { name: info.summary }));
+            if (info?.kind === "VEVENT" && (!c.redone || c.redone.clash)) new Notice(t("events.clash", { name: info.summary }));
+          },
+          // My answer to an invitation and removed occurrences go again, on the server's version (spec §6.2).
+          redo: (op, server) => {
+            if (itemInfo(op.data)?.kind !== "VEVENT") return null;
+            const redo = redoOnServer(op.data, op.baseData, server.data, this.myAddresses());
+            return redo && { data: redo.push, clash: redo.clash };
           },
           onRefused: ({ op, status }) => {
             if (this.sync !== engine) return;

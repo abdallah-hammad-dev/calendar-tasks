@@ -230,6 +230,13 @@ describe("invitations", () => {
       expect(redoOnServer(declined, base, elsewhere, me, LATER)).toEqual({ push: null, clash: true });
     });
 
+    it("sends nothing for an answer clicked back to the one it had, unless the server's changed", () => {
+      const back = setPartstat(declined, me, "ACCEPTED", LATER)!;
+      expect(redoOnServer(back, base, server, me, LATER)).toEqual({ push: null, clash: false });
+      const elsewhere = setPartstat(server, me, "TENTATIVE", LATER)!;
+      expect(redoOnServer(back, base, elsewhere, me, LATER)).toEqual({ push: null, clash: true });
+    });
+
     it("leaves any other change to the clash notice", () => {
       const renamed = renameEvent(base, null, "Jury (salle B)", LATER);
       expect(redoOnServer(renamed, base, server, me, LATER)).toBeNull();
