@@ -1523,22 +1523,40 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
     return occ.kind === "event" && this.eventNotes.pathFor(occ.uid, occ.recurrenceId) !== null;
   }
 
-  /** `obsidian://calendar-tasks?uid=…[&rid=…]`, e.g. tapped in Apple Calendar or Reminders (spec §4.5). */
+  /**
+   * `obsidian://calendar-tasks?uid=…[&rid=…]`, e.g. tapped in Apple Calendar or Reminders (spec §4.5). An event
+   * without a note asks before making one (2026-11-06, the user: a tap shouldn't create notes on its own).
+   */
   private async openUid(uid: string | undefined, rid: string | null): Promise<void> {
-    const path = uid ? await this.noteOf(uid, rid) : null;
-    if (path) await this.openPath(path);
-    else new Notice(t("open.notFound"));
+    const found = uid ? await this.findNote(uid, rid) : null;
+    if (!found) return void new Notice(t("open.notFound"));
+    if ("path" in found) return this.openPath(found.path);
+    const occ = found.occ;
+    new ConfirmModal(this.app, {
+      title: t("open.createTitle"),
+      lines: [occ.title, whenText(occ, getLanguage())].filter(Boolean),
+      action: t("open.create"),
+      safe: true,
+      run: () => void this.openOccurrence(occ),
+    }).open();
   }
 
   /** The note of a task or event occurrence, created if needed (today's / next occurrence if `rid` is null). */
   private async noteOf(uid: string, rid: string | null): Promise<string | null> {
+    const found = await this.findNote(uid, rid);
+    if (!found) return null;
+    return "path" in found ? found.path : this.eventNotes.ensure(found.occ);
+  }
+
+  /** A uid's note (a task's is made at once: it is the task), or the event occurrence whose note isn't made yet. */
+  private async findNote(uid: string, rid: string | null): Promise<{ path: string } | { occ: Occurrence } | null> {
     const taskPath = this.tasks?.notePath(uid) ?? this.index.pathOfUid(uid);
-    if (taskPath) return taskPath;
+    if (taskPath) return { path: taskPath };
     const entry = this.catalog.get(uid);
     const data = entry && this.sync?.item(entry.url)?.data;
     if (entry && data && entry.kind === "VTODO") {
       const path = await this.tasks?.ensureNote(uid);
-      if (path) return path;
+      if (path) return { path };
     }
     if (entry && data && entry.kind === "VEVENT") {
       const tz = localZone();
@@ -1556,9 +1574,13 @@ export default class CalendarTasksPlugin extends Plugin implements SettingsHost 
         });
         occ = pickOccurrence(around, now, tz) ?? occ;
       }
-      if (occ) return this.eventNotes.ensure(occ);
+      if (occ) {
+        const path = this.eventNotes.pathFor(occ.uid, occ.recurrenceId);
+        return path ? { path } : { occ };
+      }
     }
-    return this.eventNotes.pathFor(uid, rid);
+    const path = this.eventNotes.pathFor(uid, rid);
+    return path ? { path } : null;
   }
 
   // —— Claude (claude-workspace module, desktop) ——

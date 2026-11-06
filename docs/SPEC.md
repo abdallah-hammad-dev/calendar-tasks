@@ -202,7 +202,9 @@ past sessions kept; a series that hasn't started is deleted.
 ### 4.5 The `obsidian://` link
 
 - `registerObsidianProtocolHandler("calendar-tasks", …)` handles `obsidian://calendar-tasks?vault=…&uid=…[&rid=…]`.
-- It resolves the `UID` through the index (§6.3) and opens the note, creating it if it doesn't exist yet.
+- It resolves the `UID` through the index (§6.3) and opens the note. A task's note is made at once (it is the task);
+  an event without a note asks first, "Create a note for this event?" with its title and date (2026-11-06, the user:
+  a tap in Apple Calendar shouldn't make notes on its own). Claude's `event_note` still makes it directly.
 - Apple Calendar shows an event's `URL` as a link card with an **Open** button, under "Location", labelled with the
   URL's host, i.e. the protocol action name (tested): the action name is what I read on the phone. Reminders doesn't show
   `URL`, hence the link line in the notes (§4.1).

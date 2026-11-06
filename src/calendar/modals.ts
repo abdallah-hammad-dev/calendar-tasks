@@ -253,15 +253,15 @@ export class EventModal extends Modal {
 }
 
 /**
- * A question before something that can't be undone: what will happen, then Cancel and the action, in red. Drawn as
- * Obsidian's own (its "Delete file?"): `mod-confirmation` on the container and `modal-button-container`, which on a
+ * A question before an action: what will happen, then Cancel and the action, in red (in the accent colour when it is
+ * `safe`, e.g. creating a note). Drawn as Obsidian's own (its "Delete file?"): `mod-confirmation` on the container and `modal-button-container`, which on a
  * phone make it a sheet at the bottom, buttons across, the action over Cancel and no ✕ (2026-11-04: as a plain modal
  * it had Obsidian's ✕ beside Cancel on the user's iPhone, in the middle of the screen).
  */
 export class ConfirmModal extends Modal {
   constructor(
     app: App,
-    private readonly opts: { title: string; lines: string[]; action: string; run: () => void },
+    private readonly opts: { title: string; lines: string[]; action: string; safe?: boolean; run: () => void },
   ) {
     super(app);
   }
@@ -272,7 +272,7 @@ export class ConfirmModal extends Modal {
     for (const line of this.opts.lines) this.contentEl.createEl("p", { text: line });
     const buttons = this.modalEl.createDiv({ cls: "modal-button-container" });
     buttons.createEl("button", { cls: "mod-cancel", text: t("modal.cancel") }).addEventListener("click", () => this.close());
-    buttons.createEl("button", { cls: "mod-warning", text: this.opts.action }).addEventListener("click", () => {
+    buttons.createEl("button", { cls: this.opts.safe ? "mod-cta" : "mod-warning", text: this.opts.action }).addEventListener("click", () => {
       this.close();
       this.opts.run();
     });
