@@ -110,32 +110,33 @@ description: How the user's calendar and tasks work in this vault (CalDAV-synced
 
 # Calendar & Tasks
 
-The vault's calendar and tasks are synced with a CalDAV server (and the user's iPhone) by the Calendar & Tasks
-extension. Use the \`calendar_*\` tools; never edit \`caldav_uid\`, \`due\`, \`done\`, \`start\` or \`end\` by hand.
+The vault's calendar and tasks are synced with a CalDAV server by the Calendar & Tasks extension, and through it
+with whatever else the user connected to that server (other devices, calendar and reminders apps). Use the \`calendar_*\` tools; never edit \`caldav_uid\`, \`due\`, \`done\`, \`start\` or \`end\` by hand.
 
 - **A task is a note** in \`${f.tasks}/\` with frontmatter \`type: ${NOTE_TYPE.task}\`, \`${PROP.done}\` (checkbox),
   optional \`${PROP.due}\` (the deadline: "YYYY-MM-DD" or "YYYY-MM-DDTHH:mm", local time), optional
   \`${PROP.tags}\` (Obsidian's own tags, a list without "#"), \`${PROP.parent}: "[[Parent task]]"\` and \`${PROP.repeat}\` ("every monday", "every 2 weeks",
-  "every weekday"…; synced to the phone; ticking a repeating task moves it to its next date instead of closing it) and
-  \`${PROP.priority}\` (high / medium / low, or none; the phone's !!! / !! / !), and \`${PROP.collection}\` (the name of
+  "every weekday"…; ticking a repeating task moves it to its next date instead of closing it) and
+  \`${PROP.priority}\` (high / medium / low, or none), and \`${PROP.collection}\` (the name of
   the calendar collection it's in, e.g. "Général", "Pro"; writing another name moves it there), \`${PROP.created}\`
   (when it was made) and \`${PROP.completed}\` (when it was ticked, while done), set by the extension; a repeating task
   keeps each time it was ticked in \`${PROP.completions}\`. Its body is free content and is never synced. Small steps inside a task are
   plain \`- [ ]\` lines; a step with its own deadline is a child task (\`calendar_create_task\` with \`parent\`).
-- **Tasks are grouped by their tags** (\`#famille\`, \`#urgent\`…), synced as the reminder's categories. On a
+- **Tasks are grouped by their tags** (\`#famille\`, \`#urgent\`…), synced as the task's categories. On a
   task line the user writes \`@tag famille\` or \`#famille\`: both go to the task, and leave the line. There are no
   project notes.
 - **Mention a task anywhere** with a plain link line \`- [[Task title]]\`: the extension draws the checkbox from
   \`${PROP.done}\`. Don't write \`- [ ] [[Task]]\`.
-- **Deadline ≠ work session.** \`${PROP.due}\` is the deadline, the date synced to the phone (optional; set it with
+- **Deadline ≠ work session.** \`${PROP.due}\` is the deadline, the date other apps show (optional; set it with
   \`calendar_set_task_dates\`). Time to work on a task is never a task field: it's a separate event linked to it
   (\`calendar_schedule_task\`), shown in every calendar.
 - **Event notes** (\`${f.events}/${f.eventNoteExample}.md\`, \`type: ${NOTE_TYPE.event}\`, \`${PROP.start}\` / \`${PROP.end}\`) are created on demand with
   \`calendar_note\`; one per occurrence for recurring events. Write meeting notes in them.
 - Times are always local ("YYYY-MM-DDTHH:mm"), in the user's time zone.
-- Invitations: answer with \`calendar_rsvp\`. Events copied from other accounts (school, Google) can't be edited,
-  only answered.
-- Changes reach the phone at its next sync; tell the user if something is pending.
+- Invitations: answer with \`calendar_rsvp\`. Events copied from the user's other accounts can't be edited, only
+  answered.
+- Changes go to the server within seconds, and reach the user's other devices and apps at their own next sync: that's
+  expected, don't say it. Say so only when a change hasn't reached the server yet (a task's \`sync: "pending"\`).
 
 ## Views of tasks
 
@@ -224,7 +225,7 @@ export function createCalendarModule(s: CalendarServices): WorkspaceModule {
         name: "calendar_create_event",
         title: "Create an event",
         description:
-          "Creates an event on the CalDAV server (synced to the user's phone). `calendar`: name or URL (default: the last one used). " +
+          "Creates an event on the CalDAV server. `calendar`: name or URL (default: the last one used). " +
           "For time spent on a task, prefer calendar_schedule_task.",
         inputSchema: {
           title: text(),
@@ -311,7 +312,7 @@ export function createCalendarModule(s: CalendarServices): WorkspaceModule {
         name: "calendar_create_task",
         title: "Create a task",
         description:
-          "Creates a task note (synced as a reminder on the phone). `due`: deadline; to block time for it, use " +
+          "Creates a task note (and its reminder on the CalDAV server). `due`: deadline; to block time for it, use " +
           "calendar_schedule_task afterwards. `tags`: its tags (\"famille\"…); `parent`: parent task (path, name or uid) " +
           "for a sub-task with its own deadline. Returns the note path; to mention it in a note, add a line `- [[<title>]]`.",
         inputSchema: {
@@ -338,7 +339,7 @@ export function createCalendarModule(s: CalendarServices): WorkspaceModule {
         name: "calendar_set_task_dates",
         title: "Change a task's dates",
         description:
-          "Sets or clears a task's deadline (`due`, synced to the phone), repetition " +
+          "Sets or clears a task's deadline (`due`), repetition " +
           '(`repeat`: "every monday", "every 2 weeks"…) and priority (`priority`: high, medium, low). ' +
           "Pass a date to set it, null to clear it, or leave it out to keep it. `task`: note path, note name or uid.",
         inputSchema: {

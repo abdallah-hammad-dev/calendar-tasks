@@ -766,6 +766,10 @@ later, or reloaded by an update).
   its CalDAV state (done, due, sync state, attendees).
 - **Skill** (`registerSkill`), generated from the settings (folder names): deadline ≠ time block, a task is a
   note, tasks are grouped by tags, prefer these tools over editing `caldav_uid` / time fields by hand.
+- **No device named** in the skill or the tools' descriptions (2026-11-06, the user: Claude said "il arrivera sur
+  ton iPhone", and the extension is for anyone): the server, and "the user's other devices and apps". That a change
+  reaches them at their next sync is expected and isn't said; only a change not on the server yet (`sync:
+  "pending"`) is.
 
 ## 9. Settings
 
